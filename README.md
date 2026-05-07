@@ -1,22 +1,28 @@
 # AgenticBoot
 
 <p align="center">
-  <a href="#english">English</a> | <a href="#chinese">中文</a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+  <img src="https://img.shields.io/badge/status-active-success" alt="Status">
 </p>
+
+<p align="center">
+  <strong>🔥 One-click bootstrap your AI coding environment. Zero to coding in 5 minutes.</strong>
+</p>
+
+<p align="center">
+  English | <a href="#中文">中文</a>
+</p>
+
+> 🚧 **Coming soon.** Full documentation, install scripts, and first release are being prepared. Stay tuned.
 
 ---
 
-<a name="english"></a>
+## What is AgenticBoot?
 
-## One-click bootstrap your AI coding environment. Zero to coding in 5 minutes.
+AgenticBoot is a **one-click installer and launcher** for the entire agentic coding ecosystem. It detects your environment, installs the tools you select, injects API provider configs, and gets you coding — all in one flow.
 
-> ⚡ First release coming soon. Full docs and install scripts are being prepared.
-
-### What is AgenticBoot?
-
-AgenticBoot is a **one-click installer and launcher** for the agentic coding ecosystem. It detects your environment, installs the tools you select, injects API provider configs, and gets you coding — all in one flow.
-
-### Supported Tools
+### Supported AI Coding CLI Tools
 
 | Tool | Description |
 |------|-------------|
@@ -31,19 +37,65 @@ AgenticBoot is a **one-click installer and launcher** for the agentic coding eco
 
 - **5 tools, 1 installer** — Stop running 5 different install commands. Check the boxes, click install, done.
 - **Pre-configured providers** — Built-in presets for popular API relay services. No manual `settings.json` editing.
-- **China-network optimized** — Mirror fallback for npm, GitHub, and official install scripts.
-- **Windows-first** — Windows 10/11 first, macOS and Linux supported too.
-- **MIT licensed** — Inspect every line. No telemetry, no lock-in.
+- **China-network optimized** — Mirror fallback for npm, GitHub, and official install scripts. No more `raw.githubusercontent.com` timeouts.
+- **Works on your machine** — Windows 10/11 first, macOS and Linux supported too.
+- **Open source, MIT** — Inspect every line. No telemetry, no lock-in.
 
-### Features
+---
+
+## Quick Start
+
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
+```
+
+### macOS / Linux
+```bash
+curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
+```
+
+Then run `agenticboot` and follow the guided setup.
+
+---
+
+## What It Does
+
+```
+┌─────────────────────────────────────────┐
+│  ① Detect Environment                    │
+│  Node.js · Git · npm · Network status    │
+├─────────────────────────────────────────┤
+│  ② Select Tools                          │
+│  ☑ Claude Code  ☑ Codex  ☐ OpenCode     │
+│  ☑ OpenClaw     ☐ Hermes ☐ Gemini CLI   │
+├─────────────────────────────────────────┤
+│  ③ Choose API Provider                   │
+│  ☑ Recommended relay  ☐ Custom endpoint  │
+├─────────────────────────────────────────┤
+│  ④ Install & Configure                   │
+│  Download → Install → Inject configs     │
+├─────────────────────────────────────────┤
+│  ⑤ Ready                                 │
+│  All tools installed and configured.     │
+│  Open terminal, type your first command. │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## Features
 
 - **Environment auto-detection** — Checks Node.js, Git, npm, network connectivity before installing
 - **Multi-source downloads** — Primary + mirror fallback for every download URL
 - **Config injection** — Writes API endpoint, key, and model settings for each tool automatically
 - **Provider presets** — Built-in relay provider configs, one-click apply
 - **Non-destructive** — Won't overwrite existing configs without asking
+- **Uninstall support** — Clean removal of installed tools when needed
 
-### Roadmap
+---
+
+## Roadmap
 
 - [ ] GUI launcher (Tauri desktop app)
 - [ ] Built-in relay speed test & provider recommendation
@@ -51,21 +103,29 @@ AgenticBoot is a **one-click installer and launcher** for the agentic coding eco
 - [ ] Tool update manager
 - [ ] Team/org config sync
 
-### License
+---
 
-MIT © YiYun Zhang
+## Contributing
+
+Issues and PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ---
 
-<a name="chinese"></a>
+## License
 
-## AI 编程环境一键装机工具。5 分钟从零到开始写代码。
+MIT © [YiYun Zhang](https://github.com/unbound9527)
 
-> ⚡ 首个版本即将发布，完整文档和安装脚本正在准备中。
+---
 
-### 这是什么？
+<a name="中文"></a>
 
-**AgenticBoot** 是一个 AI 编程 CLI 工具的**一键装机向导**。自动检测你的电脑环境，批量安装 Claude Code、Codex、OpenCode、OpenClaw、Hermes、Gemini CLI 等主流 AI 编程工具，并帮你配置好 API 中转站，装完即用。
+> 🚧 **即将上线。** 完整文档、安装脚本和首个版本正在准备中。
+
+# AgenticBoot 中文说明
+
+## 这是什么？
+
+**AgenticBoot** 是一个 AI 编程 CLI 工具的**一键装机向导**。自动检测你的电脑环境，批量安装 Claude Code、Codex、OpenCode、OpenClaw、Hermes 等主流 AI 编程工具，并帮你配置好 API 中转站，装完即用。
 
 ### 解决什么问题？
 
@@ -84,15 +144,29 @@ AgenticBoot 把它压缩成：**打开 → 勾选 → 等两分钟 → 开始写
 | Hermes | GitHub Release |
 | Gemini CLI | npm 全局安装 |
 
-### 功能
+### 特色
 
-- **环境检测** — Node.js、Git、npm、网络连通性一次查完
-- **多源下载** — GitHub、npm 下载自动切换镜像源
+- **国内网络优化** — GitHub、npm 下载自动切换镜像源
+- **环境检测** — Node.js、Git、网络连通性一次查完
 - **配置注入** — 自动写入各工具的 API endpoint 和密钥配置
-- **中转站预设** — 内置主流中转站配置，一键应用
 - **非破坏性** — 已有配置不会被覆盖
+- **开源（MIT）** — 所有代码可审查，无遥测、无捆绑
 
-### 开发路线
+### 快速开始
+
+#### Windows
+```powershell
+irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
+```
+
+#### macOS / Linux
+```bash
+curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
+```
+
+然后运行 `agenticboot`，按引导操作即可。
+
+### 开发路线图
 
 - [ ] GUI 桌面启动器（Tauri）
 - [ ] 内置中转站测速 & 推荐
@@ -100,6 +174,10 @@ AgenticBoot 把它压缩成：**打开 → 勾选 → 等两分钟 → 开始写
 - [ ] 工具版本更新管理
 - [ ] 团队配置同步
 
-### 协议
+### 贡献
 
-MIT © YiYun Zhang
+欢迎提 Issue 和 PR。
+
+### 许可证
+
+MIT © [YiYun Zhang](https://github.com/unbound9527)
