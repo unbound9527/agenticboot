@@ -45,12 +45,12 @@ AgenticBoot is a **one-click installer and launcher** for the entire agentic cod
 
 ### Windows (PowerShell)
 ```powershell
-irm https://raw.githubusercontent.com/AgenticBootHQ/agenticboot/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
 ```
 
 ### macOS / Linux
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgenticBootHQ/agenticboot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
 ```
 
 Then run `agenticboot` and follow the guided setup.
@@ -111,7 +111,7 @@ Issues and PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-MIT © [YiYun Zhang](https://github.com/AgenticBootHQ)
+MIT © [YiYun Zhang](https://github.com/unbound9527)
 
 ---
 
@@ -152,12 +152,12 @@ AgenticBoot 把它压缩成：**打开 → 勾选 → 等两分钟 → 开始写
 
 #### Windows
 ```powershell
-irm https://raw.githubusercontent.com/AgenticBootHQ/agenticboot/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
 ```
 
 #### macOS / Linux
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgenticBootHQ/agenticboot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
 ```
 
 然后运行 `agenticboot`，按引导操作即可。
@@ -176,4 +176,4 @@ curl -fsSL https://raw.githubusercontent.com/AgenticBootHQ/agenticboot/main/inst
 
 ### 许可证
 
-MIT © [YiYun Zhang](https://github.com/AgenticBootHQ)
+MIT © [YiYun Zhang](https://github.com/unbound9527)

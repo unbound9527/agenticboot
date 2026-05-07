@@ -20,11 +20,11 @@
     "one-click",
     "setup"
   ],
-  "homepage": "https://github.com/AgenticBootHQ/agenticboot",
-  "bugs": "https://github.com/AgenticBootHQ/agenticboot/issues",
+  "homepage": "https://github.com/unbound9527/agenticboot",
+  "bugs": "https://github.com/unbound9527/agenticboot/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AgenticBootHQ/agenticboot.git"
+    "url": "https://github.com/unbound9527/agenticboot.git"
   },
   "license": "MIT",
   "author": "YiYun Zhang",
