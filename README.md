@@ -9,6 +9,10 @@
   <strong>One-click bootstrap your AI coding environment. Zero to coding in 5 minutes.</strong>
 </p>
 
+<p align="center">
+  <a href="./README_ZH.md">中文</a>
+</p>
+
 > ⚡ First release coming soon. Full docs and install scripts are being prepared.
 
 ---
@@ -57,11 +61,6 @@ AgenticBoot is a **one-click installer and launcher** for the agentic coding eco
 - [ ] Team/org config sync
 
 ---
-
-## Links
-
-- [中文说明](./README_ZH.md)
-- [Issues](https://github.com/unbound9527/agenticboot/issues)
 
 ## License
 

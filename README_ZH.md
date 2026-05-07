@@ -9,6 +9,10 @@
   <strong>AI 编程环境一键装机工具。5 分钟从零到开始写代码。</strong>
 </p>
 
+<p align="center">
+  <a href="./README.md">English</a>
+</p>
+
 > ⚡ 首个版本即将发布，完整文档和安装脚本正在准备中。
 
 ---
@@ -55,11 +59,6 @@ AgenticBoot 把它压缩成：**打开 → 勾选 → 等两分钟 → 开始写
 - [ ] 团队配置同步
 
 ---
-
-## 链接
-
-- [English README](./README.md)
-- [Issues](https://github.com/unbound9527/agenticboot/issues)
 
 ## 协议
 
