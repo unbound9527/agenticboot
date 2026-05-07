@@ -1,0 +1,37 @@
+{
+  "name": "agenticboot",
+  "version": "0.1.0",
+  "description": "One-click installer to bootstrap your AI coding environment — Claude Code, Codex, OpenCode, OpenClaw, Hermes & more.",
+  "keywords": [
+    "ai",
+    "claude-code",
+    "codex",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "gemini-cli",
+    "ai-coding",
+    "developer-tools",
+    "installer",
+    "bootstrap",
+    "agentic-ai",
+    "cli-tools",
+    "windows",
+    "one-click",
+    "setup"
+  ],
+  "homepage": "https://github.com/AgenticBootHQ/agenticboot",
+  "bugs": "https://github.com/AgenticBootHQ/agenticboot/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AgenticBootHQ/agenticboot.git"
+  },
+  "license": "MIT",
+  "author": "YiYun Zhang",
+  "bin": {
+    "agenticboot": "./bin/agenticboot.js"
+  },
+  "scripts": {
+    "start": "node bin/agenticboot.js"
+  }
+}
