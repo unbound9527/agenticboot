@@ -222,6 +222,39 @@ export function Wizard({ onComplete }: WizardProps) {
               <RefreshCw className="h-3 w-3" />
             </Button>
           </div>
+
+          {/* 网络问题解决指引 */}
+          {!netLoading && !netFetching && !netOk && (
+            <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground space-y-2">
+              <p className="font-medium text-foreground/80">网络问题排查建议：</p>
+              {netStatus?.youtubeReachable ? (
+                <p className="text-amber-600 dark:text-amber-400">
+                  国际网络正常（YouTube 可达），但 GitHub/npm 可能被本地网络屏蔽。
+                  建议配置代理或使用镜像源：
+                </p>
+              ) : (
+                <p className="text-amber-600 dark:text-amber-400">
+                  国际网络未连通（YouTube 不可达），请先确保网络畅通：
+                </p>
+              )}
+              <ul className="space-y-1.5 list-disc pl-4">
+                <li>
+                  配置 npm 国内镜像：
+                  <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1 select-all">
+                    npm config set registry https://registry.npmmirror.com
+                  </code>
+                </li>
+                <li>检查系统代理：Windows 设置 → 网络和 Internet → 代理</li>
+                <li>如使用 VPN/代理，确保已开启并设为全局模式</li>
+                <li>
+                  命令行代理：
+                  <code className="text-xs bg-muted px-1 py-0.5 rounded ml-1 select-all">
+                    set HTTPS_PROXY=http://127.0.0.1:端口
+                  </code>
+                </li>
+              </ul>
+            </div>
+          )}
         </section>
 
         {/* 操作按钮 */}
