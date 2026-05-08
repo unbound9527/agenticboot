@@ -232,7 +232,7 @@ export function Wizard({ onComplete }: WizardProps) {
                   : '国际网络未连通。'}
               </p>
               <Button variant="outline" size="sm" asChild>
-                <a href="https://github.com/unbound9527/agenticboot/wiki/Network-Troubleshooting" target="_blank" rel="noopener noreferrer">
+                <a href="https://github.com/unbound9527/agenticboot/blob/main/docs/network-troubleshooting.md" target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-3 w-3 mr-1" />
                   查看网络问题解决指南
                 </a>
