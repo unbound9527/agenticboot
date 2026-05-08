@@ -25,6 +25,12 @@ const buttonVariants = cva(
           "text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800",
         // MCP 专属按钮：祖母绿
         mcp: "bg-emerald-500 text-white hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700",
+        // 粗野主义按钮：橙红色 + 硬阴影
+        brutal:
+          "bg-[#FF5A36] text-white border-2 border-[#111] shadow-[4px_4px_0_#111] hover:shadow-[2px_2px_0_#111] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold",
+        // 粗野主义轮廓按钮
+        "brutal-outline":
+          "bg-white text-[#111] border-2 border-[#111] shadow-[4px_4px_0_#111] hover:shadow-[2px_2px_0_#111] hover:translate-x-[1px] hover:translate-y-[1px] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold",
         // 链接按钮
         link: "text-blue-500 underline-offset-4 hover:underline dark:text-blue-400",
       },

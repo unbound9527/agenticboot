@@ -1509,7 +1509,7 @@ pub(crate) fn find_model_pricing_row(
         .map_err(|e| AppError::Database(format!("查询模型定价失败: {e}")))?;
 
     if exact.is_none() {
-        log::warn!("模型 {model_id}（清洗后: {cleaned}）未找到定价信息，成本将记录为 0");
+        log::debug!("模型 {model_id}（清洗后: {cleaned}）未找到定价信息，成本将记录为 0");
     }
 
     Ok(exact)

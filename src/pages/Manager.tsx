@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useTools';
 import { useInstallProgress } from '@/hooks/useInstallProgress';
 import type { ToolMeta } from '@/types/tools';
+import { MonitorCog } from 'lucide-react';
 
 // 所有已知工具的元信息（与 wizard 中的列表保持一致）
 const ALL_TOOLS_META: ToolMeta[] = [
@@ -85,14 +86,22 @@ export function Manager({ onInstallMore }: ManagerProps) {
 
   return (
     <div className="px-6 py-6">
-      {/* 标题栏 */}
+      {/* 标题栏 - 粗野主义风格 */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">
-          {t('tools.manager', '软件管家')}
-        </h1>
+        <div className="flex items-center gap-3">
+          <div className="brutal-window-bar px-4 py-2 border-2 border-[#111] shadow-[4px_4px_0_#111]">
+            <div className="brutal-window-title flex items-center gap-2">
+              <MonitorCog className="w-4 h-4" />
+              ~/projects/AgenticBoot
+            </div>
+          </div>
+          <h1 className="text-2xl font-black tracking-tight">
+            <span className="brutal-highlight">{t('tools.manager', '软件管家')}</span>
+          </h1>
+        </div>
         <div className="flex gap-2">
           <Button
-            variant="outline"
+            variant="brutal-outline"
             size="sm"
             onClick={() => {
               if (updates.length > 0) {
@@ -114,13 +123,19 @@ export function Manager({ onInstallMore }: ManagerProps) {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - 粗野主义风格 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full">
-          <TabsTrigger value="installed" className="flex-1">
+        <TabsList className="w-full border-2 border-[#111] bg-[#F4F4F0] p-1 gap-1">
+          <TabsTrigger
+            value="installed"
+            className="flex-1 font-bold border-2 border-transparent data-[state=active]:bg-[#FF5A36] data-[state=active]:text-white data-[state=active]:border-[#111] data-[state=active]:shadow-[2px_2px_0_#111] rounded-sm transition-all"
+          >
             {t('tools.installedTab', '已安装')} ({installedTools.length})
           </TabsTrigger>
-          <TabsTrigger value="available" className="flex-1">
+          <TabsTrigger
+            value="available"
+            className="flex-1 font-bold border-2 border-transparent data-[state=active]:bg-[#FF5A36] data-[state=active]:text-white data-[state=active]:border-[#111] data-[state=active]:shadow-[2px_2px_0_#111] rounded-sm transition-all"
+          >
             {t('tools.availableTab', '未安装')} ({notInstalled.length})
           </TabsTrigger>
         </TabsList>
@@ -128,14 +143,14 @@ export function Manager({ onInstallMore }: ManagerProps) {
         {/* 已安装 */}
         <TabsContent value="installed" className="space-y-2 mt-4">
           {installedTools.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-lg">
+            <div className="text-center py-12 border-4 border-dashed border-[#111] p-8 bg-[#F4F4F0]">
+              <p className="text-lg font-bold text-[#111]">
                 {t('tools.noToolsInstalled', '暂无已安装工具')}
               </p>
               <Button
-                variant="link"
+                variant="brutal"
                 onClick={onInstallMore}
-                className="mt-2"
+                className="mt-4"
               >
                 {t('tools.goInstall', '去安装')}
               </Button>
@@ -170,17 +185,17 @@ export function Manager({ onInstallMore }: ManagerProps) {
         </TabsContent>
       </Tabs>
 
-      {/* 设置区域 */}
-      <div className="mt-8 pt-4 border-t">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Settings className="h-4 w-4 flex-shrink-0" />
-          <span className="flex-shrink-0">{t('tools.installRoot', '安装根目录')}:</span>
+      {/* 设置区域 - 粗野主义风格 */}
+      <div className="mt-8 pt-4 border-t-4 border-[#111]">
+        <div className="flex items-center gap-3 text-sm font-medium">
+          <Settings className="h-4 w-4 flex-shrink-0 text-[#111]" />
+          <span className="flex-shrink-0 text-[#111]">{t('tools.installRoot', '安装根目录')}:</span>
           <input
             type="text"
             value={editRoot}
             onChange={(e) => setEditRoot(e.target.value)}
             placeholder="D:\AITools"
-            className="flex-1 text-xs font-mono bg-muted px-2 py-1 rounded border border-border focus:outline-none focus:border-blue-500"
+            className="flex-1 text-xs font-mono bg-white px-3 py-2 rounded-sm border-2 border-[#111] focus:outline-none focus:border-[#FF5A36] font-mono"
             onBlur={(e) => {
               const newRoot = e.target.value.trim();
               if (newRoot && newRoot !== installRoot) {
@@ -194,7 +209,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
             }}
           />
           <Button
-            variant="ghost"
+            variant="brutal-outline"
             size="icon"
             title={t('tools.browseFolder', '浏览文件夹')}
             onClick={() => {

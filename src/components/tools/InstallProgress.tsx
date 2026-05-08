@@ -1,6 +1,6 @@
 // 安装进度展示组件
 
-import { CheckCircle, Loader2, XCircle, Dot } from 'lucide-react';
+import { CheckCircle, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -34,124 +34,112 @@ export function InstallProgress({
   const getPhaseLabel = (phase: string | undefined): string => {
     switch (phase) {
       case 'downloading':
-        return t('tools.phaseDownloading', '下载中...');
+        return '> 正在下载...';
       case 'extracting':
-        return t('tools.phaseExtracting', '解压中...');
+        return '> 正在解压...';
       case 'installing':
-        return t('tools.phaseInstalling', '安装中...');
+        return '> 正在安装...';
       case 'configuring':
-        return t('tools.phaseConfiguring', '配置中...');
+        return '> 正在配置...';
       case 'complete':
-        return t('tools.phaseComplete', '完成');
+        return '> [OK] 安装完成';
       case 'error':
-        return t('tools.phaseError', '失败');
+        return '> [ERROR] 安装失败';
       case 'skipped':
-        return t('tools.phaseSkipped', '已安装，跳过');
+        return '> [SKIP] 已安装，跳过';
       default:
-        return t('tools.phasePending', '等待中...');
+        return '> 等待中...';
     }
   };
 
   return (
     <div className="flex flex-col space-y-6 py-8">
-      <h2 className="text-xl font-semibold text-center">
-        {t('tools.installing', '安装中...')}
-      </h2>
-
-      {/* 总进度条 */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-sm">
-          <span>{overallPercent}%</span>
-          <span className="text-muted-foreground">
-            {Math.round(
-              (overallPercent * installPlan.steps.length) / 100
-            )}{' '}
-            / {installPlan.steps.length}
-          </span>
+      {/* 粗野主义终端卡片 */}
+      <div className="brutal-terminal-card rounded-lg overflow-hidden">
+        {/* 终端头部 */}
+        <div className="bg-[#f4f4f4] border-b-4 border-[#111] px-4 py-3 flex justify-between items-center font-mono">
+          <span className="text-sm font-bold text-[#111]">AgenticBoot UI v1.0</span>
+          <span className="text-sm font-bold text-[#111]">_ □ ×</span>
         </div>
-        <Progress value={overallPercent} className="h-2" />
-      </div>
 
-      {/* 步骤列表 */}
-      <div className="space-y-2">
-        {installPlan.steps.map((step) => {
-          const progress = getToolProgress(step.toolId);
-          const isComplete =
-            step.isInstalled || progress?.phase === 'complete' || progress?.phase === 'skipped';
-          const isError = progress?.phase === 'error';
-          const isActive =
-            progress &&
-            !['complete', 'error', 'skipped'].includes(progress.phase);
+        {/* 终端内容 */}
+        <div className="p-6 font-mono text-sm text-[#111] space-y-4">
+          <div className="space-y-2">
+            {installPlan.steps.map((step) => {
+              const progress = getToolProgress(step.toolId);
+              const isComplete =
+                step.isInstalled || progress?.phase === 'complete' || progress?.phase === 'skipped';
+              const isError = progress?.phase === 'error';
+              const isActive =
+                progress &&
+                !['complete', 'error', 'skipped'].includes(progress.phase);
 
-          return (
-            <div
-              key={step.toolId}
-              className="flex items-center gap-3 rounded-lg border px-4 py-3"
-            >
-              {/* 状态图标 */}
-              {isComplete && (
-                <CheckCircle className="h-5 w-5 flex-shrink-0 text-green-500" />
-              )}
-              {isError && (
-                <XCircle className="h-5 w-5 flex-shrink-0 text-red-500" />
-              )}
-              {isActive && (
-                <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-blue-500" />
-              )}
-              {!progress && (
-                <Dot className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-              )}
-
-              {/* 工具信息 */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium truncate">
-                    {step.toolName}
-                  </span>
-                  <Badge variant="secondary" className="text-xs">
-                    {step.reason === 'selected'
-                      ? t('tools.badgeSelected', '已选择')
-                      : t('tools.badgeDependency', '依赖')}
-                  </Badge>
-                  {step.isInstalled && !progress && (
-                    <Badge
-                      variant="outline"
-                      className="text-xs text-muted-foreground"
-                    >
-                      {t('tools.installed', '已安装')}
-                    </Badge>
+              return (
+                <div key={step.toolId} className="flex items-center gap-3">
+                  {/* 状态图标 */}
+                  {isComplete && (
+                    <CheckCircle className="h-4 w-4 flex-shrink-0 text-green-500" />
                   )}
+                  {isError && (
+                    <XCircle className="h-4 w-4 flex-shrink-0 text-red-500" />
+                  )}
+                  {isActive && (
+                    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-[#FF5A36]" />
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold ${isError ? 'line-through text-red-500' : ''}`}>
+                        {step.toolName}
+                      </span>
+                      {isError && progress?.message && (
+                        <span className="text-red-500 text-xs">
+                          - {progress.message}
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-xs ${isActive ? 'text-[#666]' : isError ? 'text-red-400' : 'text-green-600'}`}>
+                      {getPhaseLabel(progress?.phase)}
+                    </p>
+                    {/* 单步进度条 */}
+                    {isActive && (
+                      <Progress
+                        value={progress?.percent ?? 0}
+                        className="h-1 mt-1 bg-[#eee] [&>div]:bg-[#FF5A36]"
+                      />
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {getPhaseLabel(progress?.phase)}
-                  {isError && progress?.message && (
-                    <span className="text-red-500 ml-2">
-                      - {progress.message}
-                    </span>
-                  )}
-                </p>
+              );
+            })}
+          </div>
 
-                {/* 单步进度条 */}
-                {isActive && (
-                  <Progress
-                    value={progress?.percent ?? 0}
-                    className="h-1 mt-2"
-                  />
-                )}
-              </div>
+          {/* 总进度 */}
+          <div className="border-t-2 border-dashed border-[#ccc] pt-4 space-y-1">
+            <div className="flex justify-between text-xs font-bold">
+              <span>总进度:</span>
+              <span>{overallPercent}%</span>
             </div>
-          );
-        })}
+            <Progress value={overallPercent} className="h-3 bg-[#eee] [&>div]:bg-[#FF5A36]" />
+            <p className="text-xs text-[#666]">
+              {Math.round(
+                (overallPercent * installPlan.steps.length) / 100
+              )} / {installPlan.steps.length} 个工具
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* 完成和错误处理 */}
       {allComplete && !hasErrors && (
         <div className="text-center space-y-4 pt-4">
-          <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
-          <p className="text-lg font-medium">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-green-500 text-white border-4 border-[#111] shadow-[6px_6px_0_#111]">
+            <CheckCircle className="h-10 w-10" />
+          </div>
+          <p className="text-xl font-black text-[#111]">
             {t('tools.installComplete', '安装完成！')}
           </p>
-          <Button onClick={onComplete}>
+          <Button variant="brutal" onClick={onComplete}>
             {t('tools.enterManager', '进入管理')}
           </Button>
         </div>
@@ -159,12 +147,14 @@ export function InstallProgress({
 
       {hasErrors && (
         <div className="text-center space-y-3 pt-4">
-          <XCircle className="h-16 w-16 text-red-500 mx-auto" />
-          <p className="text-sm text-muted-foreground">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-red-500 text-white border-4 border-[#111] shadow-[6px_6px_0_#111]">
+            <XCircle className="h-10 w-10" />
+          </div>
+          <p className="text-sm font-bold text-[#666]">
             {t('tools.installPartial', '部分工具安装失败，可稍后重试')}
           </p>
           <div className="flex justify-center gap-3">
-            <Button variant="outline" onClick={onComplete}>
+            <Button variant="brutal-outline" onClick={onComplete}>
               {t('tools.skipForNow', '暂时跳过')}
             </Button>
           </div>

@@ -35,23 +35,26 @@ export function ToolCard({
     !['complete', 'error', 'skipped'].includes(progress.phase);
 
   return (
-    <Card className="flex items-center gap-4 p-4">
+    <Card
+      variant="brutal"
+      className="flex items-center gap-4 p-4 border-[3px] border-[#111] bg-white shadow-[4px_4px_0_#111]"
+    >
       {/* 图标 */}
       <ToolIcon toolId={tool.id} size={22} />
 
       {/* 中间信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{tool.name}</span>
+          <span className="text-sm font-bold truncate">{tool.name}</span>
           {'category' in tool && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs font-bold border border-[#111]">
               {tool.category === 'dependency'
                 ? t('tools.badgeDependency', '依赖')
                 : t('tools.badgeTool', '工具')}
             </Badge>
           )}
         </div>
-        <p className="text-xs text-muted-foreground truncate">
+        <p className="text-xs text-[#666] truncate font-mono">
           {'description' in tool
             ? tool.description
             : tool.installPath || tool.name}
@@ -59,7 +62,7 @@ export function ToolCard({
 
         {/* 安装进度条 */}
         {isInstalling && progress && (
-          <Progress value={progress.percent} className="h-1 mt-2" />
+          <Progress value={progress.percent} className="h-2 mt-2 bg-[#eee] [&>div]:bg-[#FF5A36]" />
         )}
       </div>
 
@@ -69,7 +72,7 @@ export function ToolCard({
           <>
             <Badge
               variant="outline"
-              className="text-xs text-green-600 dark:text-green-400"
+              className="text-xs font-bold border-2 border-[#111] text-green-600 bg-green-50"
             >
               {t('tools.installed', '已安装')}
               {'version' in tool && tool.version
@@ -81,12 +84,13 @@ export function ToolCard({
               size="icon"
               title={t('tools.uninstall', '卸载')}
               onClick={onUninstall}
+              className="hover:bg-red-100 hover:text-red-600"
             >
-              <Trash2 className="h-4 w-4 text-red-500" />
+              <Trash2 className="h-4 w-4" />
             </Button>
             {onUpdate && (
               <Button
-                variant="outline"
+                variant="brutal-outline"
                 size="sm"
                 onClick={onUpdate}
               >
@@ -98,7 +102,7 @@ export function ToolCard({
         )}
 
         {variant === 'available' && !isInstalling && (
-          <Button size="sm" onClick={onInstall}>
+          <Button variant="brutal" size="sm" onClick={onInstall}>
             <Download className="h-3 w-3 mr-1" />
             {t('tools.install', '安装')}
           </Button>
@@ -106,7 +110,7 @@ export function ToolCard({
 
         {/* 安装进行中 */}
         {isInstalling && progress && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs font-bold text-[#FF5A36]">
             {progress.percent}%
           </span>
         )}

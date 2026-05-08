@@ -137,73 +137,85 @@ export function Wizard({ onComplete }: WizardProps) {
 
   return (
     <div className="px-6 py-6">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold">{t('tools.wizardTitle', '装机向导')}</h1>
+      {/* 标题栏 - 粗野主义窗口风格 */}
+      <div className="flex items-center gap-3 mb-8">
+        <div className="brutal-window-bar border-2 border-[#111] shadow-[4px_4px_0_#111]">
+          <div className="brutal-window-title">
+            ~/projects/AgenticBoot
+          </div>
+        </div>
+        <h1 className="text-3xl font-black tracking-tight">
+          <span className="brutal-highlight">{t('tools.wizardTitle', '装机向导')}</span>
+        </h1>
       </div>
 
       <div className="space-y-8">
-        {/* 1. 工具选择 */}
-        <section className="rounded-lg border p-4 space-y-3">
+        {/* 1. 工具选择 - 粗野主义卡片 */}
+        <section className="border-[3px] border-[#111] bg-white p-4 space-y-3 shadow-[6px_6px_0_#111]">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">
-              {t('tools.wizardTools', '选择工具')}
-            </span>
-            <Button variant="link" size="sm" onClick={toggleAll} className="text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-black uppercase tracking-wide">
+                {t('tools.wizardTools', '选择工具')}
+              </span>
+              <span className="brutal-tag text-xs"># 告别折腾</span>
+              <span className="brutal-tag brutal-tag-primary text-xs">拯救C盘</span>
+            </div>
+            <Button variant="link" size="sm" onClick={toggleAll} className="text-xs font-bold text-[#111] hover:text-[#FF5A36]">
               {selectedTools.size === availableIds.length
                 ? t('tools.none', '全部取消')
-                : t('tools.all', '全部勾选')}
+                : t('tools.all', '全选')}
             </Button>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-2">
             {AVAILABLE_TOOLS.map((tool) => {
               const isInstalled = installedIds.has(tool.id);
               return (
                 <Card
                   key={tool.id}
-                  className={`flex items-center gap-3 p-3 transition-colors ${
+                  variant="brutal"
+                  className={`flex items-center gap-3 p-3 transition-all cursor-pointer ${
                     isInstalled
-                      ? 'opacity-60 cursor-default'
-                      : 'cursor-pointer hover:border-blue-500/50'
+                      ? 'opacity-60'
+                      : 'hover:shadow-[4px_4px_0_#111] hover:-translate-x-[2px] hover:-translate-y-[2px]'
                   }`}
                   onClick={() => !isInstalled && toggleTool(tool.id)}
                 >
                   {isInstalled ? (
-                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
                   ) : (
-                    <Checkbox
-                      checked={selectedTools.has(tool.id)}
-                      onCheckedChange={() => toggleTool(tool.id)}
-                    />
+                    <div className={`brutal-checkbox flex-shrink-0 ${selectedTools.has(tool.id) ? 'brutal-checkbox-checked' : ''}`}>
+                      {selectedTools.has(tool.id) && '✓'}
+                    </div>
                   )}
                   <ToolIcon toolId={tool.id} size={20} className="flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <Label className={`text-sm font-medium ${isInstalled ? '' : 'cursor-pointer'}`}>
+                      <Label className={`text-sm font-bold ${isInstalled ? '' : 'cursor-pointer'}`}>
                         {tool.name}
                       </Label>
                       {isInstalled && (
-                        <Badge variant="outline" className="text-xs text-green-600 dark:text-green-400">
+                        <Badge variant="outline" className="text-xs font-bold border-2 border-[#111] text-green-600">
                           已安装
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{tool.description}</p>
+                    <p className="text-xs text-[#666]">{tool.description}</p>
                   </div>
                 </Card>
               );
             })}
           </div>
 
-          <p className="text-xs text-muted-foreground text-center pt-1">
-            {t('tools.autoDepsNote', '所需依赖（如 Node.js、Git）将在安装过程中自动配置，无需手动处理')}
+          <p className="text-xs text-center pt-2 font-medium text-[#666] border-t-2 border-dashed border-[#ccc] mt-3">
+            {t('tools.autoDepsNote', '所需依赖（如 Node.js、Git）将在安装过程中自动配置')}
           </p>
         </section>
 
         {/* 2. 安装目录 */}
-        <section className="rounded-lg border p-4 space-y-3">
-          <Label htmlFor="install-root" className="text-sm font-medium">
-            {t('tools.installRoot', '安装根目录')}
+        <section className="border-[3px] border-[#111] bg-white p-4 space-y-3 shadow-[6px_6px_0_#111]">
+          <Label htmlFor="install-root" className="text-sm font-black uppercase tracking-wide">
+            {t('tools.installRoot', '安装目录')}
           </Label>
           <div className="flex gap-2">
             <Input
@@ -211,10 +223,10 @@ export function Wizard({ onComplete }: WizardProps) {
               value={rootPath}
               onChange={(e) => setRootPath(e.target.value)}
               placeholder="D:\AITools"
-              className="font-mono text-sm"
+              className="font-mono text-sm border-2 border-[#111] focus:border-[#FF5A36] rounded-sm"
             />
             <Button
-              variant="outline"
+              variant="brutal-outline"
               size="icon"
               title={t('tools.browseFolder', '浏览文件夹')}
               onClick={() => {
@@ -228,43 +240,43 @@ export function Wizard({ onComplete }: WizardProps) {
               <FolderOpen className="h-4 w-4" />
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-[#666]">
             {t('tools.installRootHint', '所有工具将安装到此目录下的子目录中')}
           </p>
         </section>
 
         {/* 3. 网络状态 */}
-        <section className="rounded-lg border p-4">
+        <section className="border-[3px] border-[#111] bg-white p-4 shadow-[6px_6px_0_#111]">
           <div className="flex items-center gap-4">
-            {(netLoading || netFetching) && <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0" />}
+            {(netLoading || netFetching) && <Loader2 className="h-4 w-4 animate-spin text-[#FF5A36] flex-shrink-0" />}
             {!netLoading && !netFetching && netOk && <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />}
             {!netLoading && !netFetching && (netError || netStatus?.errorMessage) && <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />}
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-muted-foreground">连通性:</span>
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span className="font-bold text-[#111]">连通性:</span>
                 {(netLoading || netFetching) ? (
-                  <span className="text-muted-foreground">检测中...</span>
+                  <span className="text-[#666]">检测中...</span>
                 ) : (
                   <>
-                    <span className={netStatus?.githubReachable ? 'text-green-600' : 'text-red-500'}>
+                    <span className={`font-bold ${netStatus?.githubReachable ? 'text-green-500' : 'text-red-500'}`}>
                       GitHub {netStatus?.githubReachable ? '✓' : '✗'}
                     </span>
-                    <span className={netStatus?.npmReachable ? 'text-green-600' : 'text-red-500'}>
+                    <span className={`font-bold ${netStatus?.npmReachable ? 'text-green-500' : 'text-red-500'}`}>
                       npm {netStatus?.npmReachable ? '✓' : '✗'}
                     </span>
-                    <span className={netStatus?.youtubeReachable ? 'text-green-600' : 'text-muted-foreground'}>
+                    <span className={`font-bold ${netStatus?.youtubeReachable ? 'text-green-500' : 'text-[#999]'}`}>
                       YouTube {netStatus?.youtubeReachable ? '✓' : '✗'}
                     </span>
                   </>
                 )}
               </div>
               {netStatus?.errorMessage && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{netStatus.errorMessage}</p>
+                <p className="text-xs text-amber-600 mt-1 font-bold">{netStatus.errorMessage}</p>
               )}
             </div>
 
-            <Button variant="ghost" size="sm" onClick={() => retryNet()} title="刷新">
+            <Button variant="ghost" size="sm" onClick={() => retryNet()} title="刷新" className="text-[#111]">
               <RefreshCw className="h-3 w-3" />
             </Button>
           </div>
@@ -273,7 +285,7 @@ export function Wizard({ onComplete }: WizardProps) {
           {!netLoading && !netFetching && !netOk && (
             <button
               onClick={() => setHelpOpen(true)}
-              className="inline-flex items-center gap-1 mt-3 text-xs text-blue-500 hover:text-blue-600 hover:underline"
+              className="inline-flex items-center gap-1 mt-3 text-xs font-bold text-[#FF5A36] hover:underline"
             >
               <ExternalLink className="h-3 w-3" />
               网络不通？点击查看解决方法
@@ -284,13 +296,14 @@ export function Wizard({ onComplete }: WizardProps) {
         {/* 操作按钮 */}
         <div className="flex justify-center gap-4 pt-2">
           <Button
-            variant="outline"
+            variant="brutal-outline"
             size="lg"
             onClick={onComplete}
           >
             {t('tools.skipForNow', '跳过')}
           </Button>
           <Button
+            variant="brutal"
             size="lg"
             onClick={handleStartInstall}
             disabled={resolvePlan.isPending || !rootPath.trim()}
