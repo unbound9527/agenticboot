@@ -82,6 +82,8 @@ import {
   useDisableCurrentOmo,
   useDisableCurrentOmoSlim,
 } from "@/lib/query/omo";
+import { Wizard } from "@/pages/Wizard";
+import { Manager } from "@/pages/Manager";
 import WorkspaceFilesPanel from "@/components/workspace/WorkspaceFilesPanel";
 import EnvPanel from "@/components/openclaw/EnvPanel";
 import ToolsPanel from "@/components/openclaw/ToolsPanel";
@@ -103,7 +105,9 @@ type View =
   | "openclawEnv"
   | "openclawTools"
   | "openclawAgents"
-  | "hermesMemory";
+  | "hermesMemory"
+  | "wizard"
+  | "manager";
 
 interface WebDavSyncStatusUpdatedPayload {
   source?: string;
@@ -148,6 +152,8 @@ const VALID_VIEWS: View[] = [
   "openclawTools",
   "openclawAgents",
   "hermesMemory",
+  "wizard",
+  "manager",
 ];
 
 const getInitialView = (): View => {
@@ -171,6 +177,20 @@ function App() {
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);
   }, [currentView]);
+
+  // 首次启动检测：无已安装工具且未完成向导 → 自动进入向导页
+  useEffect(() => {
+    const wizardSeen = localStorage.getItem("wizard-seen");
+    if (wizardSeen) return;
+
+    import("@/lib/api/tools").then(({ toolsApi }) => {
+      toolsApi.hasAnyInstalledTools().then((hasTools) => {
+        if (!hasTools) {
+          setCurrentView("wizard");
+        }
+      });
+    });
+  }, []);
 
   const { data: settingsData } = useSettingsQuery();
   const useAppWindowControls =
@@ -955,6 +975,22 @@ function App() {
           return <ToolsPanel />;
         case "openclawAgents":
           return <AgentsDefaultsPanel />;
+        case "wizard":
+          return (
+            <Wizard
+              onComplete={() => {
+                setCurrentView("manager");
+                // 标记向导已完成
+                localStorage.setItem("wizard-seen", "true");
+              }}
+            />
+          );
+        case "manager":
+          return (
+            <Manager
+              onInstallMore={() => setCurrentView("wizard")}
+            />
+          );
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
