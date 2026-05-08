@@ -120,7 +120,7 @@ impl InstallerService {
             let install_handle = app_handle.clone();
             let install_tool_id = step.tool_id.clone();
             let install_tool_name = install_tool_name.clone();
-            let install_category = step.category.clone();
+            let _install_category = step.category.clone();
 
             // 在独立线程中执行安装
             let install_result = tokio::task::spawn_blocking(move || {
@@ -140,8 +140,8 @@ impl InstallerService {
 
             match install_result {
                 Ok(()) => {
-                    // 检测已安装版本
-                    let detect = post_plugin.detect();
+                    // 检测已安装版本（传入安装根目录）
+                    let detect = post_plugin.detect(Some(&self.root_path));
                     let version = detect.version;
 
                     // 创建 shim
@@ -270,7 +270,7 @@ impl InstallerService {
             }
 
             if let Some(plugin) = get_plugin_by_id(&tool.id) {
-                let detect = plugin.detect();
+                let detect = plugin.detect(Some(Path::new(&tool.install_root)));
                 if detect.installed {
                     if let (Some(current), Some(new)) = (&tool.version, &detect.version) {
                         if current != new {

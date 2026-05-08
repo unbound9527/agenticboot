@@ -81,7 +81,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
   );
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <div className="px-6 py-6">
       {/* 标题栏 */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">
@@ -169,14 +169,26 @@ export function Manager({ onInstallMore }: ManagerProps) {
 
       {/* 设置区域 */}
       <div className="mt-8 pt-4 border-t">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Settings className="h-4 w-4" />
-          <span>
-            {t('tools.installRoot', '安装根目录')}:{' '}
-            <code className="text-xs font-mono bg-muted px-1 py-0.5 rounded">
-              {installRoot ?? t('tools.notSet', '未设置')}
-            </code>
-          </span>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Settings className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-shrink-0">{t('tools.installRoot', '安装根目录')}:</span>
+          <input
+            type="text"
+            defaultValue={installRoot ?? ''}
+            placeholder="D:\AITools"
+            className="flex-1 text-xs font-mono bg-muted px-2 py-1 rounded border border-border focus:outline-none focus:border-blue-500"
+            onBlur={(e) => {
+              const newRoot = e.target.value.trim();
+              if (newRoot && newRoot !== installRoot) {
+                import('@/lib/api/tools').then(({ toolsApi }) => {
+                  toolsApi.setInstallRoot(newRoot).catch(() => {});
+                });
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+          />
         </div>
       </div>
     </div>

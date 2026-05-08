@@ -17,8 +17,8 @@ export const toolsApi = {
     return invoke('check_network');
   },
 
-  resolveInstallPlan(toolIds: string[]): Promise<InstallPlan> {
-    return invoke('resolve_install_plan', { toolIds });
+  resolveInstallPlan(toolIds: string[], installRoot?: string): Promise<InstallPlan> {
+    return invoke('resolve_install_plan', { toolIds, installRoot: installRoot ?? null });
   },
 
   executeInstallPlan(plan: InstallPlan, rootPath: string): Promise<void> {
@@ -39,6 +39,10 @@ export const toolsApi = {
 
   getInstallRoot(): Promise<string | null> {
     return invoke('get_install_root');
+  },
+
+  setInstallRoot(path: string): Promise<void> {
+    return invoke('set_install_root', { path });
   },
 
   checkToolUpdates(): Promise<ToolUpdateInfo[]> {

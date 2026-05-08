@@ -1,10 +1,11 @@
 // 工具卡片组件 — 用于已安装/未安装工具展示
 
-import { Wrench, Trash2, Download, RefreshCw } from 'lucide-react';
+import { Trash2, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { ToolIcon } from '@/components/tools/ToolIcon';
 import { useTranslation } from 'react-i18next';
 import type { InstalledTool, ToolMeta, InstallProgress } from '@/types/tools';
 
@@ -36,9 +37,7 @@ export function ToolCard({
   return (
     <Card className="flex items-center gap-4 p-4">
       {/* 图标 */}
-      <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-        <Wrench className="h-5 w-5 text-muted-foreground" />
-      </div>
+      <ToolIcon toolId={tool.id} size={22} />
 
       {/* 中间信息 */}
       <div className="flex-1 min-w-0">

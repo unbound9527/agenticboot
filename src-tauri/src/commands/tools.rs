@@ -7,7 +7,6 @@ use crate::services::installer::InstallerService;
 use crate::store::AppState;
 use crate::tool_types::{InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
 use std::path::Path;
-use tauri::State;
 
 /// 检测网络连通性
 #[tauri::command]
@@ -15,10 +14,11 @@ pub async fn check_network() -> Result<NetworkStatus, String> {
     Ok(InstallerService::check_network().await)
 }
 
-/// 解析安装计划
+/// 解析安装计划（传入安装根目录用于检测已有安装）
 #[tauri::command]
-pub fn resolve_install_plan(tool_ids: Vec<String>) -> Result<InstallPlan, String> {
-    resolve_plan(&tool_ids)
+pub fn resolve_install_plan(tool_ids: Vec<String>, install_root: Option<String>) -> Result<InstallPlan, String> {
+    let root = install_root.as_deref().map(Path::new);
+    resolve_plan(&tool_ids, root)
 }
 
 /// 执行安装计划
@@ -101,6 +101,18 @@ pub fn has_any_installed_tools(
         .db
         .has_any_installed_tools()
         .map_err(|e| format!("查询失败: {e}"))
+}
+
+/// 设置安装根目录
+#[tauri::command]
+pub fn set_install_root(
+    path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .db
+        .set_install_root(&path)
+        .map_err(|e| format!("保存安装根目录失败: {e}"))
 }
 
 /// 获取安装根目录

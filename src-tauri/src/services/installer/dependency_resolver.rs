@@ -6,15 +6,17 @@
 use crate::plugin::get_plugin_by_id;
 use crate::tool_types::{InstallPlan, InstallStep};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 /// 解析工具安装计划
 ///
 /// # Arguments
 /// * `tool_ids` - 用户选择的工具 ID 列表
+/// * `install_root` - 自定义安装根目录，用于检测已有安装
 ///
 /// # Returns
 /// 安装计划（按依赖顺序排列，依赖在前，目标工具在后）
-pub fn resolve_install_plan(tool_ids: &[String]) -> Result<InstallPlan, String> {
+pub fn resolve_install_plan(tool_ids: &[String], install_root: Option<&Path>) -> Result<InstallPlan, String> {
     // 第一步：收集所有被请求的工具及其传递依赖
     let mut all_ids = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::from(tool_ids.to_vec());
@@ -50,7 +52,7 @@ pub fn resolve_install_plan(tool_ids: &[String]) -> Result<InstallPlan, String> 
     for id in &sorted {
         let plugin = get_plugin_by_id(id).ok_or_else(|| format!("未知工具: {id}"))?;
         let meta = plugin.metadata();
-        let detect = plugin.detect();
+        let detect = plugin.detect(install_root);
 
         let reason = if original_ids.contains(id) {
             "selected".to_string()

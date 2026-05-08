@@ -27,6 +27,7 @@ import {
   Shield,
   Cpu,
   LayoutDashboard,
+  MonitorCog,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -118,7 +119,7 @@ interface WebDavSyncStatusUpdatedPayload {
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28; // px
 const HEADER_HEIGHT = 64; // px
 
-const STORAGE_KEY = "cc-switch-last-app";
+const STORAGE_KEY = "agenticboot-last-app";
 const VALID_APPS: AppId[] = [
   "claude",
   "codex",
@@ -136,7 +137,7 @@ const getInitialApp = (): AppId => {
   return "claude";
 };
 
-const VIEW_STORAGE_KEY = "cc-switch-last-view";
+const VIEW_STORAGE_KEY = "agenticboot-last-view";
 const VALID_VIEWS: View[] = [
   "providers",
   "settings",
@@ -178,18 +179,22 @@ function App() {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);
   }, [currentView]);
 
-  // 首次启动检测：无已安装工具且未完成向导 → 自动进入向导页
+  // 首次启动检测：无已安装工具 → 弹出窗口并进入向导页
   useEffect(() => {
-    const wizardSeen = localStorage.getItem("wizard-seen");
-    if (wizardSeen) return;
-
     import("@/lib/api/tools").then(({ toolsApi }) => {
       toolsApi.hasAnyInstalledTools().then((hasTools) => {
         if (!hasTools) {
           setCurrentView("wizard");
+          // 首次启动弹出最大化窗口
+          import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+            const w = getCurrentWindow();
+            w.show().catch(() => {});
+            w.maximize().catch(() => {});
+            w.setFocus().catch(() => {});
+          }).catch(() => {});
         }
-      });
-    });
+      }).catch(() => {});
+    }).catch(() => {});
   }, []);
 
   const { data: settingsData } = useSettingsQuery();
@@ -259,7 +264,7 @@ function App() {
   const skillsPageRef = useRef<any>(null);
   const unifiedSkillsPanelRef = useRef<any>(null);
   const addActionButtonClass =
-    "bg-orange-500 hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 dark:shadow-orange-500/40 rounded-full w-8 h-8";
+    "bg-blue-500 hover:bg-blue-600 dark:bg-blue-500 dark:hover:bg-blue-600 text-white shadow-lg shadow-blue-500/30 dark:shadow-blue-500/40 rounded-full w-8 h-8";
 
   const {
     isRunning: isProxyRunning,
@@ -1211,13 +1216,15 @@ function App() {
                   {currentView === "openclawAgents" &&
                     t("openclaw.agents.title")}
                   {currentView === "hermesMemory" && t("hermes.memory.title")}
+                  {currentView === "wizard" && t("tools.wizardTitle", "装机向导")}
+                  {currentView === "manager" && t("tools.manager", "软件管家")}
                 </h1>
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <div className="relative inline-flex items-center">
                   <a
-                    href="https://github.com/farion1231/cc-switch"
+                    href="https://github.com/unbound9527/agenticboot"
                     target="_blank"
                     rel="noreferrer"
                     className={cn(
@@ -1227,9 +1234,18 @@ function App() {
                         : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
                     )}
                   >
-                    CC Switch
+                    AgenticBoot
                   </a>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setCurrentView("manager")}
+                  title={t("tools.manager", "软件管家")}
+                  className="hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <MonitorCog className="w-4 h-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"

@@ -1,7 +1,4 @@
 //! ToolPlugin trait 定义和插件注册表
-//!
-//! 定义 AI 编程工具的安装/卸载/检测生命周期接口。
-//! 所有可安装的工具都必须实现此 trait 并注册到 get_all_plugins()。
 
 use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
 use std::path::Path;
@@ -12,14 +9,13 @@ pub trait ToolPlugin: Send + Sync {
     /// 返回工具元信息
     fn metadata(&self) -> ToolMeta;
 
-    /// 检测系统上是否已安装该工具
-    fn detect(&self) -> DetectResult;
+    /// 检测工具是否已安装
+    ///
+    /// `install_root` — 自定义安装根目录，用于检查自定义路径下的安装。
+    /// CLI 工具还会检查系统 PATH。
+    fn detect(&self, install_root: Option<&Path>) -> DetectResult;
 
     /// 安装工具到指定目录
-    ///
-    /// # Arguments
-    /// * `target_dir` - 工具专属子目录（如 `<root>/claude-code-cli/`）
-    /// * `progress` - 进度上报通道
     fn install(
         &self,
         target_dir: &Path,
@@ -34,22 +30,16 @@ pub trait ToolPlugin: Send + Sync {
 }
 
 /// 获取所有已注册的工具插件
-///
-/// 包含依赖项（Node.js、Git）、CLI 版工具和桌面版工具。
-/// 新增工具只需在此函数中添加对应的 Box::new() 即可。
 pub fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
     vec![
-        // 依赖项
         Box::new(crate::plugins::nodejs::NodeJsPlugin),
         Box::new(crate::plugins::git::GitPlugin),
-        // CLI 版工具
         Box::new(crate::plugins::claude_code_cli::ClaudeCodeCliPlugin),
         Box::new(crate::plugins::codex_cli::CodexCliPlugin),
         Box::new(crate::plugins::gemini_cli::GeminiCliPlugin),
         Box::new(crate::plugins::opencode_cli::OpenCodeCliPlugin),
         Box::new(crate::plugins::openclaw::OpenClawPlugin),
         Box::new(crate::plugins::hermes::HermesPlugin),
-        // 桌面版工具
         Box::new(crate::plugins::claude_code_desktop::ClaudeCodeDesktopPlugin),
         Box::new(crate::plugins::codex_desktop::CodexDesktopPlugin),
         Box::new(crate::plugins::opencode_desktop::OpenCodeDesktopPlugin),
