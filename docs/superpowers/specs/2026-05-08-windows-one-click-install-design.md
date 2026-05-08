@@ -19,6 +19,7 @@ The approved behavior for this iteration is:
 - `OpenCode CLI` must use native Windows installation and must not depend on WSL
 - `Hermes Web UI` must support a native Windows path and must not be gated on WSL2
 - Every tool must perform installed-state detection first so already-installed tools are skipped
+- This detect-before-install rule applies to all supported tools, not just shared dependencies such as `nodejs` and `git`
 - Windows implementations should be real and usable now
 - macOS and Linux should get the same framework and error surfaces, but not real install commands yet
 
@@ -92,6 +93,12 @@ This classification is internal to the backend. The frontend can keep its curren
 
 Detection must happen before installation for every selected tool and dependency. The install plan should mark already-installed tools as `is_installed = true`, and the execution phase should emit a `skipped` progress event instead of reinstalling them.
 
+This rule applies uniformly to:
+
+- Shared dependencies such as `nodejs` and `git`
+- CLI tools such as `claude-code-cli`, `codex-cli`, `gemini-cli`, `opencode-cli`, `openclaw`, and `hermes`
+- Desktop applications such as `claude-code-desktop`, `codex-desktop`, and `opencode-desktop`
+
 Detection must combine:
 
 1. Runtime detection
@@ -116,6 +123,12 @@ Detection rules by category:
 - Check known official Windows install paths
 - Check registered install locations where feasible
 - Never pretend a CLI npm package counts as the desktop app
+
+### Global detection policy
+
+- If a supported tool is already present and usable on the machine, AgenticBoot must skip reinstalling it even when the existing install was not created by AgenticBoot
+- If a supported tool is already present but does not satisfy the required behavior or version floor, AgenticBoot may install its own managed copy as a fallback
+- Reuse of an existing system install must never make uninstall unsafe; AgenticBoot may only remove installs it owns
 
 ### PythonPackage tools
 
@@ -165,6 +178,7 @@ Requirements:
 - Prefer a managed installation path controlled by AgenticBoot
 - Integrate with the same detect-before-install flow as the other CLIs
 - Do not expose or require WSL for the one-click flow
+- Skip installation when a native Windows `opencode` command is already present and usable
 
 ### OpenClaw
 
@@ -198,6 +212,7 @@ Requirements:
 - Detect the official app location, not the CLI command
 - Store installation metadata as a system desktop install, not as a managed-prefix CLI
 - Use a desktop-installer flow instead of local shims
+- Skip installation when the official Windows desktop app is already installed
 
 ### Codex Desktop
 
@@ -209,6 +224,7 @@ Requirements:
 - Detect official Windows desktop presence
 - Install through a desktop-installer flow
 - Treat uninstall separately from managed-prefix tools
+- Skip installation when the official Windows desktop app is already installed
 
 ### OpenCode Desktop
 
@@ -219,6 +235,7 @@ Requirements:
 - Use a desktop-installer flow
 - Detect official Windows install presence
 - Keep it separate from `opencode-cli`
+- Skip installation when the official Windows desktop app is already installed
 
 ## Backend Changes
 
