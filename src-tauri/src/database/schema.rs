@@ -113,6 +113,23 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        // 6b. Installed Tools 表
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS installed_tools (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            version TEXT,
+            install_path TEXT NOT NULL,
+            install_root TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'tool',
+            status TEXT NOT NULL DEFAULT 'not_installed',
+            installed_at INTEGER,
+            updated_at INTEGER
+        )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
         // 7. Settings 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)",
@@ -430,6 +447,29 @@ impl Database {
                         log::info!("迁移数据库从 v9 到 v10（添加 Hermes Agent 支持）");
                         Self::migrate_v9_to_v10(conn)?;
                         Self::set_user_version(conn, 10)?;
+                    }
+                    10 => {
+                        log::info!(
+                            "迁移数据库从 v10 到 v11（添加 installed_tools 表）"
+                        );
+                        conn.execute(
+                            "CREATE TABLE IF NOT EXISTS installed_tools (
+                            id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            version TEXT,
+                            install_path TEXT NOT NULL,
+                            install_root TEXT NOT NULL,
+                            category TEXT NOT NULL DEFAULT 'tool',
+                            status TEXT NOT NULL DEFAULT 'not_installed',
+                            installed_at INTEGER,
+                            updated_at INTEGER
+                        )",
+                            [],
+                        )
+                        .map_err(|e| {
+                            AppError::Database(format!("创建 installed_tools 表失败: {e}"))
+                        })?;
+                        Self::set_user_version(conn, 11)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
