@@ -1,6 +1,9 @@
 use crate::plugin::ToolPlugin;
-use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
-use std::path::Path;
+use crate::services::installer::windows::{find_local_program_executable, find_uninstall_entry};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
+};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
@@ -8,30 +11,91 @@ pub struct OpenCodeDesktopPlugin;
 
 impl ToolPlugin for OpenCodeDesktopPlugin {
     fn metadata(&self) -> ToolMeta {
-        ToolMeta { id: "opencode-desktop".into(), name: "OpenCode (桌面版)".into(),
-            description: "OpenCode 桌面独立安装（仅 mac/Linux）".into(), icon: "opencode".into(), category: "ai-cli".into() }
-    }
-
-    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
-        if let Some(root) = install_root {
-            let exe = root.join("opencode-desktop").join("bin").join("opencode");
-            if exe.exists() { return DetectResult { installed: true, version: None, install_path: Some(root.join("opencode-desktop").to_string_lossy().to_string()) }; }
+        ToolMeta {
+            id: "opencode-desktop".into(),
+            name: "OpenCode (桌面版)".into(),
+            description: "OpenCode 官方 Windows 桌面应用".into(),
+            icon: "opencode".into(),
+            category: "ai-cli".into(),
         }
-        DetectResult { installed: false, version: None, install_path: None }
     }
 
-    fn dependencies(&self) -> Vec<ToolDependency> { vec![] }
+    fn install_strategy(&self) -> InstallStrategy {
+        InstallStrategy::DesktopInstaller
+    }
+
+    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+        if let Some(exe) = find_local_program_executable(&["OpenCode"], &["OpenCode.exe"]) {
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: exe.parent().map(|dir| dir.to_string_lossy().to_string()),
+            };
+        }
+
+        if let Some(entry) = find_uninstall_entry(&["OpenCode"]) {
+            let install_path = entry
+                .install_location
+                .or(entry.display_icon.and_then(|path| path.parent().map(PathBuf::from)));
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
+            };
+        }
+
+        DetectResult {
+            installed: false,
+            version: None,
+            install_path: None,
+        }
+    }
+
+    fn dependencies(&self) -> Vec<ToolDependency> {
+        vec![]
+    }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, _target_dir: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
-        Err("OpenCode 桌面版目前仅支持 macOS/Linux".to_string())
+    fn install(&self, _target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+        let _ = progress.blocking_send(InstallProgress {
+            tool_id: "opencode-desktop".into(),
+            tool_name: "OpenCode 桌面版".into(),
+            phase: "installing".into(),
+            percent: 0,
+            message: "正在下载安装 OpenCode 官方桌面应用...".into(),
+        });
+
+        let installer = crate::services::downloader::temp_path("opencode-desktop-setup.exe");
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
+        rt.block_on(async {
+            crate::services::downloader::download_file(
+                "https://opencode.ai/download/stable/windows-x64-nsis",
+                &installer,
+                None,
+            )
+            .await
+        })?;
+
+        let status = Command::new(&installer)
+            .args(["/S"])
+            .spawn()
+            .map_err(|e| format!("启动 OpenCode 安装程序失败: {e}"))?
+            .wait()
+            .map_err(|e| format!("等待 OpenCode 安装程序结束失败: {e}"))?;
+        if !status.success() {
+            return Err(format!("OpenCode 安装程序异常退出，code: {:?}", status.code()));
+        }
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
-            tool_id: "opencode-desktop".into(), tool_name: "OpenCode 桌面版".into(),
-            phase: "downloading".into(), percent: 0, message: "正在下载 OpenCode 桌面版...".into(),
+            tool_id: "opencode-desktop".into(),
+            tool_name: "OpenCode 桌面版".into(),
+            phase: "downloading".into(),
+            percent: 0,
+            message: "正在下载 OpenCode 桌面版...".into(),
         });
 
         let bin_dir = target_dir.join("bin");
@@ -40,14 +104,20 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
         let version = Self::fetch_latest_version()?;
         let (os, arch) = Self::get_os_arch();
         let tar_path = target_dir.join("opencode-desktop.tar.gz");
-        let url = format!("https://github.com/opencode-ai/opencode/releases/download/v{}/opencode-{}-{}.tar.gz", version, os, arch);
+        let url = format!(
+            "https://github.com/opencode-ai/opencode/releases/download/v{}/opencode-{}-{}.tar.gz",
+            version, os, arch
+        );
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
         rt.block_on(async { crate::services::downloader::download_file(&url, &tar_path, None).await })?;
 
         let _ = progress.blocking_send(InstallProgress {
-            tool_id: "opencode-desktop".into(), tool_name: "OpenCode 桌面版".into(),
-            phase: "extracting".into(), percent: 50, message: "正在解压...".into(),
+            tool_id: "opencode-desktop".into(),
+            tool_name: "OpenCode 桌面版".into(),
+            phase: "extracting".into(),
+            percent: 50,
+            message: "正在解压...".into(),
         });
 
         crate::services::downloader::extract_tar_gz(&tar_path, target_dir)?;
@@ -63,8 +133,11 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
             .map_err(|e| format!("移动 OpenCode 二进制文件失败: {e}"))?;
 
         let _ = progress.blocking_send(InstallProgress {
-            tool_id: "opencode-desktop".into(), tool_name: "OpenCode 桌面版".into(),
-            phase: "complete".into(), percent: 100, message: "OpenCode 桌面版安装完成".into(),
+            tool_id: "opencode-desktop".into(),
+            tool_name: "OpenCode 桌面版".into(),
+            phase: "complete".into(),
+            percent: 100,
+            message: "OpenCode 桌面版安装完成".into(),
         });
         Ok(())
     }
@@ -100,8 +173,28 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
         }
     }
 
-    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        if target_dir.exists() { std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除失败: {e}"))?; }
+    fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(entry) = find_uninstall_entry(&["OpenCode"]) {
+                if let Some(uninstall_string) = entry.uninstall_string {
+                    let status = Command::new("cmd")
+                        .args(["/C", &uninstall_string])
+                        .spawn()
+                        .map_err(|e| format!("启动 OpenCode 卸载程序失败: {e}"))?
+                        .wait()
+                        .map_err(|e| format!("等待 OpenCode 卸载程序结束失败: {e}"))?;
+                    if !status.success() {
+                        return Err(format!("OpenCode 卸载程序异常退出，code: {:?}", status.code()));
+                    }
+                    return Ok(());
+                }
+            }
+
+            return Err("未找到可自动卸载的 OpenCode 官方桌面应用。".into());
+        }
+
+        #[allow(unreachable_code)]
         Ok(())
     }
 }

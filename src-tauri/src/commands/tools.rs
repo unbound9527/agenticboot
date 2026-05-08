@@ -8,6 +8,10 @@ use crate::store::AppState;
 use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
 use std::path::Path;
 
+fn should_use_db_fallback(install_root: Option<&str>) -> bool {
+    install_root.is_none()
+}
+
 /// 检测网络连通性
 #[tauri::command]
 pub async fn check_network() -> Result<NetworkStatus, String> {
@@ -114,6 +118,7 @@ pub fn detect_tools(
 ) -> Result<Vec<DetectResult>, String> {
     use crate::plugin::get_plugin_by_id;
     let root = install_root.as_deref().map(Path::new);
+    let allow_db_fallback = should_use_db_fallback(install_root.as_deref());
     let mut results = Vec::new();
     for id in &tool_ids {
         let mut result = if let Some(plugin) = get_plugin_by_id(id) {
@@ -122,7 +127,7 @@ pub fn detect_tools(
             DetectResult { installed: false, version: None, install_path: None }
         };
         // 数据库补充：运行时检测未发现，但数据库有成功安装记录
-        if !result.installed {
+        if !result.installed && allow_db_fallback {
             if let Ok(Some(record)) = state.db.get_installed_tool(id) {
                 if record.status == "installed" {
                     result = DetectResult {
@@ -167,4 +172,19 @@ pub fn check_tool_updates(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<ToolUpdateInfo>, String> {
     InstallerService::check_tool_updates(&state.db)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_use_db_fallback;
+
+    #[test]
+    fn detect_tools_db_fallback_is_disabled_for_explicit_install_root() {
+        assert!(!should_use_db_fallback(Some("D:\\AITools")));
+    }
+
+    #[test]
+    fn detect_tools_db_fallback_stays_enabled_without_install_root() {
+        assert!(should_use_db_fallback(None));
+    }
 }

@@ -4,6 +4,14 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallStrategy {
+    ManagedPrefix,
+    OfficialScript,
+    PythonPackage,
+    DesktopInstaller,
+}
+
 /// 网络连通性检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
