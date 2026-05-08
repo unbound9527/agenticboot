@@ -20,6 +20,7 @@ mod mcp;
 mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
+mod plugin;
 mod prompt;
 mod prompt_files;
 mod provider;
