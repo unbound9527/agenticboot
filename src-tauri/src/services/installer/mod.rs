@@ -6,7 +6,7 @@
 pub mod dependency_resolver;
 pub mod path_manager;
 
-use crate::database::dao::tools::InstalledToolRecord;
+use crate::database::InstalledToolRecord;
 use crate::database::Database;
 use crate::plugin::get_plugin_by_id;
 use crate::tool_types::{InstallPlan, InstallProgress, NetworkStatus, ToolUpdateInfo};
@@ -96,11 +96,12 @@ impl InstallerService {
             }
 
             // 开始安装
+            let install_tool_name = step.tool_name.clone();
             let _ = app_handle.emit(
                 "install-progress",
                 InstallProgress {
                     tool_id: step.tool_id.clone(),
-                    tool_name: step.tool_name.clone(),
+                    tool_name: install_tool_name.clone(),
                     phase: "starting".to_string(),
                     percent: 0,
                     message: "准备安装...".to_string(),
@@ -118,6 +119,8 @@ impl InstallerService {
             let install_target = target_dir.clone();
             let install_handle = app_handle.clone();
             let install_tool_id = step.tool_id.clone();
+            let install_tool_name = install_tool_name.clone();
+            let install_category = step.category.clone();
 
             // 在独立线程中执行安装
             let install_result = tokio::task::spawn_blocking(move || {
@@ -131,10 +134,14 @@ impl InstallerService {
                 let _ = install_handle.emit("install-progress", progress);
             }
 
+            // 重新获取插件以进行后续操作
+            let post_plugin = get_plugin_by_id(&install_tool_id)
+                .ok_or_else(|| format!("未知工具: {}", install_tool_id))?;
+
             match install_result {
                 Ok(()) => {
                     // 检测已安装版本
-                    let detect = plugin.detect();
+                    let detect = post_plugin.detect();
                     let version = detect.version;
 
                     // 创建 shim
@@ -150,7 +157,7 @@ impl InstallerService {
                     let now = chrono::Utc::now().timestamp();
                     db.upsert_installed_tool(&InstalledToolRecord {
                         id: install_tool_id.clone(),
-                        name: step.tool_name.clone(),
+                        name: install_tool_name.clone(),
                         version,
                         install_path: target_dir.to_string_lossy().to_string(),
                         install_root: self.root_path.to_string_lossy().to_string(),
@@ -165,7 +172,7 @@ impl InstallerService {
                         "install-progress",
                         InstallProgress {
                             tool_id: install_tool_id.clone(),
-                            tool_name: step.tool_name.clone(),
+                            tool_name: install_tool_name.clone(),
                             phase: "complete".to_string(),
                             percent: 100,
                             message: "安装完成".to_string(),
@@ -179,7 +186,7 @@ impl InstallerService {
                     let now = chrono::Utc::now().timestamp();
                     db.upsert_installed_tool(&InstalledToolRecord {
                         id: install_tool_id.clone(),
-                        name: step.tool_name.clone(),
+                        name: install_tool_name.clone(),
                         version: None,
                         install_path: target_dir.to_string_lossy().to_string(),
                         install_root: self.root_path.to_string_lossy().to_string(),
@@ -194,7 +201,7 @@ impl InstallerService {
                         "install-progress",
                         InstallProgress {
                             tool_id: install_tool_id.clone(),
-                            tool_name: step.tool_name.clone(),
+                            tool_name: install_tool_name.clone(),
                             phase: "error".to_string(),
                             percent: 0,
                             message: e.clone(),
@@ -209,7 +216,7 @@ impl InstallerService {
                         }),
                     );
 
-                    return Err(format!("安装 {} 失败", step.tool_name));
+                    return Err(format!("安装 {} 失败", install_tool_name));
                 }
             }
         }

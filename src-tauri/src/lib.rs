@@ -21,6 +21,7 @@ mod openclaw_config;
 mod opencode_config;
 mod panic_hook;
 mod plugin;
+mod plugins;
 mod prompt;
 mod prompt_files;
 mod provider;

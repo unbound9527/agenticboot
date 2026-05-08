@@ -1,0 +1,11 @@
+pub mod claude_code_cli;
+pub mod claude_code_desktop;
+pub mod codex_cli;
+pub mod codex_desktop;
+pub mod gemini_cli;
+pub mod git;
+pub mod hermes;
+pub mod nodejs;
+pub mod openclaw;
+pub mod opencode_cli;
+pub mod opencode_desktop;

@@ -25,22 +25,16 @@ pub fn resolve_install_plan(tool_ids: Vec<String>) -> Result<InstallPlan, String
 #[tauri::command]
 pub async fn execute_install_plan(
     root_path: String,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let service = InstallerService::new(Path::new(&root_path));
-    // 保存安装根目录到数据库
+    let _service = InstallerService::new(Path::new(&root_path));
     state
         .db
         .set_install_root(&root_path)
         .map_err(|e| format!("保存安装根目录失败: {e}"))?;
 
-    // 安装计划由前端在上一次 resolve_install_plan 调用中获取
-    // 前端通过 event 监听进度
-    // 这里需要前端传入完整的 plan
-    // 为了简单起见，此命令接收 root_path 并从前端传入的 state 开始执行
-    // 实际使用时由前端协调流程
-    Err("此命令需要完整的 InstallPlan 参数，请使用 execute_install_plan_with_plan".to_string())
+    Err("此命令仅保存安装根目录，请使用 execute_install_plan_with_plan 传入完整安装计划".to_string())
 }
 
 /// 执行安装计划（带完整计划参数）

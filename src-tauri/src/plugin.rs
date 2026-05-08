@@ -39,20 +39,20 @@ pub trait ToolPlugin: Send + Sync {
 /// 新增工具只需在此函数中添加对应的 Box::new() 即可。
 pub fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
     vec![
-        // 依赖项（占位，具体实现在后续任务中完成）
-        // Box::new(NodeJsPlugin),
-        // Box::new(GitPlugin),
+        // 依赖项
+        Box::new(crate::plugins::nodejs::NodeJsPlugin),
+        Box::new(crate::plugins::git::GitPlugin),
         // CLI 版工具
-        // Box::new(ClaudeCodeCliPlugin),
-        // Box::new(CodexCliPlugin),
-        // Box::new(GeminiCliPlugin),
-        // Box::new(OpenCodeCliPlugin),
-        // Box::new(OpenClawPlugin),
-        // Box::new(HermesPlugin),
+        Box::new(crate::plugins::claude_code_cli::ClaudeCodeCliPlugin),
+        Box::new(crate::plugins::codex_cli::CodexCliPlugin),
+        Box::new(crate::plugins::gemini_cli::GeminiCliPlugin),
+        Box::new(crate::plugins::opencode_cli::OpenCodeCliPlugin),
+        Box::new(crate::plugins::openclaw::OpenClawPlugin),
+        Box::new(crate::plugins::hermes::HermesPlugin),
         // 桌面版工具
-        // Box::new(ClaudeCodeDesktopPlugin),
-        // Box::new(CodexDesktopPlugin),
-        // Box::new(OpenCodeDesktopPlugin),
+        Box::new(crate::plugins::claude_code_desktop::ClaudeCodeDesktopPlugin),
+        Box::new(crate::plugins::codex_desktop::CodexDesktopPlugin),
+        Box::new(crate::plugins::opencode_desktop::OpenCodeDesktopPlugin),
     ]
 }
 
