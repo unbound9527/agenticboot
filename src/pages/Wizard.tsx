@@ -223,21 +223,17 @@ export function Wizard({ onComplete }: WizardProps) {
             </Button>
           </div>
 
-          {/* 网络问题解决指引 */}
+          {/* 网络不通时提供解决链接 */}
           {!netLoading && !netFetching && !netOk && (
-            <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground space-y-2">
-              <p>
-                {netStatus?.youtubeReachable
-                  ? '国际网络正常，但 GitHub/npm 可能被屏蔽。'
-                  : '国际网络未连通。'}
-              </p>
-              <Button variant="outline" size="sm" asChild>
-                <a href="https://github.com/unbound9527/agenticboot/blob/main/docs/network-troubleshooting.md" target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-3 w-3 mr-1" />
-                  查看网络问题解决指南
-                </a>
-              </Button>
-            </div>
+            <a
+              href="https://github.com/unbound9527/agenticboot/blob/main/docs/network-troubleshooting.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 mt-3 text-xs text-blue-500 hover:text-blue-600 hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" />
+              网络不通？点击查看解决方法
+            </a>
           )}
         </section>
 
