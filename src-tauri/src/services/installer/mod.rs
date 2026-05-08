@@ -262,13 +262,12 @@ impl InstallerService {
             .map_err(|e| format!("查询工具记录失败: {e}"))?
             .ok_or_else(|| format!("未找到已安装工具: {tool_id}"))?;
 
-        let plugin = get_plugin_by_id(tool_id)
-            .ok_or_else(|| format!("未知工具: {tool_id}"))?;
-
         let target_dir = Path::new(&record.install_path);
 
-        // 调用插件卸载
-        plugin.uninstall(target_dir)?;
+        // 尝试调用插件卸载（npm uninstall 等可能因环境原因失败，不阻断后续清理）
+        if let Some(plugin) = get_plugin_by_id(tool_id) {
+            plugin.uninstall(target_dir).ok();
+        }
 
         // 移除 shim
         self.path_manager.remove_shim(tool_id)?;

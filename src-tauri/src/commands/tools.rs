@@ -104,19 +104,36 @@ pub fn has_any_installed_tools(
 }
 
 /// 批量检测工具安装状态（一次性，非实时）
+///
+/// 检测来源：插件运行时检测 + 数据库记录（任一来源标记已安装即视为已安装）
 #[tauri::command]
 pub fn detect_tools(
     tool_ids: Vec<String>,
     install_root: Option<String>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<Vec<DetectResult>, String> {
     use crate::plugin::get_plugin_by_id;
     let root = install_root.as_deref().map(Path::new);
     let mut results = Vec::new();
     for id in &tool_ids {
-        if let Some(plugin) = get_plugin_by_id(id) {
-            let detect = plugin.detect(root);
-            results.push(detect);
+        let mut result = if let Some(plugin) = get_plugin_by_id(id) {
+            plugin.detect(root)
+        } else {
+            DetectResult { installed: false, version: None, install_path: None }
+        };
+        // 数据库补充：运行时检测未发现，但数据库有成功安装记录
+        if !result.installed {
+            if let Ok(Some(record)) = state.db.get_installed_tool(id) {
+                if record.status == "installed" {
+                    result = DetectResult {
+                        installed: true,
+                        version: record.version,
+                        install_path: Some(record.install_path),
+                    };
+                }
+            }
         }
+        results.push(result);
     }
     Ok(results)
 }
