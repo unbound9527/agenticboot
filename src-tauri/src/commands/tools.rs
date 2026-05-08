@@ -5,7 +5,7 @@
 use crate::services::installer::dependency_resolver::resolve_install_plan as resolve_plan;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
-use crate::tool_types::{InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
+use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
 use std::path::Path;
 
 /// 检测网络连通性
@@ -101,6 +101,24 @@ pub fn has_any_installed_tools(
         .db
         .has_any_installed_tools()
         .map_err(|e| format!("查询失败: {e}"))
+}
+
+/// 批量检测工具安装状态（一次性，非实时）
+#[tauri::command]
+pub fn detect_tools(
+    tool_ids: Vec<String>,
+    install_root: Option<String>,
+) -> Result<Vec<DetectResult>, String> {
+    use crate::plugin::get_plugin_by_id;
+    let root = install_root.as_deref().map(Path::new);
+    let mut results = Vec::new();
+    for id in &tool_ids {
+        if let Some(plugin) = get_plugin_by_id(id) {
+            let detect = plugin.detect(root);
+            results.push(detect);
+        }
+    }
+    Ok(results)
 }
 
 /// 设置安装根目录

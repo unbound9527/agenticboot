@@ -16,6 +16,19 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
+/// npm 包名映射表（tool_id → npm package name）
+const NPM_TOOL_MAP: &[(&str, &str)] = &[
+    ("claude-code-cli", "@anthropic-ai/claude-code"),
+    ("claude-code-desktop", "@anthropic-ai/claude-code"),
+    ("codex-cli", "@openai/codex"),
+    ("codex-desktop", "@openai/codex"),
+    ("gemini-cli", "@google/gemini-cli"),
+];
+
+fn get_npm_package(tool_id: &str) -> Option<&'static str> {
+    NPM_TOOL_MAP.iter().find(|(id, _)| *id == tool_id).map(|(_, pkg)| *pkg)
+}
+
 /// 安装引擎
 pub struct InstallerService {
     root_path: std::path::PathBuf,
@@ -159,13 +172,17 @@ impl InstallerService {
                     let version = detect.version;
 
                     // 创建 shim
-                    let exe_name = get_exe_name(&install_tool_id);
-                    let exe_path = target_dir
-                        .join("bin")
-                        .join(&exe_name)
-                        .to_string_lossy()
-                        .to_string();
-                    self.path_manager.create_shim(&install_tool_id, &exe_path).ok();
+                    if let Some(npm_pkg) = get_npm_package(&install_tool_id) {
+                        self.path_manager.create_npm_shim(&install_tool_id, npm_pkg).ok();
+                    } else {
+                        let exe_name = get_exe_name(&install_tool_id);
+                        let exe_path = target_dir
+                            .join("bin")
+                            .join(&exe_name)
+                            .to_string_lossy()
+                            .to_string();
+                        self.path_manager.create_shim(&install_tool_id, &exe_path).ok();
+                    }
 
                     // 更新数据库
                     let now = chrono::Utc::now().timestamp();

@@ -7,6 +7,12 @@ export interface NetworkStatus {
   errorMessage?: string;
 }
 
+export interface DetectResult {
+  installed: boolean;
+  version?: string;
+  installPath?: string;
+}
+
 export interface ToolMeta {
   id: string;
   name: string;

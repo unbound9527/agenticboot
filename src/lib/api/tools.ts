@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   NetworkStatus,
+  DetectResult,
   InstallPlan,
   InstallProgress,
   InstalledTool,
@@ -15,6 +16,10 @@ export const toolsApi = {
 
   checkNetwork(): Promise<NetworkStatus> {
     return invoke('check_network');
+  },
+
+  detectTools(toolIds: string[], installRoot?: string): Promise<DetectResult[]> {
+    return invoke('detect_tools', { toolIds, installRoot: installRoot ?? null });
   },
 
   resolveInstallPlan(toolIds: string[], installRoot?: string): Promise<InstallPlan> {

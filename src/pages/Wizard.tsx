@@ -1,18 +1,21 @@
 // 装机向导页 — 单页整合：网络检测 + 安装目录 + 工具选择
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Loader2, CheckCircle, AlertTriangle, ExternalLink, FolderOpen, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { InstallProgress } from '@/components/tools/InstallProgress';
+import { NetworkHelpDialog } from '@/components/tools/NetworkHelpDialog';
 import { ToolIcon } from '@/components/tools/ToolIcon';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
 import { useCheckNetwork, useResolveInstallPlan, useExecuteInstallPlan } from '@/hooks/useTools';
 import { useInstallProgress } from '@/hooks/useInstallProgress';
+import { toolsApi } from '@/lib/api/tools';
 import type { InstallPlan } from '@/types/tools';
 
 const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
@@ -41,6 +44,26 @@ export function Wizard({ onComplete }: WizardProps) {
   );
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
+
+  // 一次性检测本地已安装工具
+  useEffect(() => {
+    const ids = AVAILABLE_TOOLS.map((t) => t.id);
+    toolsApi.detectTools(ids, rootPath).then((results) => {
+      const detected = new Set<string>();
+      results.forEach((r, i) => {
+        if (r.installed) detected.add(ids[i]);
+      });
+      setInstalledIds(detected);
+      // 已安装的工具从勾选列表中移除
+      setSelectedTools((prev) => {
+        const next = new Set(prev);
+        detected.forEach((id) => next.delete(id));
+        return next;
+      });
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: netStatus, isLoading: netLoading, isFetching: netFetching, isError: netError, refetch: retryNet } = useCheckNetwork();
   const resolvePlan = useResolveInstallPlan();
@@ -89,11 +112,14 @@ export function Wizard({ onComplete }: WizardProps) {
     });
   }, []);
 
+  // 未安装的工具 ID 列表
+  const availableIds = AVAILABLE_TOOLS.map((t) => t.id).filter((id) => !installedIds.has(id));
+
   const toggleAll = useCallback(() => {
-    if (selectedTools.size === AVAILABLE_TOOLS.length) {
+    if (selectedTools.size === availableIds.length) {
       setSelectedTools(new Set());
     } else {
-      setSelectedTools(new Set(AVAILABLE_TOOLS.map((t) => t.id)));
+      setSelectedTools(new Set(availableIds));
     }
   }, [selectedTools.size]);
 
@@ -123,30 +149,50 @@ export function Wizard({ onComplete }: WizardProps) {
               {t('tools.wizardTools', '选择工具')}
             </span>
             <Button variant="link" size="sm" onClick={toggleAll} className="text-xs">
-              {selectedTools.size === AVAILABLE_TOOLS.length
+              {selectedTools.size === availableIds.length
                 ? t('tools.none', '全部取消')
                 : t('tools.all', '全部勾选')}
             </Button>
           </div>
 
           <div className="space-y-1">
-            {AVAILABLE_TOOLS.map((tool) => (
-              <Card
-                key={tool.id}
-                className="flex items-center gap-3 p-3 cursor-pointer hover:border-blue-500/50 transition-colors"
-                onClick={() => toggleTool(tool.id)}
-              >
-                <Checkbox
-                  checked={selectedTools.has(tool.id)}
-                  onCheckedChange={() => toggleTool(tool.id)}
-                />
-                <ToolIcon toolId={tool.id} size={20} className="flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <Label className="text-sm font-medium cursor-pointer">{tool.name}</Label>
-                  <p className="text-xs text-muted-foreground">{tool.description}</p>
-                </div>
-              </Card>
-            ))}
+            {AVAILABLE_TOOLS.map((tool) => {
+              const isInstalled = installedIds.has(tool.id);
+              return (
+                <Card
+                  key={tool.id}
+                  className={`flex items-center gap-3 p-3 transition-colors ${
+                    isInstalled
+                      ? 'opacity-60 cursor-default'
+                      : 'cursor-pointer hover:border-blue-500/50'
+                  }`}
+                  onClick={() => !isInstalled && toggleTool(tool.id)}
+                >
+                  {isInstalled ? (
+                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                  ) : (
+                    <Checkbox
+                      checked={selectedTools.has(tool.id)}
+                      onCheckedChange={() => toggleTool(tool.id)}
+                    />
+                  )}
+                  <ToolIcon toolId={tool.id} size={20} className="flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Label className={`text-sm font-medium ${isInstalled ? '' : 'cursor-pointer'}`}>
+                        {tool.name}
+                      </Label>
+                      {isInstalled && (
+                        <Badge variant="outline" className="text-xs text-green-600 dark:text-green-400">
+                          已安装
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{tool.description}</p>
+                  </div>
+                </Card>
+              );
+            })}
           </div>
 
           <p className="text-xs text-muted-foreground text-center pt-1">
@@ -225,15 +271,13 @@ export function Wizard({ onComplete }: WizardProps) {
 
           {/* 网络不通时提供解决链接 */}
           {!netLoading && !netFetching && !netOk && (
-            <a
-              href="https://github.com/unbound9527/agenticboot/blob/main/docs/network-troubleshooting.md"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => setHelpOpen(true)}
               className="inline-flex items-center gap-1 mt-3 text-xs text-blue-500 hover:text-blue-600 hover:underline"
             >
               <ExternalLink className="h-3 w-3" />
               网络不通？点击查看解决方法
-            </a>
+            </button>
           )}
         </section>
 
@@ -258,6 +302,8 @@ export function Wizard({ onComplete }: WizardProps) {
           </Button>
         </div>
       </div>
+
+      <NetworkHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }

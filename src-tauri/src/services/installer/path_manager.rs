@@ -119,6 +119,22 @@ impl PathManager {
         Ok(())
     }
 
+    /// 为 npm 安装的工具创建 shim（通过 npm exec 执行）
+    /// `npm_package` 是 npm 包名（如 "@anthropic-ai/claude-code"）
+    pub fn create_npm_shim(&self, shim_name: &str, npm_package: &str) -> Result<(), String> {
+        let bin_dir = self.ensure_bin_dir()?;
+        let shim_path = bin_dir.join(format!("{shim_name}.cmd"));
+
+        let content = format!(
+            "@echo off\r\n\"%~dp0node.exe\" \"%~dp0node_modules\\npm\\bin\\npm-cli.js\" exec {} -- %*\r\n",
+            npm_package
+        );
+        fs::write(&shim_path, content)
+            .map_err(|e| format!("创建 npm shim 失败: {e}"))?;
+
+        Ok(())
+    }
+
     /// 移除 shim 脚本
     pub fn remove_shim(&self, shim_name: &str) -> Result<(), String> {
         let shim_path = self.root_dir.join("bin").join(format!("{shim_name}.cmd"));

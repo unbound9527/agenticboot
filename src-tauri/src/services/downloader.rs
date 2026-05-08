@@ -141,3 +141,15 @@ pub fn run_installer(installer_path: &Path, target_dir: &Path) -> Result<(), Str
 pub fn temp_path(filename: &str) -> PathBuf {
     std::env::temp_dir().join("agenticboot").join(filename)
 }
+
+/// 解压 .tar.gz 文件到目标目录
+pub fn extract_tar_gz(tar_gz_path: &Path, dest_dir: &Path) -> Result<(), String> {
+    let output = std::process::Command::new("tar")
+        .args(["xzf", &tar_gz_path.to_string_lossy(), "-C", &dest_dir.to_string_lossy()])
+        .output()
+        .map_err(|e| format!("tar 解压失败: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("tar 解压失败: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(())
+}

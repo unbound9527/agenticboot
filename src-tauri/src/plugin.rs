@@ -39,7 +39,6 @@ pub fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
         Box::new(crate::plugins::gemini_cli::GeminiCliPlugin),
         Box::new(crate::plugins::opencode_cli::OpenCodeCliPlugin),
         Box::new(crate::plugins::openclaw::OpenClawPlugin),
-        Box::new(crate::plugins::hermes::HermesPlugin),
         Box::new(crate::plugins::claude_code_desktop::ClaudeCodeDesktopPlugin),
         Box::new(crate::plugins::codex_desktop::CodexDesktopPlugin),
         Box::new(crate::plugins::opencode_desktop::OpenCodeDesktopPlugin),

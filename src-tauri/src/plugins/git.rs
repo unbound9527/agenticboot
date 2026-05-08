@@ -54,6 +54,13 @@ impl ToolPlugin for GitPlugin {
         });
         crate::services::downloader::extract_zip(&git_zip, target_dir)?;
         std::fs::remove_file(&git_zip).ok();
+
+        flatten_mingit_dir(target_dir)?;
+
+        let git_exe = target_dir.join("bin").join("git.exe");
+        if !git_exe.exists() {
+            return Err(format!("Git 安装异常：未找到 {}\\bin\\git.exe", target_dir.display()));
+        }
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "git".into(), tool_name: "Git".into(),
             phase: "complete".into(), percent: 100,
@@ -71,4 +78,34 @@ impl ToolPlugin for GitPlugin {
         if target_dir.exists() { std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除失败: {e}"))?; }
         Ok(())
     }
+}
+
+#[cfg(target_os = "windows")]
+fn flatten_mingit_dir(target_dir: &Path) -> Result<(), String> {
+    let entries: Vec<_> = std::fs::read_dir(target_dir)
+        .map_err(|e| format!("读取安装目录失败: {e}"))?
+        .filter_map(|e| e.ok())
+        .collect();
+
+    for entry in entries {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with("MinGit-") && entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            let sub_dir = entry.path();
+            for item in std::fs::read_dir(&sub_dir).map_err(|e| format!("读取 MinGit 目录失败: {e}"))?.filter_map(|e| e.ok()) {
+                let src = item.path();
+                let dst = target_dir.join(item.file_name());
+                std::fs::rename(&src, &dst).or_else(|_| {
+                    if dst.exists() {
+                        Ok(())
+                    } else {
+                        std::fs::copy(&src, &dst).map(|_| ())
+                    }
+                }).map_err(|e| format!("移动文件失败: {e}"))?;
+            }
+            std::fs::remove_dir(&sub_dir).ok();
+            break;
+        }
+    }
+    Ok(())
 }

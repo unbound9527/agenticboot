@@ -1344,6 +1344,7 @@ pub fn run() {
             commands::is_lightweight_mode,
             // AgenticBoot tool management
             commands::check_network,
+            commands::detect_tools,
             commands::resolve_install_plan,
             commands::execute_install_plan,
             commands::execute_install_plan_with_plan,
