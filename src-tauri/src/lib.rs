@@ -1341,6 +1341,16 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
+            // AgenticBoot tool management
+            commands::check_network,
+            commands::resolve_install_plan,
+            commands::execute_install_plan,
+            commands::execute_install_plan_with_plan,
+            commands::uninstall_tool,
+            commands::get_installed_tools,
+            commands::has_any_installed_tools,
+            commands::get_install_root,
+            commands::check_tool_updates,
         ]);
 
     let app = builder

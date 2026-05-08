@@ -1,0 +1,129 @@
+//! AgenticBoot 工具管理 Tauri 命令
+//!
+//! 前端通过 invoke 调用这些命令来管理 AI 编程工具的安装和卸载。
+
+use crate::services::installer::dependency_resolver::resolve_install_plan as resolve_plan;
+use crate::services::installer::InstallerService;
+use crate::store::AppState;
+use crate::tool_types::{InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
+use std::path::Path;
+use tauri::State;
+
+/// 检测网络连通性
+#[tauri::command]
+pub async fn check_network() -> Result<NetworkStatus, String> {
+    Ok(InstallerService::check_network().await)
+}
+
+/// 解析安装计划
+#[tauri::command]
+pub fn resolve_install_plan(tool_ids: Vec<String>) -> Result<InstallPlan, String> {
+    resolve_plan(&tool_ids)
+}
+
+/// 执行安装计划
+#[tauri::command]
+pub async fn execute_install_plan(
+    root_path: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let service = InstallerService::new(Path::new(&root_path));
+    // 保存安装根目录到数据库
+    state
+        .db
+        .set_install_root(&root_path)
+        .map_err(|e| format!("保存安装根目录失败: {e}"))?;
+
+    // 安装计划由前端在上一次 resolve_install_plan 调用中获取
+    // 前端通过 event 监听进度
+    // 这里需要前端传入完整的 plan
+    // 为了简单起见，此命令接收 root_path 并从前端传入的 state 开始执行
+    // 实际使用时由前端协调流程
+    Err("此命令需要完整的 InstallPlan 参数，请使用 execute_install_plan_with_plan".to_string())
+}
+
+/// 执行安装计划（带完整计划参数）
+#[tauri::command]
+pub async fn execute_install_plan_with_plan(
+    plan: InstallPlan,
+    root_path: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let service = InstallerService::new(Path::new(&root_path));
+    state
+        .db
+        .set_install_root(&root_path)
+        .map_err(|e| format!("保存安装根目录失败: {e}"))?;
+    service
+        .execute_install_plan(&plan, &app_handle, &state.db)
+        .await
+}
+
+/// 卸载工具
+#[tauri::command]
+pub fn uninstall_tool(
+    tool_id: String,
+    root_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let service = InstallerService::new(Path::new(&root_path));
+    service.uninstall_tool(&tool_id, &state.db)
+}
+
+/// 获取所有已安装工具
+#[tauri::command]
+pub fn get_installed_tools(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<InstalledTool>, String> {
+    let records = state
+        .db
+        .get_installed_tools()
+        .map_err(|e| format!("查询已安装工具失败: {e}"))?;
+
+    Ok(records
+        .into_iter()
+        .map(|r| InstalledTool {
+            id: r.id,
+            name: r.name,
+            version: r.version,
+            install_path: r.install_path,
+            install_root: r.install_root,
+            category: r.category,
+            status: r.status,
+            installed_at: r.installed_at,
+            updated_at: r.updated_at,
+        })
+        .collect())
+}
+
+/// 是否有任何已安装工具
+#[tauri::command]
+pub fn has_any_installed_tools(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    state
+        .db
+        .has_any_installed_tools()
+        .map_err(|e| format!("查询失败: {e}"))
+}
+
+/// 获取安装根目录
+#[tauri::command]
+pub fn get_install_root(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    state
+        .db
+        .get_install_root()
+        .map_err(|e| format!("查询失败: {e}"))
+}
+
+/// 检查工具更新
+#[tauri::command]
+pub fn check_tool_updates(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<ToolUpdateInfo>, String> {
+    InstallerService::check_tool_updates(&state.db)
+}

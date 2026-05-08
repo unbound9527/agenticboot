@@ -27,6 +27,7 @@ pub mod skill;
 mod stream_check;
 mod subscription;
 mod sync_support;
+mod tools;
 
 mod lightweight;
 mod usage;
@@ -61,6 +62,7 @@ pub use stream_check::*;
 pub use subscription::*;
 
 pub use lightweight::*;
+pub use tools::*;
 pub use usage::*;
 pub use webdav_sync::*;
 pub use workspace::*;
