@@ -47,7 +47,8 @@ export function useToolUpdates() {
 
 export function useResolveInstallPlan() {
   return useMutation({
-    mutationFn: (toolIds: string[]) => toolsApi.resolveInstallPlan(toolIds),
+    mutationFn: ({ toolIds, installRoot }: { toolIds: string[]; installRoot?: string }) =>
+      toolsApi.resolveInstallPlan(toolIds, installRoot),
   });
 }
 

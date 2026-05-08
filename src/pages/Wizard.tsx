@@ -1,7 +1,7 @@
 // 装机向导页 — 单页整合：网络检测 + 安装目录 + 工具选择
 
 import { useState, useCallback } from 'react';
-import { Loader2, CheckCircle, AlertTriangle, ExternalLink, FolderOpen } from 'lucide-react';
+import { Loader2, CheckCircle, AlertTriangle, FolderOpen, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { InstallProgress } from '@/components/tools/InstallProgress';
@@ -47,7 +47,7 @@ export function Wizard({ onComplete }: WizardProps) {
   const executePlan = useExecuteInstallPlan();
   const { resetProgress } = useInstallProgress();
 
-  const netOk = !netLoading && !netError && !netStatus?.errorMessage;
+  const netOk = !netLoading && !netFetching && !netError && !netStatus?.errorMessage;
 
   const handleStartInstall = useCallback(() => {
     const toolIds = [...selectedTools];
@@ -56,7 +56,7 @@ export function Wizard({ onComplete }: WizardProps) {
       return;
     }
 
-    resolvePlan.mutate(toolIds, {
+    resolvePlan.mutate({ toolIds, installRoot: rootPath || undefined }, {
       onSuccess: (plan) => {
         setInstallPlan(plan);
         resetProgress();
@@ -187,37 +187,40 @@ export function Wizard({ onComplete }: WizardProps) {
           </p>
         </section>
 
-        {/* 3. 网络状态 — 紧凑内联 */}
+        {/* 3. 网络状态 */}
         <section className="rounded-lg border p-4">
-          <div className="flex items-center gap-3">
-            {((netLoading || netFetching) && !netError) && <Loader2 className="h-5 w-5 animate-spin text-blue-500 flex-shrink-0" />}
-            {(!netLoading && !netFetching && netOk) && <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />}
-            {(netError || netStatus?.errorMessage) && !netFetching && <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />}
+          <div className="flex items-center gap-4">
+            {(netLoading || netFetching) && <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0" />}
+            {!netLoading && !netFetching && netOk && <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />}
+            {!netLoading && !netFetching && (netError || netStatus?.errorMessage) && <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />}
 
             <div className="flex-1 min-w-0">
-              <span className="text-sm font-medium">
-                {((netLoading || netFetching)) && t('tools.checkNetwork', '检测网络连接...')}
-                {(!netLoading && !netFetching && netOk) && t('tools.networkOk', '网络连接正常')}
-                {(netError || netStatus?.errorMessage) && !netFetching && t('tools.networkError', '网络连接异常')}
-              </span>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-muted-foreground">连通性:</span>
+                {(netLoading || netFetching) ? (
+                  <span className="text-muted-foreground">检测中...</span>
+                ) : (
+                  <>
+                    <span className={netStatus?.githubReachable ? 'text-green-600' : 'text-red-500'}>
+                      GitHub {netStatus?.githubReachable ? '✓' : '✗'}
+                    </span>
+                    <span className={netStatus?.npmReachable ? 'text-green-600' : 'text-red-500'}>
+                      npm {netStatus?.npmReachable ? '✓' : '✗'}
+                    </span>
+                    <span className={netStatus?.youtubeReachable ? 'text-green-600' : 'text-muted-foreground'}>
+                      YouTube {netStatus?.youtubeReachable ? '✓' : '✗'}
+                    </span>
+                  </>
+                )}
+              </div>
               {netStatus?.errorMessage && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{netStatus.errorMessage}</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{netStatus.errorMessage}</p>
               )}
             </div>
 
-            {(netError || netStatus?.errorMessage) && (
-              <div className="flex gap-2 flex-shrink-0">
-                <Button variant="outline" size="sm" asChild>
-                  <a href="https://github.com/unbound9527/agenticboot/wiki/Network-Troubleshooting" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-3 w-3 mr-1" />
-                    {t('tools.networkGuide', '解决指南')}
-                  </a>
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => retryNet()}>
-                  {t('tools.retry', '重试')}
-                </Button>
-              </div>
-            )}
+            <Button variant="ghost" size="sm" onClick={() => retryNet()} title="刷新">
+              <RefreshCw className="h-3 w-3" />
+            </Button>
           </div>
         </section>
 

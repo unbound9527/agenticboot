@@ -51,8 +51,18 @@ impl InstallerService {
             .map(|r| r.status().is_success())
             .unwrap_or(false);
 
-        let error_message = if !github_ok && !npm_ok {
-            Some("网络连接异常，请检查网络设置或参考外部教程解决网络问题。".to_string())
+        let youtube_ok = client
+            .get("https://www.youtube.com")
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
+
+        let error_message = if !github_ok && !npm_ok && !youtube_ok {
+            Some("网络连接异常，请检查网络设置。".to_string())
+        } else if !github_ok && !npm_ok && youtube_ok {
+            Some("GitHub 和 npm 源连接异常，但国际网络正常，可能是站点被屏蔽。".to_string())
         } else if !github_ok {
             Some("GitHub 连接异常，部分工具可能无法下载。".to_string())
         } else if !npm_ok {
@@ -64,6 +74,7 @@ impl InstallerService {
         NetworkStatus {
             github_reachable: github_ok,
             npm_reachable: npm_ok,
+            youtube_reachable: youtube_ok,
             error_message,
         }
     }

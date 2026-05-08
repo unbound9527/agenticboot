@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct NetworkStatus {
     pub github_reachable: bool,
     pub npm_reachable: bool,
+    pub youtube_reachable: bool,
     pub error_message: Option<String>,
 }
 

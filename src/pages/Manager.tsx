@@ -1,7 +1,7 @@
 // 工具管家页 — 日常管理已安装/未安装工具
 
-import { useState, useCallback } from 'react';
-import { Settings, RefreshCw } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Settings, RefreshCw, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ToolCard } from '@/components/tools/ToolCard';
@@ -42,6 +42,9 @@ export function Manager({ onInstallMore }: ManagerProps) {
   const { data: updates = [] } = useToolUpdates();
   const uninstallTool = useUninstallTool();
   const { getToolProgress } = useInstallProgress();
+
+  const [editRoot, setEditRoot] = useState(installRoot ?? '');
+  useEffect(() => { setEditRoot(installRoot ?? ''); }, [installRoot]);
 
   const installedIds = new Set(installedTools.map((t) => t.id));
   const notInstalled = ALL_TOOLS_META.filter(
@@ -174,7 +177,8 @@ export function Manager({ onInstallMore }: ManagerProps) {
           <span className="flex-shrink-0">{t('tools.installRoot', '安装根目录')}:</span>
           <input
             type="text"
-            defaultValue={installRoot ?? ''}
+            value={editRoot}
+            onChange={(e) => setEditRoot(e.target.value)}
             placeholder="D:\AITools"
             className="flex-1 text-xs font-mono bg-muted px-2 py-1 rounded border border-border focus:outline-none focus:border-blue-500"
             onBlur={(e) => {
@@ -189,6 +193,25 @@ export function Manager({ onInstallMore }: ManagerProps) {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             }}
           />
+          <Button
+            variant="ghost"
+            size="icon"
+            title={t('tools.browseFolder', '浏览文件夹')}
+            onClick={() => {
+              import('@tauri-apps/plugin-dialog').then(({ open }) => {
+                open({ directory: true, multiple: false }).then((result) => {
+                  if (result && typeof result === 'string') {
+                    setEditRoot(result);
+                    import('@/lib/api/tools').then(({ toolsApi }) => {
+                      toolsApi.setInstallRoot(result).catch(() => {});
+                    });
+                  }
+                });
+              });
+            }}
+          >
+            <FolderOpen className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>

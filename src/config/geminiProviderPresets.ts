@@ -65,14 +65,13 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "Shengsuanyun",
     category: "aggregator",
-    isPartner: true,
     partnerPromotionKey: "shengsuanyun",
     icon: "shengsuanyun",
   },
   {
     name: "PackyCode",
     websiteUrl: "https://www.packyapi.com",
-    apiKeyUrl: "https://www.packyapi.com/register?aff=cc-switch",
+    apiKeyUrl: "https://www.packyapi.com/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://www.packyapi.com",
@@ -83,7 +82,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "PackyCode",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "packycode",
     endpointCandidates: [
       "https://api-slb.packyapi.com",
@@ -105,7 +103,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "Cubence",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "cubence",
     endpointCandidates: [
       "https://api.cubence.com/v1",
@@ -130,7 +127,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "AIGoCode",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "aigocode",
     endpointCandidates: ["https://api.aigocode.com"],
     icon: "aigocode",
@@ -150,7 +146,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "AICodeMirror",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "aicodemirror",
     endpointCandidates: [
       "https://api.aicodemirror.com/api/gemini",
@@ -173,7 +168,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "AICoding",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "aicoding",
     endpointCandidates: ["https://api.aicoding.sh"],
     icon: "aicoding",
@@ -182,7 +176,7 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "CrazyRouter",
     websiteUrl: "https://www.crazyrouter.com",
-    apiKeyUrl: "https://www.crazyrouter.com/register?aff=OZcm&ref=cc-switch",
+    apiKeyUrl: "https://www.crazyrouter.com/register",
     settingsConfig: {
       env: {
         GOOGLE_GEMINI_BASE_URL: "https://crazyrouter.com",
@@ -193,7 +187,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "CrazyRouter",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "crazyrouter",
     endpointCandidates: ["https://crazyrouter.com"],
     icon: "crazyrouter",
@@ -213,7 +206,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "SSSAiCode",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "sssaicode",
     endpointCandidates: [
       "https://node-hk.sssaicode.com/api",
@@ -237,7 +229,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "CTok",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "ctok",
     endpointCandidates: ["https://api.ctok.ai/v1beta"],
     icon: "ctok",
@@ -256,7 +247,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "LionCCAPI",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "lionccapi",
     icon: "lioncc",
   },
@@ -309,7 +299,6 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     model: "gemini-3.1-pro",
     description: "LemonData",
     category: "third_party",
-    isPartner: true,
     partnerPromotionKey: "lemondata",
     endpointCandidates: ["https://api.lemondata.cc"],
     icon: "lemondata",

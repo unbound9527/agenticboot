@@ -3,6 +3,7 @@
 export interface NetworkStatus {
   githubReachable: boolean;
   npmReachable: boolean;
+  youtubeReachable: boolean;
   errorMessage?: string;
 }
 
