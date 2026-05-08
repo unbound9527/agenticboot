@@ -21,16 +21,39 @@
 
 ### 1. 环境检测
 
-- 启动时检测 Node.js（>= 18）、Git、网络连通性
-- 检测不通过时**不内置代理/镜像逻辑**，给出指向外部教程的链接
-- 检测结果通过 Tauri command 返回前端，展示在向导页
+- 启动时**仅检测网络连通性**（`github.com` / `registry.npmjs.org`）
+- 网络不通时展示外部教程链接，**不内置任何代理或镜像逻辑**
+- Node.js、Git 不作为启动前置条件，按需自动安装（见下文）
 
 ### 2. 首次向导 (Wizard)
 
 - 首次启动展示，之后可跳过
-- 步骤：环境检测 → 选择安装根目录 → 勾选工具 → 一键安装
+- 步骤：网络检测 → 选择安装根目录 → 勾选工具 → 一键安装（含自动依赖安装）
 - 安装根目录统一配置，自动创建子目录（如 `<root>/claude-code/`）
 - 安装进度通过 Tauri event 实时推送
+
+### 3. 管家页 (Manager)
+
+- 日常使用的工具列表
+- 每个工具显示：图标、名称、版本、状态（已安装/未安装/有新版本/安装中）
+- 操作：安装、卸载、更新
+- PATH 和 shim 由 Manager 自动管理，用户无需手动配置
+
+### 4. 依赖自动安装
+
+- 每个工具插件声明自己的依赖（如 Claude Code 依赖 Node.js >= 18）
+- 安装目标工具时，安装引擎先检查所有声明的依赖是否满足
+- 不满足的依赖**自动加入安装队列**，先安装依赖再安装目标工具
+- Node.js 和 Git 本身也作为可安装项（通过官方安装器或 winget），在 `installed_tools` 表中追踪
+- 用户勾选工具时不需要手动勾选依赖，由引擎自动解析和安装
+
+### 5. 一键卸载
+
+- 调用插件 uninstall 逻辑
+- 删除 shim
+- 删除安装目录
+- 更新数据库状态
+- **不自动卸载依赖**（可能被其他工具共享使用，如 Node.js）
 
 ### 3. 管家页 (Manager)
 
@@ -46,7 +69,7 @@
 - 删除安装目录
 - 更新数据库状态
 
-### 5. 支持的初始工具（6 个 AI CLI + 扩展）
+### 6. 支持的初始工具（6 个 AI CLI + 扩展）
 
 **第一期：**
 - Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Hermes
@@ -93,15 +116,17 @@ agenticboot/
 
 **命令层 (`commands/tools.rs`):**
 ```rust
-#[tauri::command] fn detect_environment() -> EnvReport
-#[tauri::command] fn install_tool(tool_id, root_path) -> Result<()>
-#[tauri::command] fn uninstall_tool(tool_id) -> Result<()>
+#[tauri::command] fn check_network() -> NetworkStatus
+#[tauri::command] fn resolve_install_plan(tool_ids: Vec<String>) -> InstallPlan
+#[tauri::command] fn execute_install_plan(root_path: String) -> Result<()>
+#[tauri::command] fn uninstall_tool(tool_id: String) -> Result<()>
 #[tauri::command] fn get_installed_tools() -> Vec<InstalledTool>
 #[tauri::command] fn check_tool_updates() -> Vec<ToolUpdateInfo>
 ```
 
 **服务层 (`services/installer.rs`):**
 - `InstallerService` — 安装引擎，管理下载/解压/执行/进度推送
+- `DependencyResolver` — 解析工具依赖，构建安装计划（拓扑排序）
 - `PathManager` — Windows PATH 注册、shim 创建和清理
 
 **插件接口 (Rust trait):**
@@ -111,9 +136,16 @@ trait ToolPlugin {
     fn detect() -> DetectResult;
     fn install(target_dir: &Path, progress: Sender<Progress>) -> Result<()>;
     fn uninstall(target_dir: &Path) -> Result<()>;
-    fn get_prerequisites() -> Vec<Prerequisite>;
+    fn get_dependencies() -> Vec<ToolDependency>;  // 声明依赖项及最低版本要求
 }
 ```
+
+**安装计划解析流程：**
+1. 用户勾选工具 A、B、C
+2. 引擎收集所有工具的依赖声明
+3. 构建依赖图，拓扑排序，去重
+4. 返回 `InstallPlan`（有序列表，依赖在前），前端展示完整安装计划
+5. 用户确认后执行安装计划，逐个安装并推送进度
 
 ### 数据库
 
@@ -126,6 +158,7 @@ CREATE TABLE installed_tools (
     version TEXT,
     install_path TEXT NOT NULL,
     install_root TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'tool',  -- 'tool' | 'dependency'
     status TEXT NOT NULL DEFAULT 'not_installed',
     installed_at INTEGER,
     updated_at INTEGER
@@ -151,9 +184,10 @@ type View = "providers" | "settings" | ... | "wizard" | "manager";
 
 ## 网络策略
 
-- 启动时检测 `github.com` / `registry.npmjs.org` 连通性
-- 不通时展示外部教程链接（GitHub Wiki / 知乎文章），**不内置任何代理或镜像逻辑**
+- 启动时**仅检测网络**（`github.com` / `registry.npmjs.org` 连通性）
+- 不通时展示外部教程链接，**不内置任何代理或镜像逻辑**
 - 所有下载使用 reqwest 直连，无 fallback 机制
+- Node.js、Git 不作为启动前置条件，作为工具依赖由安装引擎自动处理
 
 ## 安装路径方案
 
@@ -186,3 +220,4 @@ type View = "providers" | "settings" | ... | "wizard" | "manager";
 2. **Windows PATH 操作权限** — 需要管理员权限的场景做好提示
 3. **npm/GitHub 下载稳定性** — 不内置镜像，依赖用户网络环境
 4. **各工具安装方式差异大** — 插件 trait 设计足够灵活，必要时允许插件执行任意命令
+5. **依赖自动安装的幂等性** — Node.js/Git 等依赖可能已被系统其他方式安装（winget/npm/手动），需做好已有安装检测，避免重复安装或版本冲突
