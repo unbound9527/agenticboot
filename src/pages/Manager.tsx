@@ -1,42 +1,113 @@
-// 工具管家页 — 日常管理已安装/未安装工具
-
-import { useState, useCallback, useEffect } from 'react';
-import { Settings, RefreshCw, FolderOpen } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { ToolCard } from '@/components/tools/ToolCard';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useState, useCallback, useEffect } from "react";
+import { FolderOpen, RefreshCw, Settings } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { ToolCard } from "@/components/tools/ToolCard";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useInstallProgress } from "@/hooks/useInstallProgress";
 import {
   useInstalledTools,
-  useUninstallTool,
   useInstallRoot,
   useToolUpdates,
-} from '@/hooks/useTools';
-import { useInstallProgress } from '@/hooks/useInstallProgress';
-import type { ToolMeta } from '@/types/tools';
-import { MonitorCog } from 'lucide-react';
+  useUninstallTool,
+} from "@/hooks/useTools";
+import { toolsApi } from "@/lib/api/tools";
+import type { DetectResult, InstalledTool, ToolMeta } from "@/types/tools";
 
-// 所有已知工具的元信息（与 wizard 中的列表保持一致）
 const ALL_TOOLS_META: ToolMeta[] = [
-  { id: 'claude-code-cli', name: 'Claude Code (CLI)', description: 'Anthropic 官方 CLI AI 编程助手', icon: 'claude', category: 'ai-cli' },
-  { id: 'claude-code-desktop', name: 'Claude Code (桌面版)', description: 'Claude Code 桌面应用', icon: 'claude', category: 'ai-cli' },
-  { id: 'codex-cli', name: 'Codex (CLI)', description: 'OpenAI 官方 CLI 编程助手', icon: 'codex', category: 'ai-cli' },
-  { id: 'codex-desktop', name: 'Codex (桌面版)', description: 'Codex 桌面应用', icon: 'codex', category: 'ai-cli' },
-  { id: 'gemini-cli', name: 'Gemini CLI', description: 'Google Gemini CLI 编程助手', icon: 'gemini', category: 'ai-cli' },
-  { id: 'opencode-cli', name: 'OpenCode (CLI)', description: '开源 AI 编程工具', icon: 'opencode', category: 'ai-cli' },
-  { id: 'opencode-desktop', name: 'OpenCode (桌面版)', description: 'OpenCode 桌面应用', icon: 'opencode', category: 'ai-cli' },
-  { id: 'openclaw', name: 'OpenClaw', description: '可编程 AI 编码引擎', icon: 'openclaw', category: 'ai-cli' },
-  { id: 'hermes', name: 'Hermes (Web UI)', description: '多供应商 AI 编程助手，Web UI 交互', icon: 'hermes', category: 'ai-cli' },
+  {
+    id: "claude-code-cli",
+    name: "Claude Code (CLI)",
+    description: "Anthropic 官方 CLI AI 编程助手",
+    icon: "claude",
+    category: "ai-cli",
+  },
+  {
+    id: "claude-code-desktop",
+    name: "Claude Code (桌面版)",
+    description: "Claude Code 桌面应用",
+    icon: "claude",
+    category: "ai-cli",
+  },
+  {
+    id: "codex-cli",
+    name: "Codex (CLI)",
+    description: "OpenAI 官方 CLI 编程助手",
+    icon: "codex",
+    category: "ai-cli",
+  },
+  {
+    id: "codex-desktop",
+    name: "Codex (桌面版)",
+    description: "Codex 桌面应用",
+    icon: "codex",
+    category: "ai-cli",
+  },
+  {
+    id: "gemini-cli",
+    name: "Gemini CLI",
+    description: "Google Gemini CLI 编程助手",
+    icon: "gemini",
+    category: "ai-cli",
+  },
+  {
+    id: "opencode-cli",
+    name: "OpenCode (CLI)",
+    description: "开源 AI 编程工具",
+    icon: "opencode",
+    category: "ai-cli",
+  },
+  {
+    id: "opencode-desktop",
+    name: "OpenCode (桌面版)",
+    description: "OpenCode 桌面应用",
+    icon: "opencode",
+    category: "ai-cli",
+  },
+  {
+    id: "openclaw",
+    name: "OpenClaw",
+    description: "可编程 AI 编码引擎",
+    icon: "openclaw",
+    category: "ai-cli",
+  },
+  {
+    id: "hermes",
+    name: "Hermes (Web UI)",
+    description: "多提供商 AI 编程助手，Web UI 交互",
+    icon: "hermes",
+    category: "ai-cli",
+  },
 ];
 
 interface ManagerProps {
   onInstallMore?: () => void;
 }
 
+function toExternalInstalledTool(
+  meta: ToolMeta,
+  detect: DetectResult,
+  installRoot: string | null | undefined,
+): InstalledTool {
+  return {
+    id: meta.id,
+    name: meta.name,
+    version: detect.version,
+    installPath: detect.installPath ?? "",
+    installRoot: installRoot ?? "",
+    category: "tool",
+    status: "installed",
+  };
+}
+
 export function Manager({ onInstallMore }: ManagerProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('installed');
+  const [activeTab, setActiveTab] = useState("installed");
+  const [editRoot, setEditRoot] = useState("");
+  const [detectedTools, setDetectedTools] = useState<
+    Record<string, DetectResult>
+  >({});
 
   const { data: installedTools = [] } = useInstalledTools();
   const { data: installRoot } = useInstallRoot();
@@ -44,135 +115,158 @@ export function Manager({ onInstallMore }: ManagerProps) {
   const uninstallTool = useUninstallTool();
   const { getToolProgress } = useInstallProgress();
 
-  const [editRoot, setEditRoot] = useState(installRoot ?? '');
-  useEffect(() => { setEditRoot(installRoot ?? ''); }, [installRoot]);
+  useEffect(() => {
+    setEditRoot(installRoot ?? "");
+  }, [installRoot]);
 
-  const installedIds = new Set(installedTools.map((t) => t.id));
+  useEffect(() => {
+    let cancelled = false;
+    const ids = ALL_TOOLS_META.map((tool) => tool.id);
+
+    toolsApi
+      .detectTools(ids, installRoot ?? undefined)
+      .then((results) => {
+        if (cancelled) return;
+
+        const next: Record<string, DetectResult> = {};
+        results.forEach((result, index) => {
+          next[ids[index]] = result;
+        });
+        setDetectedTools(next);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDetectedTools({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [installRoot]);
+
+  const managedInstalledIds = new Set(installedTools.map((tool) => tool.id));
+  const detectedInstalledIds = new Set(
+    Object.entries(detectedTools)
+      .filter(([, result]) => result.installed)
+      .map(([toolId]) => toolId),
+  );
+  const installedIds = new Set([
+    ...managedInstalledIds,
+    ...detectedInstalledIds,
+  ]);
+
+  const mergedInstalledTools: InstalledTool[] = [
+    ...installedTools,
+    ...ALL_TOOLS_META.filter((meta) => !managedInstalledIds.has(meta.id))
+      .filter((meta) => detectedTools[meta.id]?.installed)
+      .map((meta) =>
+        toExternalInstalledTool(meta, detectedTools[meta.id], installRoot),
+      ),
+  ];
+
   const notInstalled = ALL_TOOLS_META.filter(
-    (meta) => !installedIds.has(meta.id)
+    (meta) => !installedIds.has(meta.id),
   );
 
   const handleUninstall = useCallback(
     (toolId: string) => {
-      const root = installRoot ?? 'D:\\AITools';
+      const root = installRoot ?? "D:\\AITools";
       uninstallTool.mutate(
         { toolId, rootPath: root },
         {
           onSuccess: () => {
-            toast.success(
-              t('tools.uninstalled', '卸载成功')
-            );
+            toast.success(t("tools.uninstalled", "卸载成功"));
           },
           onError: (err) => {
             toast.error(
-              t('tools.uninstallFailed', '卸载失败: {{error}}', {
+              t("tools.uninstallFailed", "卸载失败: {{error}}", {
                 error: String(err),
-              })
+              }),
             );
           },
-        }
+        },
       );
     },
-    [installRoot, uninstallTool, t]
+    [installRoot, uninstallTool, t],
   );
 
   const handleSingleInstall = useCallback(
     (_toolId: string) => {
-      // 单个工具安装 — 引导用户到向导页
       onInstallMore?.();
     },
-    [onInstallMore]
+    [onInstallMore],
   );
 
   return (
     <div className="px-6 py-6">
-      {/* 标题栏 - 粗野主义风格 */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="brutal-window-bar px-4 py-2 border-2 border-[#111] shadow-[4px_4px_0_#111]">
-            <div className="brutal-window-title flex items-center gap-2">
-              <MonitorCog className="w-4 h-4" />
-              ~/projects/AgenticBoot
-            </div>
-          </div>
-          <h1 className="text-2xl font-black tracking-tight">
-            <span className="brutal-highlight">{t('tools.manager', '软件管家')}</span>
-          </h1>
-        </div>
+        <h1 className="text-2xl font-bold">{t("tools.manager", "软件管家")}</h1>
         <div className="flex gap-2">
           <Button
-            variant="brutal-outline"
+            variant="outline"
             size="sm"
             onClick={() => {
               if (updates.length > 0) {
                 toast.info(
-                  t('tools.updatesAvailable', '{{count}} 个工具可更新', {
+                  t("tools.updatesAvailable", "{{count}} 个工具可更新", {
                     count: updates.length,
-                  })
+                  }),
                 );
               } else {
-                toast.success(
-                  t('tools.allUpToDate', '所有工具均为最新版本')
-                );
+                toast.success(t("tools.allUpToDate", "所有工具均为最新版本"));
               }
             }}
           >
             <RefreshCw className="h-3 w-3 mr-1" />
-            {t('tools.checkUpdates', '检查更新')}
+            {t("tools.checkUpdates", "检查更新")}
           </Button>
         </div>
       </div>
 
-      {/* Tabs - 粗野主义风格 */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full border-2 border-[#111] bg-[#F4F4F0] p-1 gap-1">
-          <TabsTrigger
-            value="installed"
-            className="flex-1 font-bold border-2 border-transparent data-[state=active]:bg-[#FF5A36] data-[state=active]:text-white data-[state=active]:border-[#111] data-[state=active]:shadow-[2px_2px_0_#111] rounded-sm transition-all"
-          >
-            {t('tools.installedTab', '已安装')} ({installedTools.length})
+        <TabsList className="w-full">
+          <TabsTrigger value="installed" className="flex-1">
+            {t("tools.installedTab", "已安装")} ({mergedInstalledTools.length})
           </TabsTrigger>
-          <TabsTrigger
-            value="available"
-            className="flex-1 font-bold border-2 border-transparent data-[state=active]:bg-[#FF5A36] data-[state=active]:text-white data-[state=active]:border-[#111] data-[state=active]:shadow-[2px_2px_0_#111] rounded-sm transition-all"
-          >
-            {t('tools.availableTab', '未安装')} ({notInstalled.length})
+          <TabsTrigger value="available" className="flex-1">
+            {t("tools.availableTab", "未安装")} ({notInstalled.length})
           </TabsTrigger>
         </TabsList>
 
-        {/* 已安装 */}
         <TabsContent value="installed" className="space-y-2 mt-4">
-          {installedTools.length === 0 && (
-            <div className="text-center py-12 border-4 border-dashed border-[#111] p-8 bg-[#F4F4F0]">
-              <p className="text-lg font-bold text-[#111]">
-                {t('tools.noToolsInstalled', '暂无已安装工具')}
+          {mergedInstalledTools.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-lg">
+                {t("tools.noToolsInstalled", "暂无已安装工具")}
               </p>
-              <Button
-                variant="brutal"
-                onClick={onInstallMore}
-                className="mt-4"
-              >
-                {t('tools.goInstall', '去安装')}
+              <Button variant="link" onClick={onInstallMore} className="mt-2">
+                {t("tools.goInstall", "去安装")}
               </Button>
             </div>
           )}
-          {installedTools.map((tool) => (
-            <ToolCard
-              key={tool.id}
-              tool={tool}
-              variant="installed"
-              progress={getToolProgress(tool.id)}
-              onUninstall={() => handleUninstall(tool.id)}
-              onUpdate={
-                updates.find((u) => u.toolId === tool.id)
-                  ? () => handleSingleInstall(tool.id)
-                  : undefined
-              }
-            />
-          ))}
+          {mergedInstalledTools.map((tool) => {
+            const isManagedRecord = managedInstalledIds.has(tool.id);
+
+            return (
+              <ToolCard
+                key={tool.id}
+                tool={tool}
+                variant="installed"
+                progress={getToolProgress(tool.id)}
+                onUninstall={
+                  isManagedRecord ? () => handleUninstall(tool.id) : undefined
+                }
+                onUpdate={
+                  updates.find((update) => update.toolId === tool.id)
+                    ? () => handleSingleInstall(tool.id)
+                    : undefined
+                }
+              />
+            );
+          })}
         </TabsContent>
 
-        {/* 未安装 */}
         <TabsContent value="available" className="space-y-2 mt-4">
           {notInstalled.map((tool) => (
             <ToolCard
@@ -185,41 +279,38 @@ export function Manager({ onInstallMore }: ManagerProps) {
         </TabsContent>
       </Tabs>
 
-      {/* 设置区域 - 粗野主义风格 */}
-      <div className="mt-8 pt-4 border-t-4 border-[#111]">
-        <div className="flex items-center gap-3 text-sm font-medium">
-          <Settings className="h-4 w-4 flex-shrink-0 text-[#111]" />
-          <span className="flex-shrink-0 text-[#111]">{t('tools.installRoot', '安装根目录')}:</span>
+      <div className="mt-8 pt-4 border-t">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Settings className="h-4 w-4 flex-shrink-0" />
+          <span className="flex-shrink-0">
+            {t("tools.installRoot", "安装根目录")}:
+          </span>
           <input
             type="text"
             value={editRoot}
             onChange={(e) => setEditRoot(e.target.value)}
-            placeholder="D:\AITools"
-            className="flex-1 text-xs font-mono bg-white px-3 py-2 rounded-sm border-2 border-[#111] focus:outline-none focus:border-[#FF5A36] font-mono"
+            placeholder="D:\\AITools"
+            className="flex-1 text-xs font-mono bg-muted px-2 py-1 rounded border border-border focus:outline-none focus:border-blue-500"
             onBlur={(e) => {
               const newRoot = e.target.value.trim();
               if (newRoot && newRoot !== installRoot) {
-                import('@/lib/api/tools').then(({ toolsApi }) => {
-                  toolsApi.setInstallRoot(newRoot).catch(() => {});
-                });
+                toolsApi.setInstallRoot(newRoot).catch(() => {});
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
           />
           <Button
-            variant="brutal-outline"
+            variant="ghost"
             size="icon"
-            title={t('tools.browseFolder', '浏览文件夹')}
+            title={t("tools.browseFolder", "浏览文件夹")}
             onClick={() => {
-              import('@tauri-apps/plugin-dialog').then(({ open }) => {
+              import("@tauri-apps/plugin-dialog").then(({ open }) => {
                 open({ directory: true, multiple: false }).then((result) => {
-                  if (result && typeof result === 'string') {
+                  if (result && typeof result === "string") {
                     setEditRoot(result);
-                    import('@/lib/api/tools').then(({ toolsApi }) => {
-                      toolsApi.setInstallRoot(result).catch(() => {});
-                    });
+                    toolsApi.setInstallRoot(result).catch(() => {});
                   }
                 });
               });

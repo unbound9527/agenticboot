@@ -1,115 +1,61 @@
 # AgenticBoot
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/badge/status-active-success" alt="Status">
-</p>
+AgenticBoot 是一个以 Windows 为优先的一键装机工具，用来安装和管理 AI 编程相关工具。它的核心目标不是“无脑重装”，而是先检测本机现状，能复用就复用，缺什么再装什么。
 
-<p align="center">
-  <strong>🔥 一键搭建 AI 编程环境，5 分钟从零到开始写代码。</strong>
-</p>
+当前这条分支主要完成的是 Windows 真实装机链路。macOS 和 Linux 目前只有框架和占位实现，还没有做完正式安装逻辑。
 
-<p align="center">
-  <a href="README.md">English</a> | 中文
-</p>
+## 当前 Windows 已实现的能力
 
-> 🚧 **即将上线。** 完整文档、安装脚本和首个版本正在准备中。
+- 安装前先检测本机是否已经有可用的 `Node.js`、`Git`、CLI 工具或桌面应用。
+- 对已经可用的工具直接跳过，不重复安装。
+- 支持真正安装官方桌面应用：
+  - Claude Desktop
+  - Codex 桌面应用
+  - OpenCode 桌面应用
+- 支持安装以下 CLI / 工具：
+  - Claude Code
+  - Codex CLI
+  - Gemini CLI
+  - OpenCode CLI
+  - OpenClaw
+  - Hermes
+- Hermes 在 Windows 下不依赖用户预装 Python，会自动下载一份托管 Python 运行时到 Hermes 目录内再完成安装。
+- 卸载时只会自动清理 AgenticBoot 自己托管的目录，不会随意删除系统里原本已有的安装。
 
----
+## 关键行为说明
 
-## AgenticBoot 是什么？
+### 1. 检测优先，而不是强制重装
 
-**AgenticBoot** 是一个 AI 编程 CLI 工具的**一键装机向导**。自动检测你的电脑环境，批量安装 Claude Code、Codex、OpenCode、OpenClaw、Hermes 等主流 AI 编程工具，并帮你配置好 API 中转站，装完即用。
+这套逻辑不只是检查 Agent 本体，也会检查依赖项。
 
-### 支持的 AI 编程 CLI 工具
+- 如果机器里已经有可用的 `Node.js`，就直接复用。
+- 如果已经有可用的 `Git`，就直接复用。
+- 如果某个 CLI 已经可以正常使用，就跳过安装。
+- 如果桌面应用已经装在系统其他位置，也会显示为“已安装”，但不会误导用户去点一个并不安全的“卸载”。
 
-| 工具 | 说明 |
-|------|------|
-| **Claude Code** | Anthropic 官方 CLI 编程助手 |
-| **Codex** | OpenAI 官方 CLI 编程助手 |
-| **OpenCode** | 开源编程助手 |
-| **OpenClaw** | 无头可编程编程引擎 |
-| **Hermes** | 多供应商 AI 编程助手 |
-| **Gemini CLI** | Google 官方 CLI 编程助手 |
+### 2. 区分“托管安装”和“外部安装”
 
-### 为什么选择 AgenticBoot？
+AgenticBoot 会区分两类安装来源：
 
-- **一个安装器搞定所有工具** — 不用再跑 5 条不同的安装命令，勾选、点击、完成。
-- **预配置供应商** — 内置主流 API 中转站预设配置，无需手动编辑 `settings.json`。
-- **国内网络优化** — npm、GitHub、官方安装脚本均支持镜像回退，告别 `raw.githubusercontent.com` 超时。
-- **跨平台** — Windows 10/11 优先，同时支持 macOS 和 Linux。
-- **开源（MIT）** — 代码可审查，无遥测、无锁定。
+- 托管安装：安装在用户选择的安装根目录下面，由 AgenticBoot 自己创建。
+- 外部安装：系统里原本就存在，或者通过其他方式安装的工具。
 
----
+只有托管安装，才会在卸载时自动删目录。
 
-## 快速开始
+## 各工具的当前口径
 
-### Windows (PowerShell)
-```powershell
-irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
-```
+- OpenCode CLI：Windows 下走原生 npm 包 `opencode-ai`，不依赖 WSL。
+- OpenClaw：Windows 下走官方 PowerShell 安装路径。
+- Hermes：Windows 下自动下载官方 Python ZIP 运行时，再在本地 `venv` 中安装 `hermes-agent[web,pty]`，不依赖用户本机已有 Python，也不依赖 `winget`。
 
-### macOS / Linux
-```bash
-curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
-```
+## 当前平台进度
 
-然后运行 `agenticboot`，按引导操作即可。
+- Windows：已实现核心安装逻辑
+- macOS：只有框架
+- Linux：只有框架
 
----
+## 相关文档
 
-## 工作流程
-
-```
-┌─────────────────────────────────────────┐
-│  ① 检测环境                               │
-│  Node.js · Git · npm · 网络连通性          │
-├─────────────────────────────────────────┤
-│  ② 选择工具                               │
-│  ☑ Claude Code  ☑ Codex  ☐ OpenCode     │
-│  ☑ OpenClaw     ☐ Hermes ☐ Gemini CLI   │
-├─────────────────────────────────────────┤
-│  ③ 选择 API 供应商                         │
-│  ☑ 推荐中转站  ☐ 自定义端点                 │
-├─────────────────────────────────────────┤
-│  ④ 安装与配置                              │
-│  下载 → 安装 → 注入配置                     │
-├─────────────────────────────────────────┤
-│  ⑤ 完成                                   │
-│  所有工具已安装配置完毕，打开终端即可开始编码。  │
-└─────────────────────────────────────────┘
-```
-
----
-
-## 功能特性
-
-- **环境自动检测** — 安装前检查 Node.js、Git、npm、网络连通性
-- **多源下载** — 每个下载 URL 均支持主源 + 镜像回退
-- **配置注入** — 自动为各工具写入 API 端点、密钥和模型配置
-- **供应商预设** — 内置中转站配置，一键应用
-- **非破坏性** — 不会在未确认的情况下覆盖已有配置
-- **卸载支持** — 支持干净卸载已安装的工具
-
----
-
-## 开发路线图
-
-- [ ] GUI 桌面启动器（Tauri）
-- [ ] 内置中转站测速 & 推荐
-- [ ] 中转站一键充值集成
-- [ ] 工具版本更新管理
-- [ ] 团队配置同步
-
----
-
-## 贡献
-
-欢迎提 Issue 和 PR。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-
----
-
-## 许可证
-
-MIT © [unbound9527](https://github.com/unbound9527)
+- 工具文档索引：[docs/tools/README.md](./docs/tools/README.md)
+- Windows 设计文档：[docs/superpowers/specs/2026-05-08-windows-one-click-install-design.md](./docs/superpowers/specs/2026-05-08-windows-one-click-install-design.md)
+- 实施计划：[docs/superpowers/plans/2026-05-08-windows-one-click-install.md](./docs/superpowers/plans/2026-05-08-windows-one-click-install.md)

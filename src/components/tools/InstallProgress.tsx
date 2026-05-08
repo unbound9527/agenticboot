@@ -3,7 +3,6 @@
 import { CheckCircle, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import { useInstallProgress } from '@/hooks/useInstallProgress';
 import { useTranslation } from 'react-i18next';
 import type { InstallPlan } from '@/types/tools';

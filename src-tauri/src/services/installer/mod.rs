@@ -5,28 +5,61 @@
 
 pub mod dependency_resolver;
 pub mod path_manager;
+pub mod windows;
 
 use crate::database::InstalledToolRecord;
 use crate::database::Database;
 use crate::plugin::get_plugin_by_id;
-use crate::tool_types::{InstallPlan, InstallProgress, NetworkStatus, ToolUpdateInfo};
+use crate::services::installer::windows::{find_managed_executable, npm_prefix_candidates};
+use crate::tool_types::{
+    InstallPlan, InstallProgress, InstallStrategy, NetworkStatus, ToolUpdateInfo,
+};
 use path_manager::PathManager;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 /// npm 包名映射表（tool_id → npm package name）
-const NPM_TOOL_MAP: &[(&str, &str)] = &[
-    ("claude-code-cli", "@anthropic-ai/claude-code"),
-    ("claude-code-desktop", "@anthropic-ai/claude-code"),
-    ("codex-cli", "@openai/codex"),
-    ("codex-desktop", "@openai/codex"),
-    ("gemini-cli", "@google/gemini-cli"),
-];
+fn should_delete_install_dir(strategy: InstallStrategy, owned_by_root: bool) -> bool {
+    owned_by_root && matches!(strategy, InstallStrategy::ManagedPrefix)
+}
 
-fn get_npm_package(tool_id: &str) -> Option<&'static str> {
-    NPM_TOOL_MAP.iter().find(|(id, _)| *id == tool_id).map(|(_, pkg)| *pkg)
+fn normalize_for_ownership_check(path: &Path) -> Option<PathBuf> {
+    if path.exists() {
+        std::fs::canonicalize(path).ok()
+    } else {
+        Some(path.to_path_buf())
+    }
+}
+
+fn is_install_owned_by_root(install_root: &Path, install_path: &Path) -> bool {
+    let Some(normalized_root) = normalize_for_ownership_check(install_root) else {
+        return false;
+    };
+    let Some(normalized_path) = normalize_for_ownership_check(install_path) else {
+        return false;
+    };
+
+    normalized_path.starts_with(normalized_root)
+}
+
+fn managed_executable_candidates(tool_id: &str) -> Vec<String> {
+    match tool_id {
+        "nodejs" => vec!["node.exe".to_string(), "bin\\node.exe".to_string()],
+        "git" => vec!["cmd\\git.exe".to_string(), "bin\\git.exe".to_string()],
+        "claude-code-cli" => npm_prefix_candidates("claude"),
+        "codex-cli" => npm_prefix_candidates("codex"),
+        "gemini-cli" => npm_prefix_candidates("gemini"),
+        "opencode-cli" => npm_prefix_candidates("opencode"),
+        "hermes" => vec![
+            "venv\\Scripts\\hermes.exe".to_string(),
+            "venv\\Scripts\\hermes.cmd".to_string(),
+            "Scripts\\hermes.exe".to_string(),
+            "Scripts\\hermes.cmd".to_string(),
+        ],
+        _ => vec![],
+    }
 }
 
 /// 安装引擎
@@ -169,19 +202,30 @@ impl InstallerService {
                 Ok(()) => {
                     // 检测已安装版本（传入安装根目录）
                     let detect = post_plugin.detect(Some(&self.root_path));
-                    let version = detect.version;
+                    let version = detect.version.clone();
+                    let install_path = detect
+                        .install_path
+                        .clone()
+                        .unwrap_or_else(|| target_dir.to_string_lossy().to_string());
 
                     // 创建 shim
-                    if let Some(npm_pkg) = get_npm_package(&install_tool_id) {
-                        self.path_manager.create_npm_shim(&install_tool_id, npm_pkg).ok();
-                    } else {
+                    if matches!(
+                        post_plugin.install_strategy(),
+                        InstallStrategy::ManagedPrefix | InstallStrategy::PythonPackage
+                    ) {
                         let exe_name = get_exe_name(&install_tool_id);
-                        let exe_path = target_dir
-                            .join("bin")
-                            .join(&exe_name)
-                            .to_string_lossy()
-                            .to_string();
-                        self.path_manager.create_shim(&install_tool_id, &exe_path).ok();
+                        let candidates = managed_executable_candidates(&install_tool_id);
+                        let candidate_refs =
+                            candidates.iter().map(String::as_str).collect::<Vec<_>>();
+                        let exe_path = find_managed_executable(
+                            &self.root_path,
+                            &install_tool_id,
+                            &candidate_refs,
+                        )
+                        .ok_or_else(|| {
+                            format!("安装完成后未找到 {} 的可执行文件", install_tool_id)
+                        })?;
+                        self.path_manager.create_cmd_shim(&exe_name, &exe_path)?;
                     }
 
                     // 更新数据库
@@ -190,7 +234,7 @@ impl InstallerService {
                         id: install_tool_id.clone(),
                         name: install_tool_name.clone(),
                         version,
-                        install_path: target_dir.to_string_lossy().to_string(),
+                        install_path,
                         install_root: self.root_path.to_string_lossy().to_string(),
                         category: step.category.clone(),
                         status: "installed".to_string(),
@@ -261,21 +305,31 @@ impl InstallerService {
             .get_installed_tool(tool_id)
             .map_err(|e| format!("查询工具记录失败: {e}"))?
             .ok_or_else(|| format!("未找到已安装工具: {tool_id}"))?;
+        let plugin =
+            get_plugin_by_id(tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
 
         let target_dir = Path::new(&record.install_path);
+        let strategy = plugin.install_strategy();
+        let owned_by_root =
+            is_install_owned_by_root(Path::new(&record.install_root), target_dir);
 
-        // 尝试调用插件卸载（npm uninstall 等可能因环境原因失败，不阻断后续清理）
-        if let Some(plugin) = get_plugin_by_id(tool_id) {
-            plugin.uninstall(target_dir).ok();
+        let uninstall_result = plugin.uninstall(target_dir);
+
+        if matches!(strategy, InstallStrategy::ManagedPrefix) {
+            self.path_manager.remove_shim(&get_exe_name(tool_id))?;
+        } else if matches!(strategy, InstallStrategy::PythonPackage) && owned_by_root {
+            self.path_manager.remove_shim(&get_exe_name(tool_id)).ok();
         }
 
-        // 移除 shim
-        self.path_manager.remove_shim(tool_id)?;
-
-        // 删除安装目录
-        if target_dir.exists() {
+        if should_delete_install_dir(strategy, owned_by_root) && target_dir.exists() {
             std::fs::remove_dir_all(target_dir)
                 .map_err(|e| format!("删除安装目录失败: {e}"))?;
+        }
+
+        if let Err(err) = uninstall_result {
+            if !matches!(strategy, InstallStrategy::ManagedPrefix) {
+                return Err(err);
+            }
         }
 
         // 删除数据库记录
@@ -329,5 +383,45 @@ fn get_exe_name(tool_id: &str) -> String {
         "openclaw" => "openclaw".to_string(),
         "hermes" => "hermes".to_string(),
         _ => tool_id.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_install_owned_by_root, should_delete_install_dir};
+    use crate::tool_types::InstallStrategy;
+    use tempfile::TempDir;
+
+    #[test]
+    fn install_strategy_uninstall_policy_only_deletes_managed_prefix_directories() {
+        assert!(should_delete_install_dir(
+            InstallStrategy::ManagedPrefix,
+            true
+        ));
+        assert!(!should_delete_install_dir(
+            InstallStrategy::DesktopInstaller,
+            false
+        ));
+        assert!(!should_delete_install_dir(
+            InstallStrategy::PythonPackage,
+            false
+        ));
+    }
+
+    #[test]
+    fn install_strategy_uninstall_policy_does_not_delete_external_managed_prefix_directory() {
+        let tmp = TempDir::new().unwrap();
+        let managed_root = tmp.path().join("managed-root");
+        let external_install = tmp.path().join("external-tool");
+
+        std::fs::create_dir_all(&managed_root).unwrap();
+        std::fs::create_dir_all(&external_install).unwrap();
+
+        let owned_by_root = is_install_owned_by_root(&managed_root, &external_install);
+        assert!(!owned_by_root);
+        assert!(!should_delete_install_dir(
+            InstallStrategy::ManagedPrefix,
+            owned_by_root
+        ));
     }
 }

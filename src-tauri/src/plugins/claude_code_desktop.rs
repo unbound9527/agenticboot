@@ -1,6 +1,11 @@
 use crate::plugin::ToolPlugin;
-use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
-use std::path::Path;
+use crate::services::installer::windows::{
+    find_local_program_executable, find_uninstall_entry, run_winget, winget_exists,
+};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
+};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
@@ -8,45 +13,147 @@ pub struct ClaudeCodeDesktopPlugin;
 
 impl ToolPlugin for ClaudeCodeDesktopPlugin {
     fn metadata(&self) -> ToolMeta {
-        ToolMeta { id: "claude-code-desktop".into(), name: "Claude Code (桌面版)".into(),
-            description: "Claude Code 桌面独立安装（自带运行时）".into(), icon: "claude".into(), category: "ai-cli".into() }
+        ToolMeta {
+            id: "claude-code-desktop".into(),
+            name: "Claude Code (桌面版)".into(),
+            description: "Claude 官方 Windows 桌面应用".into(),
+            icon: "claude".into(),
+            category: "ai-cli".into(),
+        }
     }
 
-    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
-        if let Some(root) = install_root {
-            let exe = root.join("claude-code-desktop").join("bin").join("claude.cmd");
-            if exe.exists() { return DetectResult { installed: true, version: None, install_path: Some(root.join("claude-code-desktop").to_string_lossy().to_string()) }; }
-        }
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let p = Path::new(&local).join("Programs").join("Claude Code");
-            if p.join("Claude Code.exe").exists() { return DetectResult { installed: true, version: None, install_path: Some(p.to_string_lossy().to_string()) }; }
-        }
-        DetectResult { installed: false, version: None, install_path: None }
+    fn install_strategy(&self) -> InstallStrategy {
+        InstallStrategy::DesktopInstaller
     }
 
-    fn dependencies(&self) -> Vec<ToolDependency> { vec![] }
+    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+        if let Some(exe) =
+            find_local_program_executable(&["Claude", "AnthropicClaude"], &["Claude.exe"])
+        {
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: exe.parent().map(|dir| dir.to_string_lossy().to_string()),
+            };
+        }
+
+        if let Some(entry) = find_uninstall_entry(&["Claude"]) {
+            let install_path = entry
+                .install_location
+                .or(entry.display_icon.and_then(|path| path.parent().map(PathBuf::from)));
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
+            };
+        }
+
+        DetectResult {
+            installed: false,
+            version: None,
+            install_path: None,
+        }
+    }
+
+    fn dependencies(&self) -> Vec<ToolDependency> {
+        vec![]
+    }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
-            tool_id: "claude-code-desktop".into(), tool_name: "Claude Code (桌面版)".into(),
-            phase: "installing".into(), percent: 0, message: "正在安装 Claude Code 桌面版...".into(),
+            tool_id: "claude-code-desktop".into(),
+            tool_name: "Claude 桌面版".into(),
+            phase: "installing".into(),
+            percent: 0,
+            message: "正在安装 Claude 官方桌面应用...".into(),
         });
-        let output = Command::new("npm").args(["install", "-g", "@anthropic-ai/claude-code", "--prefix", &target_dir.to_string_lossy()])
-            .output().map_err(|e| format!("npm install 失败: {e}"))?;
-        if !output.status.success() { return Err(format!("npm install 失败: {}", String::from_utf8_lossy(&output.stderr))); }
+
+        if winget_exists()
+            && run_winget(&[
+                "install",
+                "--id",
+                "Anthropic.Claude",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
+            .is_ok()
+        {
+            return Ok(());
+        }
+
+        let installer = crate::services::downloader::temp_path("claude-desktop-setup.exe");
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
+        rt.block_on(async {
+            crate::services::downloader::download_file(
+                windows_download_url(),
+                &installer,
+                None,
+            )
+            .await
+        })?;
+
+        let status = Command::new(&installer)
+            .spawn()
+            .map_err(|e| format!("启动 Claude 安装程序失败: {e}"))?
+            .wait()
+            .map_err(|e| format!("等待 Claude 安装程序结束失败: {e}"))?;
+        if !status.success() {
+            return Err(format!("Claude 安装程序异常退出，code: {:?}", status.code()));
+        }
         Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     fn install(&self, _target_dir: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
-        Err("Claude Code 桌面版自动安装目前仅支持 Windows".into())
+        Err("Claude 桌面版自动安装目前仅支持 Windows".into())
     }
 
-    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        Command::new("npm").args(["uninstall", "-g", "@anthropic-ai/claude-code", "--prefix", &target_dir.to_string_lossy()])
-            .output().map_err(|e| format!("npm uninstall 失败: {e}"))?;
-        if target_dir.exists() { std::fs::remove_dir_all(target_dir).ok(); }
+    fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            if winget_exists()
+                && run_winget(&[
+                    "uninstall",
+                    "--id",
+                    "Anthropic.Claude",
+                    "-e",
+                    "--accept-source-agreements",
+                ])
+                .is_ok()
+            {
+                return Ok(());
+            }
+
+            if let Some(entry) = find_uninstall_entry(&["Claude"]) {
+                if let Some(uninstall_string) = entry.uninstall_string {
+                    let status = Command::new("cmd")
+                        .args(["/C", &uninstall_string])
+                        .spawn()
+                        .map_err(|e| format!("启动 Claude 卸载程序失败: {e}"))?
+                        .wait()
+                        .map_err(|e| format!("等待 Claude 卸载程序结束失败: {e}"))?;
+                    if !status.success() {
+                        return Err(format!("Claude 卸载程序异常退出，code: {:?}", status.code()));
+                    }
+                    return Ok(());
+                }
+            }
+
+            return Err("未找到可自动卸载的 Claude 官方桌面应用。".into());
+        }
+
+        #[allow(unreachable_code)]
         Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_download_url() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "https://claude.ai/api/desktop/win32/arm64/setup/latest/redirect"
+    } else {
+        "https://claude.ai/api/desktop/win32/x64/setup/latest/redirect"
     }
 }

@@ -1,5 +1,10 @@
 use crate::plugin::ToolPlugin;
-use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
+use crate::services::installer::windows::{
+    find_managed_paths, npm_prefix_candidates, read_command_version,
+};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
+};
 use std::path::Path;
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -12,16 +17,29 @@ impl ToolPlugin for ClaudeCodeCliPlugin {
             description: "Anthropic 官方 CLI AI 编程助手".into(), icon: "claude".into(), category: "ai-cli".into() }
     }
 
+    fn install_strategy(&self) -> InstallStrategy {
+        InstallStrategy::ManagedPrefix
+    }
+
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
+        if let Some(root) = install_root {
+            let candidates = npm_prefix_candidates("claude");
+            let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+            let detect_paths = find_managed_paths(root, "claude-code-cli", &candidate_refs);
+            if let Some(executable) = detect_paths.executable.as_ref() {
+                return DetectResult {
+                    installed: true,
+                    version: read_command_version(executable, &["--version"]),
+                    install_path: detect_paths
+                        .install_root
+                        .map(|path| path.to_string_lossy().to_string()),
+                };
+            }
+        }
+
         if let Ok(output) = Command::new("claude").arg("--version").output() {
             if output.status.success() {
                 return DetectResult { installed: true, version: Some(String::from_utf8_lossy(&output.stdout).trim().to_string()), install_path: None };
-            }
-        }
-        if let Some(root) = install_root {
-            let exe = root.join("claude-code-cli").join("bin").join("claude.cmd");
-            if exe.exists() {
-                return DetectResult { installed: true, version: None, install_path: Some(root.join("claude-code-cli").to_string_lossy().to_string()) };
             }
         }
         DetectResult { installed: false, version: None, install_path: None }

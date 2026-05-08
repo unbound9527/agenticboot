@@ -1,183 +1,60 @@
 # AgenticBoot
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/badge/status-active-success" alt="Status">
-</p>
+AgenticBoot is a Windows-first bootstrapper for AI coding tools. It detects what is already installed, skips redundant work, installs the tools you select, and keeps uninstall behavior safe for anything it does not own.
 
-<p align="center">
-  <strong>🔥 One-click bootstrap your AI coding environment. Zero to coding in 5 minutes.</strong>
-</p>
+This branch currently focuses on real Windows install flows. macOS and Linux scaffolding exists, but those install paths are not fully implemented yet.
 
-<p align="center">
-  English | <a href="#中文">中文</a>
-</p>
+## What works on Windows
 
-> 🚧 **Coming soon.** Full documentation, install scripts, and first release are being prepared. Stay tuned.
+- Detect existing `Node.js`, `Git`, and supported AI tools before installing.
+- Reuse a working local installation instead of forcing a reinstall.
+- Install official desktop apps for:
+  - Claude Desktop
+  - Codex desktop app
+  - OpenCode desktop app
+- Install CLI tools for:
+  - Claude Code
+  - Codex CLI
+  - Gemini CLI
+  - OpenCode CLI
+  - OpenClaw
+  - Hermes
+- Install Hermes without requiring preinstalled Python by downloading a managed Python runtime into the Hermes tool directory.
+- Only remove AgenticBoot-managed files automatically during uninstall.
 
----
+## Key behavior
 
-## What is AgenticBoot?
+### Detection-first install
 
-AgenticBoot is a **one-click installer and launcher** for the entire agentic coding ecosystem. It detects your environment, installs the tools you select, injects API provider configs, and gets you coding — all in one flow.
+AgenticBoot checks whether a tool is already usable on the machine before installing it. That applies to dependencies and user-facing tools.
 
-### Supported AI Coding CLI Tools
+- If `Node.js` or `Git` already works, AgenticBoot reuses it.
+- If a CLI tool is already available, AgenticBoot skips reinstalling it.
+- If a desktop app is already installed outside the managed root, AgenticBoot treats it as installed and does not pretend it can safely uninstall it.
 
-| Tool | Description |
-|------|-------------|
-| **Claude Code** | Anthropic's official CLI coding agent |
-| **Codex** | OpenAI's CLI coding agent |
-| **OpenCode** | Open-source coding agent |
-| **OpenClaw** | Headless programmable coding engine |
-| **Hermes** | Multi-provider AI coding assistant |
-| **Gemini CLI** | Google's CLI coding agent |
+### Managed vs external installs
 
-### Why AgenticBoot?
+AgenticBoot distinguishes between:
 
-- **5 tools, 1 installer** — Stop running 5 different install commands. Check the boxes, click install, done.
-- **Pre-configured providers** — Built-in presets for popular API relay services. No manual `settings.json` editing.
-- **China-network optimized** — Mirror fallback for npm, GitHub, and official install scripts. No more `raw.githubusercontent.com` timeouts.
-- **Works on your machine** — Windows 10/11 first, macOS and Linux supported too.
-- **Open source, MIT** — Inspect every line. No telemetry, no lock-in.
+- Managed installs: files created under the selected install root.
+- External installs: tools already installed elsewhere on the system.
 
----
+Only managed installs are candidates for automatic directory cleanup during uninstall.
 
-## Quick Start
+## Tool notes
 
-### Windows (PowerShell)
-```powershell
-irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
-```
+- OpenCode CLI on Windows uses the native `opencode-ai` npm package. It does not depend on WSL.
+- Hermes on Windows uses an AgenticBoot-managed official Python ZIP runtime plus a local `venv`. It does not require the user to preinstall Python or rely on `winget`.
+- OpenClaw on Windows uses the official PowerShell install path.
 
-### macOS / Linux
-```bash
-curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
-```
+## Current platform status
 
-Then run `agenticboot` and follow the guided setup.
+- Windows: implemented
+- macOS: framework only
+- Linux: framework only
 
----
+## Repo docs
 
-## What It Does
-
-```
-┌─────────────────────────────────────────┐
-│  ① Detect Environment                    │
-│  Node.js · Git · npm · Network status    │
-├─────────────────────────────────────────┤
-│  ② Select Tools                          │
-│  ☑ Claude Code  ☑ Codex  ☐ OpenCode     │
-│  ☑ OpenClaw     ☐ Hermes ☐ Gemini CLI   │
-├─────────────────────────────────────────┤
-│  ③ Choose API Provider                   │
-│  ☑ Recommended relay  ☐ Custom endpoint  │
-├─────────────────────────────────────────┤
-│  ④ Install & Configure                   │
-│  Download → Install → Inject configs     │
-├─────────────────────────────────────────┤
-│  ⑤ Ready                                 │
-│  All tools installed and configured.     │
-│  Open terminal, type your first command. │
-└─────────────────────────────────────────┘
-```
-
----
-
-## Features
-
-- **Environment auto-detection** — Checks Node.js, Git, npm, network connectivity before installing
-- **Multi-source downloads** — Primary + mirror fallback for every download URL
-- **Config injection** — Writes API endpoint, key, and model settings for each tool automatically
-- **Provider presets** — Built-in relay provider configs, one-click apply
-- **Non-destructive** — Won't overwrite existing configs without asking
-- **Uninstall support** — Clean removal of installed tools when needed
-
----
-
-## Roadmap
-
-- [ ] GUI launcher (Tauri desktop app)
-- [ ] Built-in relay speed test & provider recommendation
-- [ ] One-click recharge integration for relay providers
-- [ ] Tool update manager
-- [ ] Team/org config sync
-
----
-
-## Contributing
-
-Issues and PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
----
-
-## License
-
-MIT © [unbound9527](https://github.com/unbound9527)
-
----
-
-<a name="中文"></a>
-
-> 🚧 **即将上线。** 完整文档、安装脚本和首个版本正在准备中。
-
-# AgenticBoot 中文说明
-
-## 这是什么？
-
-**AgenticBoot** 是一个 AI 编程 CLI 工具的**一键装机向导**。自动检测你的电脑环境，批量安装 Claude Code、Codex、OpenCode、OpenClaw、Hermes 等主流 AI 编程工具，并帮你配置好 API 中转站，装完即用。
-
-### 解决什么问题？
-
-每个 AI 编程工具都有自己的安装方式（npm / scoop / winget / 官方脚本），配置文件路径和格式各不相同，国内访问 GitHub 和 npm 还经常连不上。新手从零到用上往往要折腾一两个小时。
-
-AgenticBoot 把它压缩成：**打开 → 勾选 → 等两分钟 → 开始写代码。**
-
-### 支持的工具
-
-| 工具 | 安装方式 |
-|------|---------|
-| Claude Code | 原生安装器 / npm 镜像回退 |
-| Codex | npm 全局安装 |
-| OpenCode | GitHub Release / Scoop |
-| OpenClaw | npm / GitHub Release |
-| Hermes | GitHub Release |
-| Gemini CLI | npm 全局安装 |
-
-### 特色
-
-- **国内网络优化** — GitHub、npm 下载自动切换镜像源
-- **环境检测** — Node.js、Git、网络连通性一次查完
-- **配置注入** — 自动写入各工具的 API endpoint 和密钥配置
-- **非破坏性** — 已有配置不会被覆盖
-- **开源（MIT）** — 所有代码可审查，无遥测、无捆绑
-
-### 快速开始
-
-#### Windows
-```powershell
-irm https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.ps1 | iex
-```
-
-#### macOS / Linux
-```bash
-curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/install.sh | bash
-```
-
-然后运行 `agenticboot`，按引导操作即可。
-
-### 开发路线图
-
-- [ ] GUI 桌面启动器（Tauri）
-- [ ] 内置中转站测速 & 推荐
-- [ ] 中转站一键充值集成
-- [ ] 工具版本更新管理
-- [ ] 团队配置同步
-
-### 贡献
-
-欢迎提 Issue 和 PR。
-
-### 许可证
-
-MIT © [unbound9527](https://github.com/unbound9527)
+- Tool docs: [docs/tools/README.md](./docs/tools/README.md)
+- Windows install design: [docs/superpowers/specs/2026-05-08-windows-one-click-install-design.md](./docs/superpowers/specs/2026-05-08-windows-one-click-install-design.md)
+- Implementation plan: [docs/superpowers/plans/2026-05-08-windows-one-click-install.md](./docs/superpowers/plans/2026-05-08-windows-one-click-install.md)

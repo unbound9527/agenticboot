@@ -1,5 +1,8 @@
 use crate::plugin::ToolPlugin;
-use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
+use crate::services::installer::windows::{find_appx_install_location, run_winget, winget_exists};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
+};
 use std::path::Path;
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -8,34 +11,61 @@ pub struct CodexDesktopPlugin;
 
 impl ToolPlugin for CodexDesktopPlugin {
     fn metadata(&self) -> ToolMeta {
-        ToolMeta { id: "codex-desktop".into(), name: "Codex (桌面版)".into(),
-            description: "OpenAI Codex 桌面独立安装（自带运行时）".into(), icon: "codex".into(), category: "ai-cli".into() }
+        ToolMeta {
+            id: "codex-desktop".into(),
+            name: "Codex (桌面版)".into(),
+            description: "Codex 官方 Windows 桌面应用".into(),
+            icon: "codex".into(),
+            category: "ai-cli".into(),
+        }
     }
 
-    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
-        if let Some(root) = install_root {
-            let exe = root.join("codex-desktop").join("bin").join("codex.cmd");
-            if exe.exists() { return DetectResult { installed: true, version: None, install_path: Some(root.join("codex-desktop").to_string_lossy().to_string()) }; }
-        }
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let p = Path::new(&local).join("Programs").join("Codex");
-            if p.join("Codex.exe").exists() { return DetectResult { installed: true, version: None, install_path: Some(p.to_string_lossy().to_string()) }; }
-        }
-        DetectResult { installed: false, version: None, install_path: None }
+    fn install_strategy(&self) -> InstallStrategy {
+        InstallStrategy::DesktopInstaller
     }
 
-    fn dependencies(&self) -> Vec<ToolDependency> { vec![] }
+    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+        if let Some(location) = find_appx_install_location("OpenAI.Codex") {
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: Some(location),
+            };
+        }
+
+        DetectResult {
+            installed: false,
+            version: None,
+            install_path: None,
+        }
+    }
+
+    fn dependencies(&self) -> Vec<ToolDependency> {
+        vec![]
+    }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
-            tool_id: "codex-desktop".into(), tool_name: "Codex (桌面版)".into(),
-            phase: "installing".into(), percent: 0, message: "正在安装 Codex 桌面版...".into(),
+            tool_id: "codex-desktop".into(),
+            tool_name: "Codex 桌面版".into(),
+            phase: "installing".into(),
+            percent: 0,
+            message: "正在通过 Microsoft Store 安装 Codex 应用...".into(),
         });
-        let output = Command::new("npm").args(["install", "-g", "@openai/codex", "--prefix", &target_dir.to_string_lossy()])
-            .output().map_err(|e| format!("npm install 失败: {e}"))?;
-        if !output.status.success() { return Err(format!("npm install 失败: {}", String::from_utf8_lossy(&output.stderr))); }
-        Ok(())
+
+        if !winget_exists() {
+            return Err("安装 Codex 桌面版需要 Windows App Installer/winget。".into());
+        }
+
+        run_winget(&[
+            "install",
+            "Codex",
+            "-s",
+            "msstore",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -43,10 +73,26 @@ impl ToolPlugin for CodexDesktopPlugin {
         Err("Codex 桌面版自动安装目前仅支持 Windows".into())
     }
 
-    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        Command::new("npm").args(["uninstall", "-g", "@openai/codex", "--prefix", &target_dir.to_string_lossy()])
-            .output().map_err(|e| format!("npm uninstall 失败: {e}"))?;
-        if target_dir.exists() { std::fs::remove_dir_all(target_dir).ok(); }
+    fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            let status = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Get-AppxPackage OpenAI.Codex | Remove-AppxPackage",
+                ])
+                .spawn()
+                .map_err(|e| format!("启动 Codex 卸载失败: {e}"))?
+                .wait()
+                .map_err(|e| format!("等待 Codex 卸载完成失败: {e}"))?;
+            if !status.success() {
+                return Err(format!("Codex 卸载失败，code: {:?}", status.code()));
+            }
+            return Ok(());
+        }
+
+        #[allow(unreachable_code)]
         Ok(())
     }
 }
