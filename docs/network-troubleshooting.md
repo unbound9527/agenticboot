@@ -1,38 +1,56 @@
 # 网络问题解决指南
 
-AgenticBoot 需要访问 GitHub 和 npm 来下载安装工具。如果你在国内网络环境下遇到连接问题，以下是常见的解决方法。
+AgenticBoot 需要访问 GitHub 和 npm 来下载安装工具。国内网络环境下推荐以下方案。
 
-## 1. 配置 npm 国内镜像
+## 1. 使用代理 / VPN（推荐）
 
-打开终端（CMD 或 PowerShell），执行：
+优先使用代理或 VPN，一劳永逸解决所有网络问题。
+
+### Windows 客户端
+
+| 项目 | 说明 |
+|------|------|
+| [2dust/v2rayN](https://github.com/2dust/v2rayN) | 最稳定的 Windows 客户端，支持 Xray + sing-box，老牌可靠 |
+| [clash-verge-rev/clash-verge-rev](https://github.com/clash-verge-rev/clash-verge-rev) | 基于 Mihomo 内核，界面美观，规则路由强大 |
+| [MatsuriDayo/nekoray](https://github.com/MatsuriDayo/nekoray) | Qt 跨平台客户端，基于 sing-box |
+
+### 多平台
+
+| 项目 | 说明 |
+|------|------|
+| [Hiddify/hiddify-next](https://github.com/hiddify/hiddify-next) | 全平台（Win/Mac/Linux/Android/iOS），专为受限网络优化，自动智能分流 |
+| [SagerNet/sing-box](https://github.com/SagerNet/sing-box) | 通用代理核心平台，新一代协议首选 |
+| [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) | Clash Meta 内核，基于规则的 Go 代理 |
+
+### 辅助工具
+
+| 项目 | 说明 |
+|------|------|
+| [tlanyan/ghproxy](https://github.com/tlanyan/ghproxy) | GitHub 文件加速代理，无需全局代理即可加速 GitHub 下载 |
+
+配置好代理/VPN 后，**开启全局模式**，然后回到 AgenticBoot 点击刷新重新检测。
+
+---
+
+## 2. 配置 npm 国内镜像
+
+如果不想使用 VPN，也可以单独为 npm 配置国内镜像：
 
 ```bash
 npm config set registry https://registry.npmmirror.com
 ```
 
-验证是否生效：
+验证：
 
 ```bash
 npm config get registry
 ```
 
-## 2. 配置 Git 代理
+---
 
-如果你有 VPN 或 HTTP 代理，配置 Git 走代理：
+## 3. 命令行代理配置
 
-```bash
-git config --global http.proxy http://127.0.0.1:你的代理端口
-git config --global https.proxy http://127.0.0.1:你的代理端口
-```
-
-取消代理：
-
-```bash
-git config --global --unset http.proxy
-git config --global --unset https.proxy
-```
-
-## 3. 设置系统环境变量代理
+已有代理但只想让命令行工具走代理：
 
 CMD：
 
@@ -41,25 +59,18 @@ set HTTP_PROXY=http://127.0.0.1:端口
 set HTTPS_PROXY=http://127.0.0.1:端口
 ```
 
-PowerShell：
+Git 代理：
 
-```powershell
-$env:HTTP_PROXY="http://127.0.0.1:端口"
-$env:HTTPS_PROXY="http://127.0.0.1:端口"
+```bash
+git config --global http.proxy http://127.0.0.1:端口
+git config --global https.proxy http://127.0.0.1:端口
 ```
 
-## 4. 系统代理设置
+---
 
-- Windows 设置 → 网络和 Internet → 代理
-- 确保"自动检测设置"已开启，或手动配置代理地址
+## 4. 验证网络连通性
 
-## 5. 使用 VPN
-
-如果以上方法都不行，建议使用 VPN 或网络加速器（如 Clash、V2Ray 等），开启全局模式后重试。
-
-## 6. 验证网络连通性
-
-依次在浏览器中打开以下地址，确认能够访问：
+浏览器依次打开以下地址，确认能访问：
 
 - https://github.com
 - https://www.npmjs.com
