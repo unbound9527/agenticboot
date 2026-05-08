@@ -224,9 +224,13 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 
 // fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>>:
 //   返回包含所有可用插件的列表：
+//     // 依赖项
 //     NodeJsPlugin, GitPlugin,
-//     ClaudeCodePlugin, CodexPlugin, GeminiCliPlugin,
-//     OpenCodePlugin, OpenClawPlugin, HermesPlugin
+//     // CLI 版
+//     ClaudeCodeCliPlugin, CodexCliPlugin, GeminiCliPlugin,
+//     OpenCodeCliPlugin, OpenClawPlugin, HermesPlugin,
+//     // 桌面版
+//     ClaudeCodeDesktopPlugin, CodexDesktopPlugin, OpenCodeDesktopPlugin
 
 // fn get_plugin_by_id(id: &str) -> Option<Box<dyn ToolPlugin>>:
 //   从 get_all_plugins() 中按 id 查找对应插件
@@ -570,27 +574,27 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 
 ---
 
-### 任务 10：AI CLI 工具插件（Claude Code、Codex、Gemini CLI）
+### 任务 10：AI 工具插件 — CLI 版（Claude Code CLI、Codex CLI、Gemini CLI）
 
 **涉及文件：**
-- 创建：`src-tauri/src/plugins/claude_code.rs`
-- 创建：`src-tauri/src/plugins/codex.rs`
+- 创建：`src-tauri/src/plugins/claude_code_cli.rs`
+- 创建：`src-tauri/src/plugins/codex_cli.rs`
 - 创建：`src-tauri/src/plugins/gemini_cli.rs`
 
-- [ ] **步骤 1：实现 Claude Code 插件**
+- [ ] **步骤 1：实现 Claude Code CLI 插件**
 
 ```
-// 伪代码 - ClaudeCodePlugin 实现 ToolPlugin：
+// 伪代码 - ClaudeCodeCliPlugin 实现 ToolPlugin：
 
-// fn metadata() → id: "claude-code", name: "Claude Code", category: "ai-cli"
+// fn metadata() →
+//   id: "claude-code-cli", name: "Claude Code (CLI)", category: "ai-cli"
 
 // fn detect() → 执行 claude --version
 
-// fn get_dependencies() →
-//   [ToolDependency { tool_id: "nodejs", min_version: Some(">= 18.0.0") }]
+// fn get_dependencies() → [依赖 "nodejs" >= 18]
+//   CLI 版通过 npm 安装，需要 Node.js
 
 // fn install(target_dir, progress):
-//   Claude Code 通过 npm 安装
 //   步骤：
 //     1. 设置 npm prefix 为 target_dir
 //     2. 执行：npm install -g @anthropic-ai/claude-code --prefix <target_dir>
@@ -601,19 +605,20 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 // fn uninstall(target_dir):
 //   执行：npm uninstall -g @anthropic-ai/claude-code --prefix <target_dir>
 //   或移除 node_modules 中的对应包
+//   移除 shim
 ```
 
-- [ ] **步骤 2：实现 Codex 插件**
+- [ ] **步骤 2：实现 Codex CLI 插件**
 
 ```
-// 伪代码 - CodexPlugin 实现 ToolPlugin：
+// 伪代码 - CodexCliPlugin 实现 ToolPlugin：
 
-// fn metadata() → id: "codex", name: "Codex", category: "ai-cli"
+// fn metadata() → id: "codex-cli", name: "Codex (CLI)", category: "ai-cli"
 // fn detect() → 执行 codex --version
 // fn get_dependencies() → [依赖 "nodejs" >= 18]
 // fn install(target_dir, progress):
 //   npm install -g @anthropic-ai/codex --prefix <target_dir>
-//   在 <root>/bin/ 创建 codex.cmd shim
+//   创建 <root>/bin/codex.cmd shim
 // fn uninstall(target_dir): npm uninstall 或目录清理
 ```
 
@@ -637,22 +642,118 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 
 ---
 
-### 任务 11：AI CLI 工具插件（OpenCode、OpenClaw、Hermes）
+### 任务 10b：AI 工具插件 — 桌面版（Claude Code Desktop、Codex Desktop、OpenCode Desktop）
 
 **涉及文件：**
-- 创建：`src-tauri/src/plugins/opencode.rs`
+- 创建：`src-tauri/src/plugins/claude_code_desktop.rs`
+- 创建：`src-tauri/src/plugins/codex_desktop.rs`
+- 创建：`src-tauri/src/plugins/opencode_desktop.rs`
+
+- [ ] **步骤 1：实现 Claude Code Desktop 插件**
+
+```
+// 伪代码 - ClaudeCodeDesktopPlugin 实现 ToolPlugin：
+
+// fn metadata() →
+//   id: "claude-code-desktop", name: "Claude Code (桌面版)", category: "ai-cli"
+
+// fn detect() → 检查桌面版安装路径是否存在
+//   默认路径：%LOCALAPPDATA%/Programs/Claude Code/
+
+// fn get_dependencies() → 空数组
+//   桌面版自带运行时，不依赖 Node.js
+
+// fn install(target_dir, progress):
+//   安装 Claude Code 桌面版（Tauri 桌面应用）
+//   步骤：
+//     1. 从 GitHub Releases 或 Anthropic 官方下载 .exe 安装器
+//     2. 执行静默安装：<installer.exe> /S /D=<target_dir>
+//     3. 验证：检查 <target_dir>/Claude Code.exe 是否存在
+//     4. 创建 shim：<root>/bin/claude-desktop.cmd → 启动桌面应用
+//   进度上报："downloading" → "installing" → "configuring" → "complete"
+
+// fn uninstall(target_dir):
+//   执行桌面版卸载程序：<target_dir>/uninstall.exe /S
+//   或直接删除目录
+//   移除 shim
+```
+
+- [ ] **步骤 2：实现 Codex Desktop 插件**
+
+```
+// 伪代码 - CodexDesktopPlugin 实现 ToolPlugin：
+
+// fn metadata() →
+//   id: "codex-desktop", name: "Codex (桌面版)", category: "ai-cli"
+
+// fn detect() → 检查桌面版安装路径
+
+// fn get_dependencies() → 空数组
+//   桌面版自带运行时
+
+// fn install(target_dir, progress):
+//   步骤：
+//     1. 从 GitHub Releases 或 winget 获取 Codex 桌面版安装包
+//     2. 静默安装到 target_dir
+//     3. 验证可执行文件
+//     4. 创建 shim：<root>/bin/codex-desktop.cmd
+//   进度上报："downloading" → "installing" → "complete"
+
+// fn uninstall(target_dir):
+//   执行卸载程序或删除目录，移除 shim
+```
+
+- [ ] **步骤 3：实现 OpenCode Desktop 插件**
+
+```
+// 伪代码 - OpenCodeDesktopPlugin 实现 ToolPlugin：
+
+// fn metadata() →
+//   id: "opencode-desktop", name: "OpenCode (桌面版)", category: "ai-cli"
+
+// fn detect() → 检查桌面版安装路径
+
+// fn get_dependencies() → 空数组
+//   桌面版自带运行时
+
+// fn install(target_dir, progress):
+//   步骤：
+//     1. 从 GitHub Releases 获取最新 OpenCode 桌面版安装包
+//     2. 下载到临时文件，上报下载进度
+//     3. 解压/安装到 target_dir
+//     4. 验证可执行文件
+//     5. 创建 shim：<root>/bin/opencode-desktop.cmd
+//   进度上报："downloading" → "extracting" → "installing" → "complete"
+
+// fn uninstall(target_dir):
+//   删除 target_dir 下文件，移除 shim
+```
+
+- [ ] **步骤 4：在插件注册表中注册全部三个**
+
+- [ ] **步骤 5：提交**
+
+---
+
+### 任务 11：AI 工具插件（OpenCode CLI、OpenClaw、Hermes Web UI）
+
+**涉及文件：**
+- 创建：`src-tauri/src/plugins/opencode_cli.rs`
 - 创建：`src-tauri/src/plugins/openclaw.rs`
 - 创建：`src-tauri/src/plugins/hermes.rs`
 
-- [ ] **步骤 1：实现 OpenCode 插件**
+- [ ] **步骤 1：实现 OpenCode CLI 插件**
 
 ```
-// 伪代码 - OpenCodePlugin 实现 ToolPlugin：
-//   id: "opencode", name: "OpenCode", category: "ai-cli"
-//   detect() → 执行 opencode --version
-//   get_dependencies() → [依赖 "nodejs" >= 18]
-//   install() → npm install -g opencode --prefix <target_dir>，创建 shim
-//   uninstall() → npm uninstall 或目录清理
+// 伪代码 - OpenCodeCliPlugin 实现 ToolPlugin：
+
+// fn metadata() → id: "opencode-cli", name: "OpenCode (CLI)", category: "ai-cli"
+// fn detect() → 执行 opencode --version
+// fn get_dependencies() → [依赖 "nodejs" >= 18]
+// fn install(target_dir, progress):
+//   npm install -g opencode --prefix <target_dir>
+//   创建 shim：<root>/bin/opencode.cmd
+// fn uninstall(target_dir): npm uninstall 或目录清理
 ```
 
 - [ ] **步骤 2：实现 OpenClaw 插件**
@@ -667,15 +768,34 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 //   uninstall() → 删除二进制文件和目录
 ```
 
-- [ ] **步骤 3：实现 Hermes 插件**
+- [ ] **步骤 3：实现 Hermes Web UI 插件**
 
 ```
 // 伪代码 - HermesPlugin 实现 ToolPlugin：
-//   id: "hermes", name: "Hermes", category: "ai-cli"
-//   detect() → 执行 hermes --version
-//   get_dependencies() → [依赖 "nodejs" >= 18]
-//   install() → 从 GitHub Release 下载、解压、创建 shim
-//   uninstall() → 删除二进制文件和目录
+
+// fn metadata() → id: "hermes", name: "Hermes (Web UI)", category: "ai-cli"
+
+// fn detect() → 执行 hermes --version
+//   同时检查 Web UI 服务是否可访问（默认端口 localhost:xxxx）
+
+// fn get_dependencies() → [依赖 "nodejs" >= 18]
+
+// fn install(target_dir, progress):
+//   Hermes 通过 npm 安装，侧重 Web UI 模式
+//   步骤：
+//     1. 设置 npm prefix 为 target_dir
+//     2. 执行：npm install -g hermes --prefix <target_dir>
+//     3. 验证：<target_dir>/bin/hermes --version
+//     4. 创建两个 shim：
+//        <root>/bin/hermes.cmd → 标准 CLI 入口
+//        <root>/bin/hermes-webui.cmd → 启动 Web UI（内容：hermes --webui）
+//        启动后用户浏览器打开 Web UI 交互
+//   进度上报："installing" → "configuring" → "complete"
+
+// fn uninstall(target_dir):
+//   执行：npm uninstall -g hermes --prefix <target_dir>
+//   移除 hermes.cmd 和 hermes-webui.cmd 两个 shim
+//   或直接删除 node_modules 中的对应包
 ```
 
 - [ ] **步骤 4：在插件注册表中注册全部三个**
@@ -1037,11 +1157,21 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 //   installPlan: InstallPlan | null = null
 
 // 第 3 步 UI（工具选择）:
-//   6 个工具的网格布局，每个卡片显示：
+//   工具网格布局，每个卡片显示：
 //     - 图标
 //     - 名称 + 简短描述
 //     - 勾选框（默认全选）
-//     - "依赖: Node.js" 标签
+//     - "依赖: Node.js" 标签（仅 CLI 版）
+//   CLI 版和桌面版分开展示，如：
+//     Claude Code (CLI)     — 需要 Node.js
+//     Claude Code (桌面版)   — 无需额外依赖
+//     Codex (CLI)           — 需要 Node.js
+//     Codex (桌面版)         — 无需额外依赖
+//     OpenCode (CLI)        — 需要 Node.js
+//     OpenCode (桌面版)      — 无需额外依赖
+//     Gemini CLI            — 需要 Node.js
+//     OpenClaw              — 需要 Node.js
+//     Hermes (Web UI)       — 需要 Node.js
 //   "全部勾选" / "全部取消" 切换按钮
 //   "上一步"和"开始安装"按钮
 //

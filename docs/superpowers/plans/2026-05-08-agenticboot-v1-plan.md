@@ -240,14 +240,20 @@ git commit -m "feat: add core data types for tool management"
 //
 // fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
 //     vec![
+//         // Dependencies
 //         Box::new(NodeJsPlugin),
 //         Box::new(GitPlugin),
-//         Box::new(ClaudeCodePlugin),
-//         Box::new(CodexPlugin),
+//         // CLI versions
+//         Box::new(ClaudeCodeCliPlugin),
+//         Box::new(CodexCliPlugin),
 //         Box::new(GeminiCliPlugin),
-//         Box::new(OpenCodePlugin),
+//         Box::new(OpenCodeCliPlugin),
 //         Box::new(OpenClawPlugin),
 //         Box::new(HermesPlugin),
+//         // Desktop versions
+//         Box::new(ClaudeCodeDesktopPlugin),
+//         Box::new(CodexDesktopPlugin),
+//         Box::new(OpenCodeDesktopPlugin),
 //     ]
 // }
 //
@@ -621,59 +627,50 @@ git commit -m "feat: add Node.js and Git dependency plugins"
 
 ---
 
-### Task 10: AI CLI Tool Plugins (Claude Code, Codex, Gemini CLI)
+### Task 10: AI Tool Plugins — CLI (Claude Code CLI, Codex CLI, Gemini CLI)
 
 **Files:**
-- Create: `src-tauri/src/plugins/claude_code.rs`
-- Create: `src-tauri/src/plugins/codex.rs`
+- Create: `src-tauri/src/plugins/claude_code_cli.rs`
+- Create: `src-tauri/src/plugins/codex_cli.rs`
 - Create: `src-tauri/src/plugins/gemini_cli.rs`
 
-- [ ] **Step 1: Implement Claude Code plugin**
+- [ ] **Step 1: Implement Claude Code CLI plugin**
 
 ```
-// Pseudocode - ClaudeCodePlugin implements ToolPlugin:
+// Pseudocode - ClaudeCodeCliPlugin implements ToolPlugin:
 
-// fn metadata() -> ToolMeta:
-//   id: "claude-code", name: "Claude Code", category: "ai-cli"
+// fn metadata() →
+//   id: "claude-code-cli", name: "Claude Code (CLI)", category: "ai-cli"
 
-// fn detect() -> DetectResult:
-//   // Run: claude --version
-//   // If success → installed=true
-
-// fn get_dependencies() -> Vec<ToolDependency>:
-//   vec![ToolDependency { tool_id: "nodejs", min_version: Some(">= 18.0.0") }]
-
-// fn install(target_dir: &Path, progress: Sender<InstallProgress>):
-//   // Claude Code is installed via npm install -g @anthropic-ai/claude-code
-//   // But since we're managing paths ourselves:
-//   //   1. Set npm prefix to target_dir
-//   //   2. Run: npm install -g @anthropic-ai/claude-code --prefix <target_dir>
-//   //   3. Verify: <target_dir>/bin/claude --version
-//   //   4. Create shim: agenticboot.cmd → claude
-//   //   Progress: report "installing" → "configuring" → "complete"
-
-// fn uninstall(target_dir: &Path) -> Result<(), String>:
-//   // Run: npm uninstall -g @anthropic-ai/claude-code --prefix <target_dir>
-//   // Or: remove <target_dir>/node_modules/@anthropic-ai/claude-code
-```
-
-- [ ] **Step 2: Implement Codex plugin**
-
-```
-// Pseudocode - CodexPlugin implements ToolPlugin:
-
-// fn metadata() → id: "codex", name: "Codex", category: "ai-cli"
-
-// fn detect() → Run: codex --version
+// fn detect() → Run: claude --version
 
 // fn get_dependencies() → [depends on "nodejs" >= 18]
+//   CLI version installs via npm, needs Node.js
 
 // fn install(target_dir, progress):
-//   // npm install -g @anthropic-ai/codex --prefix <target_dir>
-//   // Create shim at <root>/bin/codex.cmd
+//   1. Set npm prefix to target_dir
+//   2. Run: npm install -g @anthropic-ai/claude-code --prefix <target_dir>
+//   3. Verify: <target_dir>/bin/claude --version
+//   4. Create shim: <root>/bin/claude.cmd
+//   Progress: "installing" → "configuring" → "complete"
 
 // fn uninstall(target_dir):
-//   // npm uninstall or directory removal
+//   Run: npm uninstall -g @anthropic-ai/claude-code --prefix <target_dir>
+//   Remove shim
+```
+
+- [ ] **Step 2: Implement Codex CLI plugin**
+
+```
+// Pseudocode - CodexCliPlugin implements ToolPlugin:
+
+// fn metadata() → id: "codex-cli", name: "Codex (CLI)", category: "ai-cli"
+// fn detect() → Run: codex --version
+// fn get_dependencies() → [depends on "nodejs" >= 18]
+// fn install(target_dir, progress):
+//   npm install -g @anthropic-ai/codex --prefix <target_dir>
+//   Create shim at <root>/bin/codex.cmd
+// fn uninstall(target_dir): npm uninstall or directory removal
 ```
 
 - [ ] **Step 3: Implement Gemini CLI plugin**
@@ -682,108 +679,163 @@ git commit -m "feat: add Node.js and Git dependency plugins"
 // Pseudocode - GeminiCliPlugin implements ToolPlugin:
 
 // fn metadata() → id: "gemini-cli", name: "Gemini CLI", category: "ai-cli"
-
 // fn detect() → Run: gemini --version
-
 // fn get_dependencies() → [depends on "nodejs" >= 18]
-
 // fn install(target_dir, progress):
-//   // npm install -g @anthropic-ai/gemini-cli --prefix <target_dir>
-//   // Create shim
-
-// fn uninstall(target_dir):
-//   // npm uninstall or directory removal
+//   npm install -g @anthropic-ai/gemini-cli --prefix <target_dir>
+//   Create shim
+// fn uninstall(target_dir): npm uninstall or directory removal
 ```
 
 - [ ] **Step 4: Register in plugin registry**
-
-Update `get_all_plugins()` to include these three plugins.
 
 - [ ] **Step 5: Commit**
 
 ```
 git add src-tauri/src/plugins/ src-tauri/src/plugin.rs
-git commit -m "feat: add Claude Code, Codex, and Gemini CLI plugins"
+git commit -m "feat: add Claude Code CLI, Codex CLI, and Gemini CLI plugins"
 ```
 
 ---
 
-### Task 11: AI CLI Tool Plugins (OpenCode, OpenClaw, Hermes)
+### Task 10b: AI Tool Plugins — Desktop (Claude Code Desktop, Codex Desktop, OpenCode Desktop)
 
 **Files:**
-- Create: `src-tauri/src/plugins/opencode.rs`
+- Create: `src-tauri/src/plugins/claude_code_desktop.rs`
+- Create: `src-tauri/src/plugins/codex_desktop.rs`
+- Create: `src-tauri/src/plugins/opencode_desktop.rs`
+
+- [ ] **Step 1: Implement Claude Code Desktop plugin**
+
+```
+// Pseudocode - ClaudeCodeDesktopPlugin implements ToolPlugin:
+
+// fn metadata() →
+//   id: "claude-code-desktop", name: "Claude Code (Desktop)", category: "ai-cli"
+
+// fn detect() → check default install path: %LOCALAPPDATA%/Programs/Claude Code/
+
+// fn get_dependencies() → vec![]
+//   Desktop app bundles its own runtime
+
+// fn install(target_dir, progress):
+//   1. Download .exe installer from GitHub Releases or Anthropic official
+//   2. Silent install: <installer.exe> /S /D=<target_dir>
+//   3. Verify: check <target_dir>/Claude Code.exe exists
+//   4. Create shim: <root>/bin/claude-desktop.cmd → launch desktop app
+//   Progress: "downloading" → "installing" → "configuring" → "complete"
+
+// fn uninstall(target_dir):
+//   Run: <target_dir>/uninstall.exe /S
+//   Or delete directory + remove shim
+```
+
+- [ ] **Step 2: Implement Codex Desktop plugin**
+
+```
+// Pseudocode - CodexDesktopPlugin implements ToolPlugin:
+
+// fn metadata() →
+//   id: "codex-desktop", name: "Codex (Desktop)", category: "ai-cli"
+// fn detect() → check desktop install path
+// fn get_dependencies() → vec![]
+// fn install(target_dir, progress):
+//   Download from GitHub Releases or winget
+//   Silent install to target_dir, verify, create shim
+// fn uninstall(target_dir): run uninstaller or delete directory
+```
+
+- [ ] **Step 3: Implement OpenCode Desktop plugin**
+
+```
+// Pseudocode - OpenCodeDesktopPlugin implements ToolPlugin:
+
+// fn metadata() →
+//   id: "opencode-desktop", name: "OpenCode (Desktop)", category: "ai-cli"
+// fn detect() → check desktop install path
+// fn get_dependencies() → vec![]
+// fn install(target_dir, progress):
+//   Download from GitHub Releases, extract/install to target_dir
+//   Verify executable, create shim
+// fn uninstall(target_dir): delete files and directory
+```
+
+- [ ] **Step 4: Register in plugin registry**
+
+- [ ] **Step 5: Commit**
+
+```
+git add src-tauri/src/plugins/ src-tauri/src/plugin.rs
+git commit -m "feat: add Claude Code Desktop, Codex Desktop, and OpenCode Desktop plugins"
+```
+
+---
+
+### Task 11: AI Tool Plugins (OpenCode CLI, OpenClaw, Hermes Web UI)
+
+**Files:**
+- Create: `src-tauri/src/plugins/opencode_cli.rs`
 - Create: `src-tauri/src/plugins/openclaw.rs`
 - Create: `src-tauri/src/plugins/hermes.rs`
 
-- [ ] **Step 1: Implement OpenCode plugin**
+- [ ] **Step 1: Implement OpenCode CLI plugin**
 
 ```
-// Pseudocode - OpenCodePlugin implements ToolPlugin:
+// Pseudocode - OpenCodeCliPlugin implements ToolPlugin:
 
-// fn metadata() → id: "opencode", name: "OpenCode", category: "ai-cli"
-
-// fn detect() → Run: opencode --version (or check executable)
-
+// fn metadata() → id: "opencode-cli", name: "OpenCode (CLI)", category: "ai-cli"
+// fn detect() → Run: opencode --version
 // fn get_dependencies() → [depends on "nodejs" >= 18]
-
 // fn install(target_dir, progress):
-//   // OpenCode is distributed via GitHub Releases + npm
-//   // Primary: npm install -g opencode --prefix <target_dir>
-//   // Verify after install
-//   // Create shim
-
-// fn uninstall(target_dir):
-//   // npm uninstall or directory cleanup
+//   npm install -g opencode --prefix <target_dir>
+//   Create shim at <root>/bin/opencode.cmd
+// fn uninstall(target_dir): npm uninstall or directory cleanup
 ```
 
 - [ ] **Step 2: Implement OpenClaw plugin**
 
 ```
 // Pseudocode - OpenClawPlugin implements ToolPlugin:
-
-// fn metadata() → id: "openclaw", name: "OpenClaw", category: "ai-cli"
-
-// fn detect() → Run: openclaw --version
-
-// fn get_dependencies() → [depends on "nodejs" >= 18]
-
-// fn install(target_dir, progress):
-//   // GitHub Release download (binary)
-//   //   Fetch latest release from GitHub API
-//   //   Download the Windows x64 binary
-//   //   Extract to target_dir
-//   //   Create shim
-
-// fn uninstall(target_dir):
-//   // Remove binary and directory
+//   id: "openclaw", name: "OpenClaw", category: "ai-cli"
+//   detect() → Run: openclaw --version
+//   get_dependencies() → [depends on "nodejs" >= 18]
+//   install() → Download binary from GitHub Release, extract, create shim
+//   uninstall() → Remove binary and directory
 ```
 
-- [ ] **Step 3: Implement Hermes plugin**
+- [ ] **Step 3: Implement Hermes Web UI plugin**
 
 ```
 // Pseudocode - HermesPlugin implements ToolPlugin:
 
-// fn metadata() → id: "hermes", name: "Hermes", category: "ai-cli"
+// fn metadata() → id: "hermes", name: "Hermes (Web UI)", category: "ai-cli"
 
 // fn detect() → Run: hermes --version
+//   Also check if Web UI is reachable at default port
 
 // fn get_dependencies() → [depends on "nodejs" >= 18]
 
 // fn install(target_dir, progress):
-//   // GitHub Release download
-//   // Download, extract, create shim
+//   1. Set npm prefix to target_dir
+//   2. Run: npm install -g hermes --prefix <target_dir>
+//   3. Verify: <target_dir>/bin/hermes --version
+//   4. Create two shims:
+//      <root>/bin/hermes.cmd → standard CLI entry
+//      <root>/bin/hermes-webui.cmd → launches Web UI
+//   Progress: "installing" → "configuring" → "complete"
 
 // fn uninstall(target_dir):
-//   // Remove binary and directory
+//   Run: npm uninstall -g hermes --prefix <target_dir>
+//   Remove both hermes.cmd and hermes-webui.cmd shims
 ```
 
-- [ ] **Step 4: Register all three in plugin registry**
+- [ ] **Step 4: Register in plugin registry**
 
 - [ ] **Step 5: Commit**
 
 ```
 git add src-tauri/src/plugins/ src-tauri/src/plugin.rs
-git commit -m "feat: add OpenCode, OpenClaw, and Hermes plugins"
+git commit -m "feat: add OpenCode CLI, OpenClaw, and Hermes Web UI plugins"
 ```
 
 ---
