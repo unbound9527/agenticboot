@@ -113,7 +113,7 @@ Issues and PRs welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-MIT © [YiYun Zhang](https://github.com/unbound9527)
+MIT © [unbound9527](https://github.com/unbound9527)
 
 ---
 
@@ -180,4 +180,4 @@ curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/instal
 
 ### 许可证
 
-MIT © [YiYun Zhang](https://github.com/unbound9527)
+MIT © [unbound9527](https://github.com/unbound9527)

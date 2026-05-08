@@ -133,4 +133,4 @@ curl -fsSL https://raw.githubusercontent.com/unbound9527/agenticboot/main/instal
 
 ## License
 
-MIT © YiYun Zhang
+MIT © [unbound9527](https://github.com/unbound9527)
