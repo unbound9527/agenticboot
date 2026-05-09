@@ -71,7 +71,7 @@ const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
   },
 ];
 
-const DEFAULT_ROOT = "D:\\AITools";
+const DEFAULT_ROOT = "D:\\AgenticBoot";
 
 interface WizardProps {
   onComplete: () => void;
@@ -112,6 +112,20 @@ export function Wizard({
   const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    toolsApi.getInstallRoot().then((savedRoot) => {
+      if (!cancelled && savedRoot) {
+        setRootPath(savedRoot);
+      }
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
@@ -373,7 +387,7 @@ export function Wizard({
               id="install-root"
               value={rootPath}
               onChange={(e) => setRootPath(e.target.value)}
-              placeholder="D:\\AITools"
+              placeholder={DEFAULT_ROOT}
               className="font-mono text-sm"
             />
             <Button

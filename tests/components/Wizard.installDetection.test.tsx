@@ -56,7 +56,29 @@ describe("Wizard install detection", () => {
     toolsApiMock.detectTools.mockResolvedValue(
       buildDetectResults(["claude-code-cli"]),
     );
+    toolsApiMock.getInstallRoot.mockReset();
+    toolsApiMock.getInstallRoot.mockResolvedValue(null);
     toolsApiMock.onInstallProgress.mockResolvedValue(() => {});
+  });
+
+  it("uses D:\\AgenticBoot by default when there is no saved install root", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticBoot",
+      );
+    });
+
+    expect(screen.getByDisplayValue("D:\\AgenticBoot")).toHaveAttribute(
+      "placeholder",
+      "D:\\AgenticBoot",
+    );
   });
 
   it("re-runs detection when the install root changes and removes installed tools from selection", async () => {
@@ -69,7 +91,7 @@ describe("Wizard install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AITools",
+        "D:\\AgenticBoot",
       );
     });
 
@@ -77,7 +99,7 @@ describe("Wizard install detection", () => {
       expect(screen.getAllByRole("checkbox")).toHaveLength(8);
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AITools"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
       target: { value: "E:\\CustomTools" },
     });
 
@@ -110,7 +132,7 @@ describe("Wizard install detection", () => {
       expect(codexCheckbox).toHaveAttribute("data-state", "unchecked");
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AITools"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
       target: { value: "E:\\CustomTools" },
     });
 
@@ -145,7 +167,7 @@ describe("Wizard install detection", () => {
       expect(screen.getAllByRole("checkbox")).toHaveLength(8);
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AITools"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
       target: { value: "E:\\CustomTools" },
     });
 
