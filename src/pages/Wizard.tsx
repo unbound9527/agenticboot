@@ -72,6 +72,7 @@ const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
 ];
 
 const DEFAULT_ROOT = "D:\\AgenticBoot";
+const INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS = 500;
 
 interface WizardProps {
   onComplete: () => void;
@@ -116,22 +117,40 @@ export function Wizard({
 
   useEffect(() => {
     let cancelled = false;
+    let settled = false;
+    const fallbackTimer = setTimeout(() => {
+      if (!cancelled && !settled) {
+        settled = true;
+        setIsInstallRootReady(true);
+      }
+    }, INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS);
 
     toolsApi.getInstallRoot()
       .then((savedRoot) => {
-        if (!cancelled && savedRoot) {
+        if (cancelled || settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(fallbackTimer);
+
+        if (savedRoot) {
           setRootPath(savedRoot);
         }
+        setIsInstallRootReady(true);
       })
       .catch(() => {})
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelled && !settled) {
+          settled = true;
+          clearTimeout(fallbackTimer);
           setIsInstallRootReady(true);
         }
       });
 
     return () => {
       cancelled = true;
+      clearTimeout(fallbackTimer);
     };
   }, []);
 

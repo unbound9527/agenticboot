@@ -106,7 +106,7 @@ describe("Wizard install detection", () => {
       );
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
+        await vi.advanceTimersByTimeAsync(400);
       });
       expect(toolsApiMock.detectTools).not.toHaveBeenCalled();
 
@@ -126,6 +126,39 @@ describe("Wizard install detection", () => {
       );
       expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
       expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to D:\\AgenticBoot when install-root loading hangs", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const deferredRoot = createDeferred<string | null>();
+      toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <Wizard onComplete={vi.fn()} />
+        </QueryClientProvider>,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(toolsApiMock.detectTools).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticBoot",
+      );
+      expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
+      expect(screen.getByDisplayValue("D:\\AgenticBoot")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
