@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Wizard } from "@/pages/Wizard";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -45,6 +45,16 @@ function buildDetectResults(installedIds: string[]) {
   }));
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Wizard install detection", () => {
   beforeEach(() => {
     toolsApiMock.checkNetwork.mockResolvedValue({
@@ -79,6 +89,46 @@ describe("Wizard install detection", () => {
       "placeholder",
       "D:\\AgenticBoot",
     );
+  });
+
+  it("waits for the saved install root before starting initial detection", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const savedRoot = "E:\\SavedTools";
+      const deferredRoot = createDeferred<string | null>();
+      toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <Wizard onComplete={vi.fn()} />
+        </QueryClientProvider>,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(toolsApiMock.detectTools).not.toHaveBeenCalled();
+
+      await act(async () => {
+        deferredRoot.resolve(savedRoot);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        savedRoot,
+      );
+      expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
+      expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-runs detection when the install root changes and removes installed tools from selection", async () => {

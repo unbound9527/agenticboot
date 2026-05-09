@@ -106,6 +106,7 @@ export function Wizard({
 }: WizardProps) {
   const { t } = useTranslation();
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
+  const [isInstallRootReady, setIsInstallRootReady] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
@@ -116,11 +117,18 @@ export function Wizard({
   useEffect(() => {
     let cancelled = false;
 
-    toolsApi.getInstallRoot().then((savedRoot) => {
-      if (!cancelled && savedRoot) {
-        setRootPath(savedRoot);
-      }
-    }).catch(() => {});
+    toolsApi.getInstallRoot()
+      .then((savedRoot) => {
+        if (!cancelled && savedRoot) {
+          setRootPath(savedRoot);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) {
+          setIsInstallRootReady(true);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -153,6 +161,10 @@ export function Wizard({
   );
 
   useEffect(() => {
+    if (!isInstallRootReady) {
+      return;
+    }
+
     let cancelled = false;
     const timer = setTimeout(() => {
       refreshDetectedTools(false).catch(() => {
@@ -168,7 +180,7 @@ export function Wizard({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [refreshDetectedTools]);
+  }, [isInstallRootReady, refreshDetectedTools]);
 
   const {
     data: netStatus,
