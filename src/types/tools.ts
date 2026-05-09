@@ -41,6 +41,45 @@ export interface InstallProgress {
   message: string;
 }
 
+export type InstallLogLevel =
+  | "info"
+  | "stdout"
+  | "stderr"
+  | "success"
+  | "error";
+
+export type InstallLogKind =
+  | "session-started"
+  | "phase"
+  | "command"
+  | "output"
+  | "result";
+
+export interface InstallLogEvent {
+  toolId: string;
+  toolName: string;
+  sessionId: string;
+  timestamp: string;
+  phase?: string;
+  level: InstallLogLevel;
+  kind: InstallLogKind;
+  line: string;
+  command?: string;
+  exitCode?: number | null;
+}
+
+export interface ToolInstallSession {
+  toolId: string;
+  toolName: string;
+  sessionId: string;
+  status: "running" | "complete" | "error";
+  startedAt: string;
+  endedAt?: string;
+  lastSummary?: string;
+  installPath?: string;
+  entries: InstallLogEvent[];
+}
+
 export interface InstalledTool {
   id: string;
   name: string;

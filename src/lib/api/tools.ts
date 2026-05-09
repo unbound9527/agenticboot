@@ -6,6 +6,7 @@ import type {
   NetworkStatus,
   DetectResult,
   InstallPlan,
+  InstallLogEvent,
   InstallProgress,
   InstalledTool,
   ToolUpdateInfo,
@@ -103,6 +104,12 @@ export const toolsApi = {
     callback: (progress: InstallProgress) => void,
   ): Promise<UnlistenFn> {
     return listen<InstallProgress>("install-progress", (event) => {
+      callback(event.payload);
+    });
+  },
+
+  onInstallLog(callback: (event: InstallLogEvent) => void): Promise<UnlistenFn> {
+    return listen<InstallLogEvent>("install-log", (event) => {
       callback(event.payload);
     });
   },
