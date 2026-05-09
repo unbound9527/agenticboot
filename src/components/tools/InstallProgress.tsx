@@ -1,11 +1,11 @@
 // 安装进度展示组件
 
-import { CheckCircle, Loader2, XCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { useInstallProgress } from '@/hooks/useInstallProgress';
-import { useTranslation } from 'react-i18next';
-import type { InstallPlan } from '@/types/tools';
+import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { useInstallProgress } from "@/hooks/useInstallProgress";
+import { useTranslation } from "react-i18next";
+import type { InstallPlan } from "@/types/tools";
 
 interface InstallProgressProps {
   installPlan: InstallPlan;
@@ -23,31 +23,31 @@ export function InstallProgress({
     (installPlan.steps.filter(
       (s) =>
         s.isInstalled ||
-        getToolProgress(s.toolId)?.phase === 'complete' ||
-        getToolProgress(s.toolId)?.phase === 'skipped'
+        getToolProgress(s.toolId)?.phase === "complete" ||
+        getToolProgress(s.toolId)?.phase === "skipped",
     ).length /
       installPlan.steps.length) *
-      100
+      100,
   );
 
   const getPhaseLabel = (phase: string | undefined): string => {
     switch (phase) {
-      case 'downloading':
-        return '> 正在下载...';
-      case 'extracting':
-        return '> 正在解压...';
-      case 'installing':
-        return '> 正在安装...';
-      case 'configuring':
-        return '> 正在配置...';
-      case 'complete':
-        return '> [OK] 安装完成';
-      case 'error':
-        return '> [ERROR] 安装失败';
-      case 'skipped':
-        return '> [SKIP] 已安装，跳过';
+      case "downloading":
+        return "> 正在下载...";
+      case "extracting":
+        return "> 正在解压...";
+      case "installing":
+        return "> 正在安装...";
+      case "configuring":
+        return "> 正在配置...";
+      case "complete":
+        return "> [OK] 安装完成";
+      case "error":
+        return "> [ERROR] 安装失败";
+      case "skipped":
+        return "> [SKIP] 已安装，跳过";
       default:
-        return '> 等待中...';
+        return "> 等待中...";
     }
   };
 
@@ -67,11 +67,13 @@ export function InstallProgress({
             {installPlan.steps.map((step) => {
               const progress = getToolProgress(step.toolId);
               const isComplete =
-                step.isInstalled || progress?.phase === 'complete' || progress?.phase === 'skipped';
-              const isError = progress?.phase === 'error';
+                step.isInstalled ||
+                progress?.phase === "complete" ||
+                progress?.phase === "skipped";
+              const isError = progress?.phase === "error";
               const isActive =
                 progress &&
-                !['complete', 'error', 'skipped'].includes(progress.phase);
+                !["complete", "error", "skipped"].includes(progress.phase);
 
               return (
                 <div key={step.toolId} className="flex items-center gap-3">
@@ -88,7 +90,9 @@ export function InstallProgress({
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`font-medium ${isError ? 'line-through text-red-500' : ''}`}>
+                      <span
+                        className={`font-medium ${isError ? "line-through text-red-500" : ""}`}
+                      >
                         {step.toolName}
                       </span>
                       {isError && progress?.message && (
@@ -97,9 +101,16 @@ export function InstallProgress({
                         </span>
                       )}
                     </div>
-                    <p className={`text-xs ${isActive ? 'text-muted-foreground' : isError ? 'text-red-400' : 'text-green-600'}`}>
+                    <p
+                      className={`text-xs ${isActive ? "text-muted-foreground" : isError ? "text-red-400" : "text-green-600"}`}
+                    >
                       {getPhaseLabel(progress?.phase)}
                     </p>
+                    {progress?.message && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {progress.message}
+                      </p>
+                    )}
                     {/* Step progress bar */}
                     {isActive && (
                       <Progress
@@ -121,9 +132,8 @@ export function InstallProgress({
             </div>
             <Progress value={overallPercent} className="h-3" />
             <p className="text-xs text-muted-foreground">
-              {Math.round(
-                (overallPercent * installPlan.steps.length) / 100
-              )} / {installPlan.steps.length} 个工具
+              {Math.round((overallPercent * installPlan.steps.length) / 100)} /{" "}
+              {installPlan.steps.length} 个工具
             </p>
           </div>
         </div>
@@ -136,10 +146,10 @@ export function InstallProgress({
             <CheckCircle className="h-10 w-10" />
           </div>
           <p className="text-xl font-semibold">
-            {t('tools.installComplete', '安装完成！')}
+            {t("tools.installComplete", "安装完成！")}
           </p>
           <Button variant="default" onClick={onComplete}>
-            {t('tools.enterManager', '进入管理')}
+            {t("tools.enterManager", "进入管理")}
           </Button>
         </div>
       )}
@@ -150,11 +160,11 @@ export function InstallProgress({
             <XCircle className="h-10 w-10" />
           </div>
           <p className="text-sm text-muted-foreground">
-            {t('tools.installPartial', '部分工具安装失败，可稍后重试')}
+            {t("tools.installPartial", "部分工具安装失败，可稍后重试")}
           </p>
           <div className="flex justify-center gap-3">
             <Button variant="outline" onClick={onComplete}>
-              {t('tools.skipForNow', '暂时跳过')}
+              {t("tools.skipForNow", "暂时跳过")}
             </Button>
           </div>
         </div>

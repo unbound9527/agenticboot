@@ -1,8 +1,6 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::find_uninstall_entry_ex;
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,11 +25,14 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
 
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
         if let Some(entry) = find_uninstall_entry_ex(&["OpenCode"], &["CLI", "npm"]) {
-            let install_path = entry
-                .install_location
-                .or(entry.display_icon.and_then(|path| path.parent().map(PathBuf::from)));
+            let install_path = entry.install_location.or(entry
+                .display_icon
+                .and_then(|path| path.parent().map(PathBuf::from)));
 
-            debug!("detected OpenCode desktop: version={:?}, path={:?}", entry.display_version, install_path);
+            debug!(
+                "detected OpenCode desktop: version={:?}, path={:?}",
+                entry.display_version, install_path
+            );
             return DetectResult {
                 installed: true,
                 version: entry.display_version,
@@ -48,7 +49,12 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, _target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-desktop".into(),
             tool_name: "OpenCode 桌面版".into(),
@@ -75,13 +81,21 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
             .wait()
             .map_err(|e| format!("等待 OpenCode 安装程序结束失败: {e}"))?;
         if !status.success() {
-            return Err(format!("OpenCode 安装程序异常退出，code: {:?}", status.code()));
+            return Err(format!(
+                "OpenCode 安装程序异常退出，code: {:?}",
+                status.code()
+            ));
         }
         Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-desktop".into(),
             tool_name: "OpenCode 桌面版".into(),
@@ -102,7 +116,9 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
         );
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
-        rt.block_on(async { crate::services::downloader::download_file(&url, &tar_path, None).await })?;
+        rt.block_on(async {
+            crate::services::downloader::download_file(&url, &tar_path, None).await
+        })?;
 
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-desktop".into(),
@@ -137,7 +153,10 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     #[cfg(not(target_os = "windows"))]
     fn fetch_latest_version() -> Result<String, String> {
         let output = std::process::Command::new("curl")
-            .args(["-s", "https://api.github.com/repos/opencode-ai/opencode/releases/latest"])
+            .args([
+                "-s",
+                "https://api.github.com/repos/opencode-ai/opencode/releases/latest",
+            ])
             .output()
             .map_err(|e| format!("获取版本失败: {e}"))?;
         let text = String::from_utf8_lossy(&output.stdout);
@@ -157,11 +176,25 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     fn get_os_arch() -> (&'static str, &'static str) {
         #[cfg(target_os = "macos")]
         {
-            ("mac", if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" })
+            (
+                "mac",
+                if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x86_64"
+                },
+            )
         }
         #[cfg(target_os = "linux")]
         {
-            ("linux", if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" })
+            (
+                "linux",
+                if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x86_64"
+                },
+            )
         }
     }
 
@@ -177,7 +210,10 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
                         .wait()
                         .map_err(|e| format!("等待 OpenCode 卸载程序结束失败: {e}"))?;
                     if !status.success() {
-                        return Err(format!("OpenCode 卸载程序异常退出，code: {:?}", status.code()));
+                        return Err(format!(
+                            "OpenCode 卸载程序异常退出，code: {:?}",
+                            status.code()
+                        ));
                     }
                     return Ok(());
                 }

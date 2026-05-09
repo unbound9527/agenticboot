@@ -61,7 +61,10 @@ fn compare_semver(a: &str, b: &str) -> i32 {
 ///
 /// # Returns
 /// 安装计划（按依赖顺序排列，依赖在前，目标工具在后）
-pub fn resolve_install_plan(tool_ids: &[String], install_root: Option<&Path>) -> Result<InstallPlan, String> {
+pub fn resolve_install_plan(
+    tool_ids: &[String],
+    install_root: Option<&Path>,
+) -> Result<InstallPlan, String> {
     // 第一步：收集所有被请求的工具及其传递依赖
     let mut all_ids = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::from(tool_ids.to_vec());
@@ -82,7 +85,11 @@ pub fn resolve_install_plan(tool_ids: &[String], install_root: Option<&Path>) ->
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
     for id in &all_ids {
         if let Some(plugin) = get_plugin_by_id(id) {
-            let deps: Vec<String> = plugin.dependencies().into_iter().map(|d| d.tool_id).collect();
+            let deps: Vec<String> = plugin
+                .dependencies()
+                .into_iter()
+                .map(|d| d.tool_id)
+                .collect();
             graph.insert(id.clone(), deps);
         }
     }

@@ -7,8 +7,8 @@ pub mod dependency_resolver;
 pub mod path_manager;
 pub mod windows;
 
-use crate::database::InstalledToolRecord;
 use crate::database::Database;
+use crate::database::InstalledToolRecord;
 use crate::plugin::get_plugin_by_id;
 use crate::services::installer::windows::{find_managed_executable, npm_prefix_candidates};
 use crate::tool_types::{
@@ -310,13 +310,11 @@ impl InstallerService {
             .get_installed_tool(tool_id)
             .map_err(|e| format!("查询工具记录失败: {e}"))?
             .ok_or_else(|| format!("未找到已安装工具: {tool_id}"))?;
-        let plugin =
-            get_plugin_by_id(tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+        let plugin = get_plugin_by_id(tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
 
         let target_dir = Path::new(&record.install_path);
         let strategy = plugin.install_strategy();
-        let owned_by_root =
-            is_install_owned_by_root(Path::new(&record.install_root), target_dir);
+        let owned_by_root = is_install_owned_by_root(Path::new(&record.install_root), target_dir);
 
         let uninstall_result = plugin.uninstall(target_dir);
 
@@ -333,8 +331,7 @@ impl InstallerService {
         }
 
         if should_delete_install_dir(strategy, owned_by_root) && target_dir.exists() {
-            std::fs::remove_dir_all(target_dir)
-                .map_err(|e| format!("删除安装目录失败: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除安装目录失败: {e}"))?;
         }
 
         db.delete_installed_tool(tool_id)

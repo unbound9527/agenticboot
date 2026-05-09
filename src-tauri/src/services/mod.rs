@@ -1,7 +1,7 @@
 pub mod balance;
-pub mod downloader;
 pub mod coding_plan;
 pub mod config;
+pub mod downloader;
 pub mod env_checker;
 pub mod env_manager;
 pub mod installer;

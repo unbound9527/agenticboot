@@ -15,8 +15,7 @@ impl PathManager {
 
     pub fn ensure_bin_dir(&self) -> Result<PathBuf, String> {
         let bin_dir = self.root_dir.join("bin");
-        fs::create_dir_all(&bin_dir)
-            .map_err(|e| format!("创建 bin 目录失败: {e}"))?;
+        fs::create_dir_all(&bin_dir).map_err(|e| format!("创建 bin 目录失败: {e}"))?;
         Ok(bin_dir)
     }
 
@@ -98,8 +97,7 @@ impl PathManager {
             normalize_windows_exe(target_exe)
         );
 
-        fs::write(&shim_path, content)
-            .map_err(|e| format!("创建 shim 失败: {e}"))?;
+        fs::write(&shim_path, content).map_err(|e| format!("创建 shim 失败: {e}"))?;
         Ok(())
     }
 
@@ -110,8 +108,7 @@ impl PathManager {
     pub fn remove_shim(&self, shim_name: &str) -> Result<(), String> {
         let shim_path = self.root_dir.join("bin").join(format!("{shim_name}.cmd"));
         if shim_path.exists() {
-            fs::remove_file(&shim_path)
-                .map_err(|e| format!("删除 shim 失败: {e}"))?;
+            fs::remove_file(&shim_path).map_err(|e| format!("删除 shim 失败: {e}"))?;
         }
         Ok(())
     }
@@ -178,8 +175,11 @@ mod tests {
         let pm = PathManager::new(tmp.path());
         let shim_path = tmp.path().join("bin").join("claude.cmd");
 
-        pm.create_cmd_shim("claude", Path::new("D:\\AITools\\claude-code-cli\\claude.cmd"))
-            .unwrap();
+        pm.create_cmd_shim(
+            "claude",
+            Path::new("D:\\AITools\\claude-code-cli\\claude.cmd"),
+        )
+        .unwrap();
         assert!(shim_path.exists());
 
         let content = fs::read_to_string(&shim_path).unwrap();

@@ -52,6 +52,7 @@ describe("Wizard install detection", () => {
       npmReachable: true,
       youtubeReachable: true,
     });
+    toolsApiMock.getInstallRoot.mockResolvedValue(null);
     toolsApiMock.detectTools.mockReset();
     toolsApiMock.detectTools.mockResolvedValue(
       buildDetectResults(["claude-code-cli"]),
@@ -168,6 +169,25 @@ describe("Wizard install detection", () => {
       checkboxes.forEach((checkbox) => {
         expect(checkbox).toHaveAttribute("data-state", "checked");
       });
+    });
+  });
+
+  it("uses the persisted install root before running detection", async () => {
+    toolsApiMock.getInstallRoot.mockResolvedValue("E:\\CustomTools");
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByDisplayValue("E:\\CustomTools")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "E:\\CustomTools",
+      );
     });
   });
 });

@@ -4,6 +4,7 @@ import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { formatInstalledVersion } from "@/lib/tools/version";
 import type { InstallProgress, InstalledTool, ToolMeta } from "@/types/tools";
 
 type ToolData = InstalledTool | ToolMeta;
@@ -26,6 +27,8 @@ export function ToolCard({
   progress,
 }: ToolCardProps) {
   const { t } = useTranslation();
+  const formattedVersion =
+    "version" in tool ? formatInstalledVersion(tool.version) : null;
 
   const isInstalling =
     progress && !["complete", "error", "skipped"].includes(progress.phase);
@@ -52,7 +55,12 @@ export function ToolCard({
         </p>
 
         {isInstalling && progress && (
-          <Progress value={progress.percent} className="h-1 mt-2" />
+          <>
+            <Progress value={progress.percent} className="h-1 mt-2" />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {progress.message}
+            </p>
+          </>
         )}
       </div>
 
@@ -64,7 +72,7 @@ export function ToolCard({
               className="text-[11px] px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
             >
               {t("tools.installed", "已安装")}
-              {"version" in tool && tool.version ? ` v${tool.version}` : ""}
+              {formattedVersion ? ` ${formattedVersion}` : ""}
             </Badge>
             {onUninstall && (
               <Button
@@ -78,7 +86,12 @@ export function ToolCard({
               </Button>
             )}
             {onUpdate && (
-              <Button variant="secondary" size="sm" onClick={onUpdate} className="text-[12px]">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onUpdate}
+                className="text-[12px]"
+              >
                 <RefreshCw className="h-3 w-3 mr-1" />
                 {t("tools.update", "更新")}
               </Button>

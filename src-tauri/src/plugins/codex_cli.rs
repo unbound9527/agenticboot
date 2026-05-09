@@ -1,13 +1,10 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    detect_windows_cli_version, find_managed_paths, find_npm_in_install_root,
-    npm_prefix_candidates, read_command_version, run_command_checked,
+    detect_windows_cli_version, find_managed_paths, npm_prefix_candidates, read_command_version,
+    run_npm_command_checked,
 };
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use std::path::Path;
-use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct CodexCliPlugin;
@@ -78,24 +75,17 @@ impl ToolPlugin for CodexCliPlugin {
         install_root: &Path,
         _progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
-        let npm_path = find_npm_in_install_root(install_root);
-        let output = Command::new(npm_path.as_deref().unwrap_or("npm"))
-            .args([
+        run_npm_command_checked(
+            install_root,
+            &[
                 "install",
                 "-g",
                 "@openai/codex",
                 "--prefix",
                 &target_dir.to_string_lossy(),
-            ])
-            .output()
-            .map_err(|e| format!("npm install failed: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "npm install failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        Ok(())
+            ],
+            "npm install failed",
+        )
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -109,8 +99,8 @@ impl ToolPlugin for CodexCliPlugin {
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        run_command_checked(
-            "npm",
+        run_npm_command_checked(
+            target_dir.parent().unwrap_or(target_dir),
             &[
                 "uninstall",
                 "-g",

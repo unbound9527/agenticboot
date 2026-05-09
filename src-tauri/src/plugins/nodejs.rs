@@ -1,10 +1,8 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    find_executable_in_dir, find_managed_paths, read_command_version,
+    find_executable_in_dir, find_managed_paths, read_command_version, run_detection_command_output,
 };
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use std::path::Path;
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -40,7 +38,9 @@ impl ToolPlugin for NodeJsPlugin {
             }
         }
 
-        if let Ok(output) = Command::new("node").arg("--version").output() {
+        let mut command = Command::new("node");
+        command.arg("--version");
+        if let Ok(output) = run_detection_command_output(&mut command, "node") {
             if output.status.success() {
                 return DetectResult {
                     installed: true,
@@ -62,7 +62,12 @@ impl ToolPlugin for NodeJsPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let zip_path = target_dir.join("nodejs.zip");
         let url = "https://nodejs.org/dist/v22.15.0/win-x64/node-v22.15.0-win-x64.zip";
         let _ = progress.blocking_send(InstallProgress {
@@ -73,9 +78,10 @@ impl ToolPlugin for NodeJsPlugin {
             message: "正在下载 Node.js...".into(),
         });
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| format!("创建 runtime 失败: {e}"))?;
-        rt.block_on(async { crate::services::downloader::download_file(url, &zip_path, None).await })?;
+        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
+        rt.block_on(async {
+            crate::services::downloader::download_file(url, &zip_path, None).await
+        })?;
 
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "nodejs".into(),
@@ -108,14 +114,18 @@ impl ToolPlugin for NodeJsPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, _target_dir: &Path, _install_root: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        _progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         Err("Node.js 自动安装目前仅支持 Windows，macOS/Linux 请手动安装".into())
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir)
-                .map_err(|e| format!("删除失败: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除失败: {e}"))?;
         }
         Ok(())
     }
@@ -131,8 +141,7 @@ fn flatten_nodejs_dir(target_dir: &Path) -> Result<(), String> {
     for entry in entries {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.starts_with("node-v")
-            && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+        if name_str.starts_with("node-v") && entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
         {
             let sub_dir = entry.path();
             for item in std::fs::read_dir(&sub_dir)

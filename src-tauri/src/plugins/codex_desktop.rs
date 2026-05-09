@@ -2,9 +2,7 @@ use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
     find_appx_install_location, find_uninstall_entry_ex, run_winget, winget_exists,
 };
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
 use std::path::Path;
 use std::process::Command;
@@ -29,11 +27,14 @@ impl ToolPlugin for CodexDesktopPlugin {
 
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
         if let Some(entry) = find_uninstall_entry_ex(&["Codex", "OpenAI Codex"], &["CLI", "npm"]) {
-            let install_path = entry
-                .install_location
-                .or(entry.display_icon.and_then(|path| path.parent().map(|p| p.to_path_buf())));
+            let install_path = entry.install_location.or(entry
+                .display_icon
+                .and_then(|path| path.parent().map(|p| p.to_path_buf())));
 
-            debug!("detected Codex via registry: version={:?}, path={:?}", entry.display_version, install_path);
+            debug!(
+                "detected Codex via registry: version={:?}, path={:?}",
+                entry.display_version, install_path
+            );
             return DetectResult {
                 installed: true,
                 version: entry.display_version,
@@ -42,7 +43,10 @@ impl ToolPlugin for CodexDesktopPlugin {
         }
 
         if let Some((location, version)) = find_appx_install_location("OpenAI.Codex") {
-            debug!("detected Codex via AppX: version={:?}, path={:?}", version, location);
+            debug!(
+                "detected Codex via AppX: version={:?}, path={:?}",
+                version, location
+            );
             return DetectResult {
                 installed: true,
                 version,
@@ -59,7 +63,12 @@ impl ToolPlugin for CodexDesktopPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, _target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "codex-desktop".into(),
             tool_name: "Codex 桌面版".into(),
@@ -83,7 +92,12 @@ impl ToolPlugin for CodexDesktopPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, _target_dir: &Path, _install_root: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        _progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         Err("Codex 桌面版自动安装目前仅支持 Windows".into())
     }
 

@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+const DETECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(6);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCommandOutput {
@@ -16,10 +19,9 @@ pub struct SystemWindowsShell;
 
 impl WindowsShell for SystemWindowsShell {
     fn run(&mut self, program: &str, args: &[String]) -> Result<ShellCommandOutput, String> {
-        let output = Command::new(program)
-            .args(args)
-            .output()
-            .map_err(|e| format!("failed to run {program}: {e}"))?;
+        let mut command = Command::new(program);
+        command.args(args);
+        let output = run_detection_command_output(&mut command, program)?;
 
         Ok(ShellCommandOutput {
             success: output.status.success(),
@@ -30,6 +32,12 @@ impl WindowsShell for SystemWindowsShell {
 }
 
 pub fn detect_windows_cli_version(command_name: &str) -> Option<String> {
+    if let Some(command_path) = find_fast_windows_cli_command(command_name) {
+        if let Some(version) = read_command_version(&command_path, &["--version"]) {
+            return Some(version);
+        }
+    }
+
     let mut shell = SystemWindowsShell;
     detect_windows_cli_version_with_shell(&mut shell, command_name, None)
 }
@@ -41,15 +49,13 @@ pub fn detect_windows_cli_version_with_shell<S: WindowsShell>(
 ) -> Option<String> {
     log::info!("[Windows CLI Detect] Checking {command_name} via direct command");
     if let Some(version) = run_windows_cli_version(shell, command_name) {
-        log::info!(
-            "[Windows CLI Detect] Direct command succeeded for {command_name}: {version}"
-        );
+        log::info!("[Windows CLI Detect] Direct command succeeded for {command_name}: {version}");
         return Some(version);
     }
 
     let nvm_root = match nvm_root_override {
         Some(root) => root.to_path_buf(),
-        None => nvm_root_via_cmd(shell)?,
+        None => find_nvm_root(shell)?,
     };
     log::info!(
         "[Windows CLI Detect] Direct command failed for {command_name}, falling back to nvm root {}",
@@ -66,46 +72,107 @@ pub fn detect_windows_cli_version_with_shell<S: WindowsShell>(
     }
 
     for version in versions {
-        log::info!(
-            "[Windows CLI Detect] Trying {command_name} under nvm version {version}"
-        );
-        let use_and_check = format!("nvm use {version} && {command_name} --version");
-        let result = shell
-            .run("cmd", &[String::from("/C"), use_and_check])
-            .ok()?;
-        if result.success {
-            if let Some(found) = extract_version_output(&result.stdout) {
-                log::info!(
-                    "[Windows CLI Detect] nvm fallback succeeded for {command_name} on {version}: {found}"
-                );
-                return Some(found);
-            }
-            if let Some(found) = extract_version_output(&result.stderr) {
-                log::info!(
-                    "[Windows CLI Detect] nvm fallback succeeded for {command_name} on {version}: {found}"
-                );
-                return Some(found);
-            }
+        log::info!("[Windows CLI Detect] Trying {command_name} under nvm version {version}");
+        if let Some(found) =
+            run_windows_cli_version_with_nvm_path(shell, command_name, &nvm_root.join(&version))
+        {
+            log::info!(
+                "[Windows CLI Detect] nvm fallback succeeded for {command_name} on {version}: {found}"
+            );
+            return Some(found);
         }
     }
 
-    log::info!(
-        "[Windows CLI Detect] Exhausted nvm versions without finding {command_name}"
-    );
+    log::info!("[Windows CLI Detect] Exhausted nvm versions without finding {command_name}");
     None
 }
 
 fn run_windows_cli_version<S: WindowsShell>(shell: &mut S, command_name: &str) -> Option<String> {
+    let command_path = resolve_windows_cli_command(shell, command_name)?;
     let result = shell
         .run(
             "cmd",
-            &[String::from("/C"), format!("{command_name} --version")],
+            &[
+                String::from("/C"),
+                format!("\"{}\" --version", command_path.replace('/', "\\")),
+            ],
         )
         .ok()?;
     if !result.success {
         return None;
     }
     extract_version_output(&result.stdout).or_else(|| extract_version_output(&result.stderr))
+}
+
+fn resolve_windows_cli_command<S: WindowsShell>(
+    shell: &mut S,
+    command_name: &str,
+) -> Option<String> {
+    let result = shell.run("where", &[command_name.to_string()]).ok()?;
+    if !result.success {
+        return None;
+    }
+
+    select_preferred_where_result(&result.stdout)
+        .or_else(|| select_preferred_where_result(&result.stderr))
+}
+
+fn run_windows_cli_version_with_nvm_path<S: WindowsShell>(
+    shell: &mut S,
+    command_name: &str,
+    version_dir: &Path,
+) -> Option<String> {
+    let path_prefix = nvm_path_prefix(version_dir);
+    let invocations = cli_invocation_candidates(command_name, version_dir);
+
+    if invocations.is_empty() {
+        return None;
+    }
+
+    for invocation in invocations {
+        let command = format!("set \"PATH={path_prefix};%PATH%\" && {invocation} --version");
+        let result = shell.run("cmd", &[String::from("/C"), command]).ok()?;
+        if !result.success {
+            continue;
+        }
+        if let Some(found) = extract_version_output(&result.stdout) {
+            return Some(found);
+        }
+        if let Some(found) = extract_version_output(&result.stderr) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn find_nvm_root<S: WindowsShell>(shell: &mut S) -> Option<PathBuf> {
+    nvm_root_from_env()
+        .or_else(nvm_root_from_settings_or_path)
+        .or_else(|| nvm_root_via_cmd(shell))
+}
+
+fn nvm_root_from_env() -> Option<PathBuf> {
+    std::env::var_os("NVM_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+}
+
+fn nvm_root_from_settings_or_path() -> Option<PathBuf> {
+    let nvm_path = find_command_on_path("nvm")?;
+    read_nvm_root_from_settings(
+        &nvm_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("settings.txt"),
+    )
+    .filter(|path| path.is_dir())
+    .or_else(|| {
+        nvm_path
+            .parent()
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+    })
 }
 
 fn nvm_root_via_cmd<S: WindowsShell>(shell: &mut S) -> Option<PathBuf> {
@@ -116,8 +183,45 @@ fn nvm_root_via_cmd<S: WindowsShell>(shell: &mut S) -> Option<PathBuf> {
         log::info!("[Windows CLI Detect] `nvm root` failed");
         return None;
     }
-    let root = extract_version_output(&result.stdout).or_else(|| extract_version_output(&result.stderr))?;
+    let root = extract_version_output(&result.stdout)
+        .or_else(|| extract_version_output(&result.stderr))?;
     (!root.trim().is_empty()).then_some(PathBuf::from(root.trim()))
+}
+
+fn read_nvm_root_from_settings(settings_path: &Path) -> Option<PathBuf> {
+    let contents = std::fs::read_to_string(settings_path).ok()?;
+    contents
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("root:").map(str::trim))
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn find_fast_windows_cli_command(command_name: &str) -> Option<PathBuf> {
+    dirs::data_dir()
+        .and_then(|appdata| find_command_in_directory(&appdata.join("npm"), command_name))
+        .or_else(|| find_command_in_path_env(command_name))
+        .or_else(|| find_command_on_path(command_name))
+}
+
+fn find_command_in_directory(directory: &Path, command_name: &str) -> Option<PathBuf> {
+    ["exe", "cmd", "bat", ""]
+        .iter()
+        .map(|extension| {
+            if extension.is_empty() {
+                directory.join(command_name)
+            } else {
+                directory.join(format!("{command_name}.{extension}"))
+            }
+        })
+        .find(|path| path.exists())
+}
+
+fn find_command_in_path_env(command_name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .find_map(|directory| find_command_in_directory(&directory, command_name))
 }
 
 pub fn list_nvm_version_directories(root: &Path) -> Vec<String> {
@@ -188,11 +292,9 @@ pub fn run_with_node_env(program: &Path, args: &[&str]) -> Option<std::process::
     let current_path = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("{}{path_sep}{}", node_dir.display(), current_path);
 
-    Command::new(program)
-        .args(args)
-        .env("PATH", new_path)
-        .output()
-        .ok()
+    let mut command = Command::new(program);
+    command.args(args).env("PATH", new_path);
+    run_detection_command_output(&mut command, &program.to_string_lossy()).ok()
 }
 
 /// 在系统常见位置查找 node 可执行文件
@@ -317,7 +419,11 @@ pub fn find_managed_paths(root: &Path, tool_dir: &str, candidates: &[&str]) -> W
     }
 }
 
-pub fn find_managed_executable(root: &Path, tool_dir: &str, candidates: &[&str]) -> Option<PathBuf> {
+pub fn find_managed_executable(
+    root: &Path,
+    tool_dir: &str,
+    candidates: &[&str],
+) -> Option<PathBuf> {
     find_managed_paths(root, tool_dir, candidates).executable
 }
 
@@ -331,30 +437,32 @@ pub fn npm_prefix_candidates(cmd_name: &str) -> Vec<String> {
 }
 
 pub fn find_command_on_path(command: &str) -> Option<PathBuf> {
-    let output = Command::new("where").arg(command).output().ok()?;
+    if let Some(found) = find_command_in_path_env(command) {
+        return Some(found);
+    }
+
+    let mut where_command = Command::new("where");
+    where_command.arg(command);
+    let output = run_detection_command_output(&mut where_command, "where").ok()?;
     if !output.status.success() {
         return None;
     }
 
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
+    select_preferred_where_result(&String::from_utf8_lossy(&output.stdout))
+        .or_else(|| select_preferred_where_result(&String::from_utf8_lossy(&output.stderr)))
         .map(PathBuf::from)
 }
 
 pub fn read_command_version(command: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new(command).args(args).output().ok()?;
+    let mut version_command = Command::new(command);
+    version_command.args(args);
+    let output =
+        run_detection_command_output(&mut version_command, &command.to_string_lossy()).ok()?;
     if !output.status.success() {
         return None;
     }
 
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .chain(String::from_utf8_lossy(&output.stderr).lines())
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+    first_non_empty_output_line(&output)
 }
 
 pub fn winget_exists() -> bool {
@@ -380,8 +488,16 @@ pub fn run_command_checked(
     args: &[&str],
     failure_context: &str,
 ) -> Result<(), String> {
-    let output = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    run_command_checked_with_command(&mut command, failure_context)
+}
+
+fn run_command_checked_with_command(
+    command: &mut Command,
+    failure_context: &str,
+) -> Result<(), String> {
+    let output = command
         .output()
         .map_err(|e| format!("{failure_context}: {e}"))?;
 
@@ -400,6 +516,52 @@ pub fn run_command_checked(
     };
 
     Err(format!("{failure_context}: {details}"))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ManagedNpmCommand {
+    program: PathBuf,
+    prefix_args: Vec<String>,
+}
+
+fn resolve_managed_npm_command(install_root: &Path) -> Option<ManagedNpmCommand> {
+    let nodejs_dir = install_root.join("nodejs");
+    let npm_cmd = nodejs_dir.join("npm.cmd");
+    if npm_cmd.exists() {
+        return Some(ManagedNpmCommand {
+            program: npm_cmd,
+            prefix_args: Vec::new(),
+        });
+    }
+
+    let node_exe = nodejs_dir.join("node.exe");
+    let npm_cli = nodejs_dir
+        .join("node_modules")
+        .join("npm")
+        .join("bin")
+        .join("npm-cli.js");
+    if node_exe.exists() && npm_cli.exists() {
+        return Some(ManagedNpmCommand {
+            program: node_exe,
+            prefix_args: vec![npm_cli.to_string_lossy().to_string()],
+        });
+    }
+
+    None
+}
+
+pub fn run_npm_command_checked(
+    install_root: &Path,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    if let Some(managed) = resolve_managed_npm_command(install_root) {
+        let mut command = Command::new(&managed.program);
+        command.args(&managed.prefix_args).args(args);
+        return run_command_checked_with_command(&mut command, failure_context);
+    }
+
+    run_command_checked("npm", args, failure_context)
 }
 
 pub fn find_local_program_executable(dir_names: &[&str], exe_names: &[&str]) -> Option<PathBuf> {
@@ -460,9 +622,7 @@ fn search_app_version_dir(app_dir: &Path, exe_name: &str) -> Option<PathBuf> {
         .iter()
         .filter(|e| {
             e.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                && e.file_name()
-                    .to_string_lossy()
-                    .starts_with("app-")
+                && e.file_name().to_string_lossy().starts_with("app-")
         })
         .collect();
 
@@ -536,10 +696,9 @@ pub fn find_appx_install_location(package_name: &str) -> Option<(String, Option<
         "$pkg = Get-AppxPackage {package_name} | Select-Object -First 1; \
          if ($pkg) {{ Write-Output (\"$($pkg.InstallLocation)|$($pkg.Version)\") }}"
     );
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &script])
-        .output()
-        .ok()?;
+    let mut command = Command::new("powershell");
+    command.args(["-NoProfile", "-Command", &script]);
+    let output = run_detection_command_output(&mut command, "powershell").ok()?;
     if !output.status.success() {
         return None;
     }
@@ -551,7 +710,10 @@ pub fn find_appx_install_location(package_name: &str) -> Option<(String, Option<
 
     let parts: Vec<&str> = trimmed.splitn(2, '|').collect();
     let location = parts[0].to_string();
-    let version = parts.get(1).filter(|v| !v.is_empty()).map(|v| v.to_string());
+    let version = parts
+        .get(1)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string());
 
     Some((location, version))
 }
@@ -595,7 +757,12 @@ pub fn find_exe_in_appx_package(appx_dir: &Path, exe_name: &str) -> Option<PathB
     find_exe_recursive(appx_dir, exe_name, 0, 3)
 }
 
-fn find_exe_recursive(dir: &Path, exe_name: &str, current_depth: usize, max_depth: usize) -> Option<PathBuf> {
+fn find_exe_recursive(
+    dir: &Path,
+    exe_name: &str,
+    current_depth: usize,
+    max_depth: usize,
+) -> Option<PathBuf> {
     if current_depth >= max_depth {
         return None;
     }
@@ -694,9 +861,7 @@ pub fn find_uninstall_entry_ex(
 
                 let entry = WindowsUninstallEntry {
                     display_name,
-                    display_version: app_key
-                        .get_value::<String, _>("DisplayVersion")
-                        .ok(),
+                    display_version: app_key.get_value::<String, _>("DisplayVersion").ok(),
                     install_location: app_key
                         .get_value::<String, _>("InstallLocation")
                         .ok()
@@ -742,12 +907,151 @@ pub fn normalize_windows_exe(path: &Path) -> String {
     path.to_string_lossy().replace('/', "\\")
 }
 
+fn nvm_path_prefix(version_dir: &Path) -> String {
+    let mut parts = vec![
+        normalize_windows_exe(version_dir),
+        normalize_windows_exe(&version_dir.join("node_modules").join(".bin")),
+    ];
+
+    if let Some(appdata) = dirs::data_dir() {
+        parts.push(normalize_windows_exe(&appdata.join("npm")));
+    }
+
+    parts.join(";")
+}
+
+fn select_preferred_where_result(output: &str) -> Option<String> {
+    let mut candidates = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with("INFO:"))
+        .collect::<Vec<_>>();
+
+    candidates.sort_by_key(|line| command_path_rank(line));
+    candidates.first().map(|line| (*line).to_string())
+}
+
+fn command_path_rank(path: &str) -> usize {
+    let lowercase = path.to_ascii_lowercase();
+    if lowercase.ends_with(".exe") {
+        0
+    } else if lowercase.ends_with(".cmd") {
+        1
+    } else if lowercase.ends_with(".bat") {
+        2
+    } else {
+        3
+    }
+}
+
+fn cli_invocation_candidates(command_name: &str, version_dir: &Path) -> Vec<String> {
+    let mut invocations = Vec::new();
+
+    for path in cli_shim_candidates(command_name, version_dir) {
+        let quoted = format!("\"{}\"", normalize_windows_exe(&path));
+        if !invocations.contains(&quoted) {
+            invocations.push(quoted);
+        }
+    }
+
+    invocations
+}
+
+fn cli_shim_candidates(command_name: &str, version_dir: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for extension in ["cmd", "exe"] {
+        candidates.push(
+            version_dir
+                .join("node_modules")
+                .join(".bin")
+                .join(format!("{command_name}.{extension}")),
+        );
+        candidates.push(version_dir.join(format!("{command_name}.{extension}")));
+    }
+
+    if let Some(appdata) = dirs::data_dir() {
+        for extension in ["cmd", "exe"] {
+            candidates.push(
+                appdata
+                    .join("npm")
+                    .join(format!("{command_name}.{extension}")),
+            );
+        }
+    }
+
+    candidates
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect()
+}
+
+fn first_non_empty_output_line(output: &Output) -> Option<String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .chain(String::from_utf8_lossy(&output.stderr).lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+pub fn run_detection_command_output(
+    command: &mut Command,
+    description: &str,
+) -> Result<Output, String> {
+    run_detection_command_output_with_timeout(command, description, DETECT_COMMAND_TIMEOUT)
+}
+
+fn run_detection_command_output_with_timeout(
+    command: &mut Command,
+    description: &str,
+    timeout: Duration,
+) -> Result<Output, String> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("failed to spawn {description}: {e}"))?;
+    let start = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|e| format!("failed to read {description} output: {e}"));
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "{description} timed out after {} ms",
+                        timeout.as_millis()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed while waiting for {description}: {e}"));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        detect_windows_cli_version_with_shell, find_node_on_system,
-        list_nvm_version_directories, read_command_version, run_command_checked,
-        run_with_node_env, ShellCommandOutput, WindowsShell,
+        detect_windows_cli_version_with_shell, find_command_in_directory, find_node_on_system,
+        list_nvm_version_directories, read_command_version, read_nvm_root_from_settings,
+        resolve_managed_npm_command, run_command_checked,
+        run_detection_command_output_with_timeout, run_with_node_env, ManagedNpmCommand,
+        ShellCommandOutput, WindowsShell,
     };
     use std::collections::VecDeque;
 
@@ -799,7 +1103,11 @@ mod tests {
         let node = find_node_on_system();
         assert!(node.is_some(), "should find node on system");
         let node_path = node.unwrap();
-        assert!(node_path.exists(), "found node path should exist: {}", node_path.display());
+        assert!(
+            node_path.exists(),
+            "found node path should exist: {}",
+            node_path.display()
+        );
     }
 
     #[test]
@@ -813,16 +1121,24 @@ mod tests {
 
     #[test]
     fn windows_cli_detector_prefers_direct_command_before_nvm_fallback() {
-        let mut shell = FakeShell::new(vec![shell_success("claude 1.2.3\n")]);
+        let mut shell = FakeShell::new(vec![
+            shell_success("C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\n"),
+            shell_success("claude 1.2.3\n"),
+        ]);
 
         let detected = detect_windows_cli_version_with_shell(&mut shell, "claude", None);
 
         assert_eq!(detected.as_deref(), Some("claude 1.2.3"));
-        assert_eq!(shell.calls.len(), 1);
-        assert_eq!(shell.calls[0].0, "cmd");
+        assert_eq!(shell.calls.len(), 2);
+        assert_eq!(shell.calls[0].0, "where");
+        assert_eq!(shell.calls[0].1, vec!["claude".to_string()]);
+        assert_eq!(shell.calls[1].0, "cmd");
         assert_eq!(
-            shell.calls[0].1,
-            vec!["/C".to_string(), "claude --version".to_string()]
+            shell.calls[1].1,
+            vec![
+                "/C".to_string(),
+                "\"C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\" --version".to_string()
+            ]
         );
     }
 
@@ -831,28 +1147,39 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("v20.10.0")).unwrap();
         std::fs::create_dir_all(tmp.path().join("v22.11.0")).unwrap();
+        std::fs::create_dir_all(
+            tmp.path()
+                .join("v22.11.0")
+                .join("node_modules")
+                .join(".bin"),
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path()
+                .join("v22.11.0")
+                .join("node_modules")
+                .join(".bin")
+                .join("claude.cmd"),
+            b"",
+        )
+        .unwrap();
         std::fs::create_dir_all(tmp.path().join("not-a-version")).unwrap();
 
         let mut shell = FakeShell::new(vec![
-            shell_failure("claude not found"),
+            shell_failure("INFO: Could not find files for the given pattern(s)."),
             shell_success("Now using node v22.11.0\r\nclaude 9.9.9\r\n"),
         ]);
 
-        let detected = detect_windows_cli_version_with_shell(
-            &mut shell,
-            "claude",
-            Some(tmp.path()),
-        );
+        let detected =
+            detect_windows_cli_version_with_shell(&mut shell, "claude", Some(tmp.path()));
 
         assert_eq!(detected.as_deref(), Some("claude 9.9.9"));
         assert_eq!(shell.calls.len(), 2);
-        assert_eq!(
-            shell.calls[1].1,
-            vec![
-                "/C".to_string(),
-                "nvm use v22.11.0 && claude --version".to_string()
-            ]
-        );
+        assert_eq!(shell.calls[0].0, "where");
+        assert_eq!(shell.calls[1].1[0], "/C");
+        assert!(shell.calls[1].1[1].contains("set \"PATH="));
+        assert!(shell.calls[1].1[1].contains("v22.11.0"));
+        assert!(shell.calls[1].1[1].contains("claude.cmd"));
     }
 
     #[test]
@@ -860,16 +1187,16 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("v22.11.0")).unwrap();
 
-        let mut shell = FakeShell::new(vec![
-            shell_failure("codex not found"),
-            shell_failure("nvm use failed"),
-        ]);
+        let mut shell = FakeShell::new(vec![shell_failure(
+            "INFO: Could not find files for the given pattern(s).",
+        )]);
 
         let detected =
-            detect_windows_cli_version_with_shell(&mut shell, "codex", Some(tmp.path()));
+            detect_windows_cli_version_with_shell(&mut shell, "missing-cli", Some(tmp.path()));
 
         assert_eq!(detected, None);
-        assert_eq!(shell.calls.len(), 2);
+        assert_eq!(shell.calls.len(), 1);
+        assert_eq!(shell.calls[0].0, "where");
     }
 
     #[test]
@@ -902,6 +1229,46 @@ mod tests {
     }
 
     #[test]
+    fn find_command_in_directory_prefers_windows_shims() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("claude"), b"").unwrap();
+        std::fs::write(tmp.path().join("claude.cmd"), b"").unwrap();
+
+        let found = find_command_in_directory(tmp.path(), "claude");
+
+        assert_eq!(
+            found.as_deref(),
+            Some(tmp.path().join("claude.cmd").as_path())
+        );
+    }
+
+    #[test]
+    fn read_nvm_root_from_settings_extracts_root_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings = tmp.path().join("settings.txt");
+        std::fs::write(&settings, "root: D:\\nvm\r\npath: D:\\nodejs\r\n").unwrap();
+
+        let root = read_nvm_root_from_settings(&settings);
+
+        assert_eq!(root.as_deref(), Some(std::path::Path::new("D:\\nvm")));
+    }
+
+    #[test]
+    fn run_detection_command_output_times_out_for_hanging_process() {
+        let mut command = std::process::Command::new("powershell");
+        command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]);
+
+        let error = run_detection_command_output_with_timeout(
+            &mut command,
+            "sleep",
+            std::time::Duration::from_millis(100),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("timed out"));
+    }
+
+    #[test]
     fn run_command_checked_returns_error_for_non_zero_exit_status() {
         let err = run_command_checked(
             "cmd",
@@ -913,15 +1280,43 @@ mod tests {
         assert!(err.contains("npm uninstall failed"));
         assert!(err.contains("uninstall failed"));
     }
-}
 
-pub fn find_npm_in_install_root(install_root: &Path) -> Option<String> {
-    let candidates = ["npm.cmd", "node_modules\\npm\\bin\\npm-cli.js"];
-    for candidate in candidates {
-        let path = install_root.join("nodejs").join(candidate);
-        if path.exists() {
-            return Some(path.to_string_lossy().to_string());
-        }
+    #[test]
+    fn resolve_managed_npm_command_prefers_npm_cmd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nodejs_dir = tmp.path().join("nodejs");
+        std::fs::create_dir_all(&nodejs_dir).unwrap();
+        std::fs::write(nodejs_dir.join("npm.cmd"), b"").unwrap();
+        std::fs::write(nodejs_dir.join("node.exe"), b"").unwrap();
+
+        let resolved = resolve_managed_npm_command(tmp.path());
+
+        assert_eq!(
+            resolved,
+            Some(ManagedNpmCommand {
+                program: nodejs_dir.join("npm.cmd"),
+                prefix_args: Vec::new(),
+            })
+        );
     }
-    None
+
+    #[test]
+    fn resolve_managed_npm_command_falls_back_to_node_plus_npm_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nodejs_dir = tmp.path().join("nodejs");
+        let npm_cli = nodejs_dir.join("node_modules").join("npm").join("bin");
+        std::fs::create_dir_all(&npm_cli).unwrap();
+        std::fs::write(nodejs_dir.join("node.exe"), b"").unwrap();
+        std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
+
+        let resolved = resolve_managed_npm_command(tmp.path());
+
+        assert_eq!(
+            resolved,
+            Some(ManagedNpmCommand {
+                program: nodejs_dir.join("node.exe"),
+                prefix_args: vec![npm_cli.join("npm-cli.js").to_string_lossy().to_string()],
+            })
+        );
+    }
 }

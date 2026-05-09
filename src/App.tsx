@@ -48,6 +48,7 @@ import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useAutoCompact } from "@/hooks/useAutoCompact";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
+import { shouldShowStartupWizard } from "@/lib/tools/onboarding";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
 import { cn } from "@/lib/utils";
@@ -138,6 +139,7 @@ const getInitialApp = (): AppId => {
 };
 
 const VIEW_STORAGE_KEY = "agenticboot-last-view";
+const WIZARD_SEEN_STORAGE_KEY = "wizard-seen";
 const VALID_VIEWS: View[] = [
   "providers",
   "settings",
@@ -183,7 +185,9 @@ function App() {
   useEffect(() => {
     import("@/lib/api/tools").then(({ toolsApi }) => {
       toolsApi.hasAnyInstalledTools().then((hasTools) => {
-        if (!hasTools) {
+        const hasSeenWizard =
+          localStorage.getItem(WIZARD_SEEN_STORAGE_KEY) === "true";
+        if (shouldShowStartupWizard(hasTools, hasSeenWizard)) {
           setCurrentView("wizard");
           // 首次启动弹出最大化窗口
           import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {

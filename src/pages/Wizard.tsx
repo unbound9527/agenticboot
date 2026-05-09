@@ -106,12 +106,35 @@ export function Wizard({
 }: WizardProps) {
   const { t } = useTranslation();
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
+  const [hasLoadedInstallRoot, setHasLoadedInstallRoot] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    toolsApi
+      .getInstallRoot()
+      .then((savedRoot) => {
+        if (cancelled || !savedRoot?.trim()) {
+          return;
+        }
+        setRootPath(savedRoot.trim());
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHasLoadedInstallRoot(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
@@ -139,6 +162,10 @@ export function Wizard({
   );
 
   useEffect(() => {
+    if (!hasLoadedInstallRoot) {
+      return;
+    }
+
     let cancelled = false;
     const timer = setTimeout(() => {
       refreshDetectedTools(false).catch(() => {
@@ -154,7 +181,7 @@ export function Wizard({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [refreshDetectedTools]);
+  }, [hasLoadedInstallRoot, refreshDetectedTools]);
 
   const {
     data: netStatus,

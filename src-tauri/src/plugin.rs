@@ -1,6 +1,4 @@
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
@@ -39,7 +37,9 @@ pub fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
 }
 
 pub fn get_plugin_by_id(id: &str) -> Option<Box<dyn ToolPlugin>> {
-    get_all_plugins().into_iter().find(|p| p.metadata().id == id)
+    get_all_plugins()
+        .into_iter()
+        .find(|p| p.metadata().id == id)
 }
 
 #[cfg(test)]

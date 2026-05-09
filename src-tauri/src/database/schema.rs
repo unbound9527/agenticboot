@@ -449,9 +449,7 @@ impl Database {
                         Self::set_user_version(conn, 10)?;
                     }
                     10 => {
-                        log::info!(
-                            "迁移数据库从 v10 到 v11（添加 installed_tools 表）"
-                        );
+                        log::info!("迁移数据库从 v10 到 v11（添加 installed_tools 表）");
                         conn.execute(
                             "CREATE TABLE IF NOT EXISTS installed_tools (
                             id TEXT PRIMARY KEY,

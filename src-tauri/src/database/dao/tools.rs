@@ -144,8 +144,10 @@ impl Database {
     }
 
     /// 获取安装根目录路径设置
+    /// 默认为 D:\AgenticBoot
     pub fn get_install_root(&self) -> Result<Option<String>, AppError> {
-        self.get_setting("install_root")
+        let root = self.get_setting("install_root")?;
+        Ok(root.or_else(|| Some(r"D:\AgenticBoot".to_string())))
     }
 
     /// 设置安装根目录路径

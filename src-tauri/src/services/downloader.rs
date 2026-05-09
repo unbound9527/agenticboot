@@ -67,14 +67,11 @@ pub async fn download_file(
 
 /// 解压 zip 文件到目标目录
 pub fn extract_zip(zip_path: &Path, dest_dir: &Path) -> Result<(), String> {
-    let file = std::fs::File::open(zip_path)
-        .map_err(|e| format!("打开 zip 文件失败: {e}"))?;
+    let file = std::fs::File::open(zip_path).map_err(|e| format!("打开 zip 文件失败: {e}"))?;
 
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("读取 zip 失败: {e}"))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("读取 zip 失败: {e}"))?;
 
-    std::fs::create_dir_all(dest_dir)
-        .map_err(|e| format!("创建解压目录失败: {e}"))?;
+    std::fs::create_dir_all(dest_dir).map_err(|e| format!("创建解压目录失败: {e}"))?;
 
     for i in 0..archive.len() {
         let mut entry = archive
@@ -87,17 +84,14 @@ pub fn extract_zip(zip_path: &Path, dest_dir: &Path) -> Result<(), String> {
         };
 
         if entry.is_dir() {
-            std::fs::create_dir_all(&out_path)
-                .map_err(|e| format!("创建目录失败: {e}"))?;
+            std::fs::create_dir_all(&out_path).map_err(|e| format!("创建目录失败: {e}"))?;
         } else {
             if let Some(parent) = out_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("创建父目录失败: {e}"))?;
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {e}"))?;
             }
-            let mut outfile = std::fs::File::create(&out_path)
-                .map_err(|e| format!("创建解压文件失败: {e}"))?;
-            std::io::copy(&mut entry, &mut outfile)
-                .map_err(|e| format!("解压文件失败: {e}"))?;
+            let mut outfile =
+                std::fs::File::create(&out_path).map_err(|e| format!("创建解压文件失败: {e}"))?;
+            std::io::copy(&mut entry, &mut outfile).map_err(|e| format!("解压文件失败: {e}"))?;
         }
 
         #[cfg(unix)]
@@ -128,10 +122,7 @@ pub fn run_installer(installer_path: &Path, target_dir: &Path) -> Result<(), Str
         .map_err(|e| format!("等待安装完成失败: {e}"))?;
 
     if !exit_status.success() {
-        return Err(format!(
-            "安装程序异常退出，code: {:?}",
-            exit_status.code()
-        ));
+        return Err(format!("安装程序异常退出，code: {:?}", exit_status.code()));
     }
 
     Ok(())
@@ -145,11 +136,19 @@ pub fn temp_path(filename: &str) -> PathBuf {
 /// 解压 .tar.gz 文件到目标目录
 pub fn extract_tar_gz(tar_gz_path: &Path, dest_dir: &Path) -> Result<(), String> {
     let output = std::process::Command::new("tar")
-        .args(["xzf", &tar_gz_path.to_string_lossy(), "-C", &dest_dir.to_string_lossy()])
+        .args([
+            "xzf",
+            &tar_gz_path.to_string_lossy(),
+            "-C",
+            &dest_dir.to_string_lossy(),
+        ])
         .output()
         .map_err(|e| format!("tar 解压失败: {e}"))?;
     if !output.status.success() {
-        return Err(format!("tar 解压失败: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "tar 解压失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
     Ok(())
 }

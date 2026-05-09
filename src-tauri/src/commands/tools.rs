@@ -4,11 +4,10 @@ use crate::database::{Database, InstalledToolRecord};
 use crate::services::installer::dependency_resolver::resolve_install_plan as resolve_plan;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
-use crate::tool_types::{
-    DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo,
-};
-use std::path::Path;
+use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 fn should_use_db_fallback(install_root: Option<&str>) -> bool {
     install_root.is_none()
@@ -199,31 +198,63 @@ fn detect_tools_sync(
 ) -> Result<Vec<DetectResult>, String> {
     use crate::plugin::get_plugin_by_id;
 
-    let root = install_root.as_deref().map(Path::new);
+    let root = install_root.as_ref().map(PathBuf::from);
     let allow_db_fallback = should_use_db_fallback(install_root.as_deref());
-    let mut results = Vec::new();
+    let mut results = vec![DetectResult::not_installed(); tool_ids.len()];
+    let mut pending = Vec::new();
 
-    for id in &tool_ids {
+    for (index, id) in tool_ids.iter().enumerate() {
         let cached_record = db.get_installed_tool(id).ok().flatten();
 
         if !force_refresh {
             if let Some(record) = cached_record.as_ref() {
                 if cache_matches_install_root(record, install_root.as_deref()) {
                     if let Some(cached) = detect_result_from_cache_record(record) {
-                        results.push(cached);
+                        results[index] = cached;
                         continue;
                     }
                 }
             }
         }
 
-        let mut result = get_plugin_by_id(id)
-            .map(|plugin| plugin.detect(root))
-            .unwrap_or_else(DetectResult::not_installed);
+        pending.push((index, id.clone(), cached_record));
+    }
 
-        if !result.installed && allow_db_fallback {
+    let detected = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(pending.len());
+
+        for (index, id, cached_record) in pending {
+            let root = root.clone();
+            handles.push(scope.spawn(move || {
+                log::info!("[Tool Detect] Starting detect for {id}");
+                let started_at = Instant::now();
+                let result = get_plugin_by_id(&id)
+                    .map(|plugin| plugin.detect(root.as_deref()))
+                    .unwrap_or_else(DetectResult::not_installed);
+                log::info!(
+                    "[Tool Detect] Finished detect for {id} in {} ms (installed={})",
+                    started_at.elapsed().as_millis(),
+                    result.installed
+                );
+                (index, id, cached_record, result)
+            }));
+        }
+
+        let mut completed = Vec::new();
+        for handle in handles {
+            completed.push(
+                handle
+                    .join()
+                    .map_err(|_| "tool detection worker thread panicked".to_string())?,
+            );
+        }
+        Ok::<_, String>(completed)
+    })?;
+
+    for (index, id, cached_record, mut result) in detected {
+        if !result.installed {
             if let Some(record) = cached_record.as_ref() {
-                if record.status == "installed" {
+                if allow_db_fallback && record.status == "installed" {
                     result = DetectResult {
                         installed: true,
                         version: record.version.clone(),
@@ -235,12 +266,12 @@ fn detect_tools_sync(
 
         persist_detect_result_cache(
             db,
-            id,
+            &id,
             install_root.as_deref(),
             cached_record.as_ref(),
             &result,
         );
-        results.push(result);
+        results[index] = result;
     }
 
     Ok(results)
@@ -256,7 +287,10 @@ pub fn set_install_root(path: String, state: tauri::State<'_, AppState>) -> Resu
 
 #[tauri::command]
 pub fn get_install_root(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
-    state.db.get_install_root().map_err(|e| format!("查询失败: {e}"))
+    state
+        .db
+        .get_install_root()
+        .map_err(|e| format!("查询失败: {e}"))
 }
 
 #[tauri::command]
@@ -301,8 +335,8 @@ mod tests {
         })
         .expect("seed installed tool");
 
-        let results = detect_tools_sync(vec!["unknown-tool".into()], None, false, &db)
-            .expect("detect tools");
+        let results =
+            detect_tools_sync(vec!["unknown-tool".into()], None, false, &db).expect("detect tools");
 
         assert_eq!(results.len(), 1);
         assert!(results[0].installed);

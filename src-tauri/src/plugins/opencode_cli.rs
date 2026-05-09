@@ -1,13 +1,10 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    detect_windows_cli_version, find_managed_paths, find_npm_in_install_root,
-    npm_prefix_candidates, read_command_version,
+    detect_windows_cli_version, find_managed_paths, npm_prefix_candidates, read_command_version,
+    run_npm_command_checked,
 };
-use crate::tool_types::{
-    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
-};
+use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use std::path::Path;
-use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct OpenCodeCliPlugin;
@@ -17,7 +14,7 @@ impl ToolPlugin for OpenCodeCliPlugin {
         ToolMeta {
             id: "opencode-cli".into(),
             name: "OpenCode (CLI)".into(),
-            description: "OpenCode 官方 CLI".into(),
+            description: "OpenCode 瀹樻柟 CLI".into(),
             icon: "opencode".into(),
             category: "ai-cli".into(),
         }
@@ -83,27 +80,20 @@ impl ToolPlugin for OpenCodeCliPlugin {
             tool_name: "OpenCode CLI".into(),
             phase: "installing".into(),
             percent: 0,
-            message: "正在通过官方 npm 包安装 OpenCode CLI...".into(),
+            message: "姝ｅ湪閫氳繃瀹樻柟 npm 鍖呭畨瑁?OpenCode CLI...".into(),
         });
 
-        let npm_path = find_npm_in_install_root(install_root);
-        let output = Command::new(npm_path.as_deref().unwrap_or("npm"))
-            .args([
+        run_npm_command_checked(
+            install_root,
+            &[
                 "install",
                 "-g",
                 "opencode-ai",
                 "--prefix",
                 &target_dir.to_string_lossy(),
-            ])
-            .output()
-            .map_err(|e| format!("npm install failed: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "npm install failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        Ok(())
+            ],
+            "npm install failed",
+        )
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -118,11 +108,11 @@ impl ToolPlugin for OpenCodeCliPlugin {
             tool_name: "OpenCode CLI".into(),
             phase: "downloading".into(),
             percent: 0,
-            message: "正在下载 OpenCode...".into(),
+            message: "姝ｅ湪涓嬭浇 OpenCode...".into(),
         });
 
         let bin_dir = target_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| format!("创建 bin 目录失败: {e}"))?;
+        std::fs::create_dir_all(&bin_dir).map_err(|e| format!("鍒涘缓 bin 鐩綍澶辫触: {e}"))?;
 
         let version = Self::fetch_latest_version()?;
         let (os, arch) = Self::get_os_arch();
@@ -132,7 +122,8 @@ impl ToolPlugin for OpenCodeCliPlugin {
             version, os, arch
         );
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
+        let rt =
+            tokio::runtime::Runtime::new().map_err(|e| format!("鍒涘缓 runtime 澶辫触: {e}"))?;
         rt.block_on(async {
             crate::services::downloader::download_file(&url, &tar_path, None).await
         })?;
@@ -142,7 +133,7 @@ impl ToolPlugin for OpenCodeCliPlugin {
             tool_name: "OpenCode CLI".into(),
             phase: "extracting".into(),
             percent: 50,
-            message: "正在解压...".into(),
+            message: "姝ｅ湪瑙ｅ帇...".into(),
         });
 
         crate::services::downloader::extract_tar_gz(&tar_path, target_dir)?;
@@ -151,18 +142,18 @@ impl ToolPlugin for OpenCodeCliPlugin {
         let extracted_bin = target_dir.join("opencode");
         let final_bin = bin_dir.join("opencode");
         if !extracted_bin.exists() {
-            return Err("OpenCode 下载异常：未找到解压后的二进制文件".to_string());
+            return Err("OpenCode download failed: extracted binary was not found".to_string());
         }
         std::fs::rename(&extracted_bin, &final_bin)
             .or_else(|_| std::fs::copy(&extracted_bin, &final_bin).map(|_| ()))
-            .map_err(|e| format!("移动 OpenCode 二进制文件失败: {e}"))?;
+            .map_err(|e| format!("failed to move OpenCode binary: {e}"))?;
 
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-cli".into(),
             tool_name: "OpenCode CLI".into(),
             phase: "complete".into(),
             percent: 100,
-            message: "OpenCode 安装完成".into(),
+            message: "OpenCode install complete".into(),
         });
         Ok(())
     }
@@ -170,34 +161,27 @@ impl ToolPlugin for OpenCodeCliPlugin {
     #[cfg(not(target_os = "windows"))]
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir)
-                .map_err(|e| format!("删除失败: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("鍒犻櫎澶辫触: {e}"))?;
         }
         Ok(())
     }
 
     #[cfg(target_os = "windows")]
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        let output = Command::new("npm")
-            .args([
+        run_npm_command_checked(
+            target_dir.parent().unwrap_or(target_dir),
+            &[
                 "uninstall",
                 "-g",
                 "opencode-ai",
                 "--prefix",
                 &target_dir.to_string_lossy(),
-            ])
-            .output()
-            .map_err(|e| format!("npm uninstall failed: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "npm uninstall failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
+            ],
+            "npm uninstall failed",
+        )?;
 
         if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir)
-                .map_err(|e| format!("删除失败: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("鍒犻櫎澶辫触: {e}"))?;
         }
         Ok(())
     }
@@ -212,7 +196,7 @@ impl OpenCodeCliPlugin {
                 "https://api.github.com/repos/opencode-ai/opencode/releases/latest",
             ])
             .output()
-            .map_err(|e| format!("获取版本失败: {e}"))?;
+            .map_err(|e| format!("鑾峰彇鐗堟湰澶辫触: {e}"))?;
         let text = String::from_utf8_lossy(&output.stdout);
         for line in text.lines() {
             let line = line.trim();
@@ -223,7 +207,7 @@ impl OpenCodeCliPlugin {
                 }
             }
         }
-        Err("无法解析 OpenCode 最新版本号".to_string())
+        Err("鏃犳硶瑙ｆ瀽 OpenCode 鏈€鏂扮増鏈彿".to_string())
     }
 
     #[cfg(not(target_os = "windows"))]

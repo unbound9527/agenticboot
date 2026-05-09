@@ -1,14 +1,17 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { FolderOpen, RefreshCw, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { ToolCard } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
 import {
+  useExecuteInstallPlan,
   useInstalledTools,
   useInstallRoot,
+  useResolveInstallPlan,
   useToolUpdates,
   useUninstallTool,
 } from "@/hooks/useTools";
@@ -88,14 +91,14 @@ interface ManagerProps {
 function toExternalInstalledTool(
   meta: ToolMeta,
   detect: DetectResult,
-  installRoot: string | null | undefined,
+  installRoot: string,
 ): InstalledTool {
   return {
     id: meta.id,
     name: meta.name,
     version: detect.version,
     installPath: detect.installPath ?? "",
-    installRoot: installRoot ?? "",
+    installRoot,
     category: "tool",
     status: "installed",
   };
@@ -103,8 +106,10 @@ function toExternalInstalledTool(
 
 export function Manager({ onInstallMore }: ManagerProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("installed");
   const [editRoot, setEditRoot] = useState("");
+  const [activeInstallRoot, setActiveInstallRoot] = useState("");
   const [detectedTools, setDetectedTools] = useState<
     Record<string, DetectResult>
   >({});
@@ -113,28 +118,37 @@ export function Manager({ onInstallMore }: ManagerProps) {
   const { data: installRoot } = useInstallRoot();
   const { data: updates = [] } = useToolUpdates();
   const uninstallTool = useUninstallTool();
-  const { getToolProgress } = useInstallProgress();
+  const resolvePlan = useResolveInstallPlan();
+  const executePlan = useExecuteInstallPlan();
+  const { getToolProgress, resetProgress } = useInstallProgress();
   const managedInstalledTools = installedTools.filter(
     (tool) => tool.status === "installed",
   );
+  const effectiveInstallRoot = activeInstallRoot || installRoot || "";
 
   useEffect(() => {
-    setEditRoot(installRoot ?? "");
+    const nextRoot = installRoot ?? "";
+    setEditRoot(nextRoot);
+    setActiveInstallRoot(nextRoot);
   }, [installRoot]);
 
-  const refreshDetectedTools = useCallback((forceRefresh = false) => {
-    const ids = ALL_TOOLS_META.map((tool) => tool.id);
-    const detectPromise = forceRefresh
-      ? toolsApi.detectTools(ids, installRoot ?? undefined, true)
-      : toolsApi.detectTools(ids, installRoot ?? undefined);
-    return detectPromise.then((results) => {
-      const next: Record<string, DetectResult> = {};
-      results.forEach((result, index) => {
-        next[ids[index]] = result;
+  const refreshDetectedTools = useCallback(
+    (forceRefresh = false) => {
+      const ids = ALL_TOOLS_META.map((tool) => tool.id);
+      const detectPromise = forceRefresh
+        ? toolsApi.detectTools(ids, effectiveInstallRoot || undefined, true)
+        : toolsApi.detectTools(ids, effectiveInstallRoot || undefined);
+
+      return detectPromise.then((results) => {
+        const next: Record<string, DetectResult> = {};
+        results.forEach((result, index) => {
+          next[ids[index]] = result;
+        });
+        setDetectedTools(next);
       });
-      setDetectedTools(next);
-    });
-  }, [installRoot]);
+    },
+    [effectiveInstallRoot],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +184,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
     ...ALL_TOOLS_META.filter((meta) => !managedInstalledIds.has(meta.id))
       .filter((meta) => detectedTools[meta.id]?.installed)
       .map((meta) =>
-        toExternalInstalledTool(meta, detectedTools[meta.id], installRoot),
+        toExternalInstalledTool(meta, detectedTools[meta.id], effectiveInstallRoot),
       ),
   ];
 
@@ -200,10 +214,79 @@ export function Manager({ onInstallMore }: ManagerProps) {
   );
 
   const handleSingleInstall = useCallback(
-    (_toolId: string) => {
-      onInstallMore?.();
+    (toolId: string, rootPath?: string) => {
+      const resolvedRoot = (rootPath ?? effectiveInstallRoot).trim();
+      if (!resolvedRoot) {
+        toast.error(t("tools.installRootRequired", "请先设置安装根目录"));
+        return;
+      }
+
+      resolvePlan.mutate(
+        { toolIds: [toolId], installRoot: resolvedRoot },
+        {
+          onSuccess: (plan) => {
+            resetProgress();
+            executePlan.mutate(
+              { plan, rootPath: resolvedRoot },
+              {
+                onSuccess: () => {
+                  toast.success(t("tools.installStarted", "已开始安装"));
+                },
+                onError: (err) => {
+                  toast.error(
+                    t("tools.installFailed", "安装失败: {{error}}", {
+                      error: String(err),
+                    }),
+                  );
+                },
+              },
+            );
+          },
+          onError: (err) => {
+            toast.error(
+              t("tools.resolvePlanFailed", "解析安装计划失败: {{error}}", {
+                error: String(err),
+              }),
+            );
+          },
+        },
+      );
     },
-    [onInstallMore],
+    [effectiveInstallRoot, executePlan, resetProgress, resolvePlan, t],
+  );
+
+  const persistInstallRoot = useCallback(
+    async (nextRoot: string) => {
+      const normalizedRoot = nextRoot.trim();
+      if (!normalizedRoot) {
+        setEditRoot(effectiveInstallRoot);
+        return;
+      }
+
+      if (normalizedRoot === effectiveInstallRoot) {
+        setEditRoot(normalizedRoot);
+        return;
+      }
+
+      const previousRoot = effectiveInstallRoot;
+      setEditRoot(normalizedRoot);
+      setActiveInstallRoot(normalizedRoot);
+      queryClient.setQueryData(["install-root"], normalizedRoot);
+
+      try {
+        await toolsApi.setInstallRoot(normalizedRoot);
+      } catch (error) {
+        setEditRoot(previousRoot);
+        setActiveInstallRoot(previousRoot);
+        queryClient.setQueryData(["install-root"], previousRoot);
+        toast.error(
+          t("tools.installRootSaveFailed", "保存安装根目录失败: {{error}}", {
+            error: String(error),
+          }),
+        );
+      }
+    },
+    [effectiveInstallRoot, queryClient, t],
   );
 
   return (
@@ -235,7 +318,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
                   }),
                 );
               } else {
-                toast.success(t("tools.allUpToDate", "所有工具均为最新版本"));
+                toast.success(t("tools.allUpToDate", "所有工具均为最新版"));
               }
             }}
             className="text-[13px]"
@@ -247,7 +330,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full mb-4">
+        <TabsList className="mb-4 w-full">
           <TabsTrigger value="installed" className="flex-1 text-[13px]">
             {t("tools.installedTab", "已安装")} ({mergedInstalledTools.length})
           </TabsTrigger>
@@ -262,7 +345,11 @@ export function Manager({ onInstallMore }: ManagerProps) {
               <p className="text-[14px]">
                 {t("tools.noToolsInstalled", "暂无已安装工具")}
               </p>
-              <Button variant="link" onClick={onInstallMore} className="mt-2 text-[13px]">
+              <Button
+                variant="link"
+                onClick={onInstallMore}
+                className="mt-2 text-[13px]"
+              >
                 {t("tools.goInstall", "去安装")}
               </Button>
             </div>
@@ -283,7 +370,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
                 }
                 onUpdate={
                   updates.find((update) => update.toolId === tool.id)
-                    ? () => handleSingleInstall(tool.id)
+                    ? () => handleSingleInstall(tool.id, tool.installRoot)
                     : undefined
                 }
               />
@@ -297,13 +384,14 @@ export function Manager({ onInstallMore }: ManagerProps) {
               key={tool.id}
               tool={tool}
               variant="available"
-              onInstall={() => handleSingleInstall(tool.id)}
+              progress={getToolProgress(tool.id)}
+              onInstall={() => handleSingleInstall(tool.id, effectiveInstallRoot)}
             />
           ))}
         </TabsContent>
       </Tabs>
 
-      <div className="mt-6 pt-5 border-t border-border/50">
+      <div className="mt-6 border-t border-border/50 pt-5">
         <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
           <Settings className="h-4 w-4 flex-shrink-0" />
           <span className="flex-shrink-0 font-medium">
@@ -313,16 +401,15 @@ export function Manager({ onInstallMore }: ManagerProps) {
             type="text"
             value={editRoot}
             onChange={(e) => setEditRoot(e.target.value)}
-            placeholder="D:\AITools"
-            className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 font-mono text-[13px] focus:border-primary focus:ring-0 focus:outline-none transition-colors"
+            placeholder="D:\\AITools"
+            className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 font-mono text-[13px] transition-colors focus:border-primary focus:outline-none focus:ring-0"
             onBlur={(e) => {
-              const newRoot = e.target.value.trim();
-              if (newRoot && newRoot !== installRoot) {
-                toolsApi.setInstallRoot(newRoot).catch(() => {});
-              }
+              void persistInstallRoot(e.target.value);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              }
             }}
           />
           <Button
@@ -335,7 +422,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
                 open({ directory: true, multiple: false }).then((result) => {
                   if (result && typeof result === "string") {
                     setEditRoot(result);
-                    toolsApi.setInstallRoot(result).catch(() => {});
+                    void persistInstallRoot(result);
                   }
                 });
               });
