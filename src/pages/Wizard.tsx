@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Loader2,
   CheckCircle,
@@ -114,38 +114,34 @@ export function Wizard({
   const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
+  const detectionRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    let settled = false;
     const fallbackTimer = setTimeout(() => {
-      if (!cancelled && !settled) {
-        settled = true;
+      if (!cancelled) {
         setIsInstallRootReady(true);
       }
     }, INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS);
 
     toolsApi.getInstallRoot()
       .then((savedRoot) => {
-        if (cancelled || settled) {
+        if (cancelled) {
           return;
         }
-
-        settled = true;
-        clearTimeout(fallbackTimer);
 
         if (savedRoot) {
           setRootPath(savedRoot);
         }
         setIsInstallRootReady(true);
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled && !settled) {
-          settled = true;
-          clearTimeout(fallbackTimer);
+      .catch(() => {
+        if (!cancelled) {
           setIsInstallRootReady(true);
         }
+      })
+      .finally(() => {
+        clearTimeout(fallbackTimer);
       });
 
     return () => {
@@ -157,6 +153,7 @@ export function Wizard({
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
       const ids = AVAILABLE_TOOLS.map((tool) => tool.id);
+      const requestId = ++detectionRequestIdRef.current;
       setIsDetectingTools(true);
       const detectPromise = forceRefresh
         ? toolsApi.detectTools(ids, rootPath, true)
@@ -164,6 +161,10 @@ export function Wizard({
 
       return detectPromise
         .then((results) => {
+          if (requestId !== detectionRequestIdRef.current) {
+            return;
+          }
+
           const next = buildSelectionFromDetection(
             ids,
             results,
@@ -172,8 +173,17 @@ export function Wizard({
           setInstalledIds(next.detected);
           setSelectedTools(next.selected);
         })
+        .catch((error) => {
+          if (requestId !== detectionRequestIdRef.current) {
+            return;
+          }
+
+          throw error;
+        })
         .finally(() => {
-          setIsDetectingTools(false);
+          if (requestId === detectionRequestIdRef.current) {
+            setIsDetectingTools(false);
+          }
         });
     },
     [initialSelectedToolIds, rootPath],
