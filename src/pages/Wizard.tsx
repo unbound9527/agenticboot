@@ -115,6 +115,7 @@ export function Wizard({
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
   const detectionRequestIdRef = useRef(0);
+  const activeRootPathRef = useRef(rootPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +189,22 @@ export function Wizard({
     },
     [initialSelectedToolIds, rootPath],
   );
+
+  useEffect(() => {
+    if (!isInstallRootReady) {
+      activeRootPathRef.current = rootPath;
+      return;
+    }
+
+    if (activeRootPathRef.current !== rootPath) {
+      activeRootPathRef.current = rootPath;
+      detectionRequestIdRef.current += 1;
+      setIsDetectingTools(true);
+      return;
+    }
+
+    activeRootPathRef.current = rootPath;
+  }, [isInstallRootReady, rootPath]);
 
   useEffect(() => {
     if (!isInstallRootReady) {

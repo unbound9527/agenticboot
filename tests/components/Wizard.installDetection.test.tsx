@@ -251,6 +251,93 @@ describe("Wizard install detection", () => {
     }
   });
 
+  it("ignores fallback detection results that resolve after a late saved root arrives but before replacement detection starts", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const savedRoot = "E:\\SavedTools";
+      const deferredRoot = createDeferred<string | null>();
+      const defaultDetect = createDeferred<ReturnType<typeof buildDetectResults>>();
+      const savedDetect = createDeferred<ReturnType<typeof buildDetectResults>>();
+
+      toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
+      toolsApiMock.detectTools.mockImplementation((_toolIds, installRoot) => {
+        if (installRoot === "D:\\AgenticBoot") {
+          return defaultDetect.promise;
+        }
+
+        if (installRoot === savedRoot) {
+          return savedDetect.promise;
+        }
+
+        return Promise.resolve(buildDetectResults(["claude-code-cli"]));
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <Wizard onComplete={vi.fn()} />
+        </QueryClientProvider>,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticBoot",
+      );
+      expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        deferredRoot.resolve(savedRoot);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
+      expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        defaultDetect.resolve(buildDetectResults(["claude-code-cli"]));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      let checkboxes = screen.getAllByRole("checkbox");
+      expect(checkboxes).toHaveLength(9);
+      const refreshButton = screen.getByRole("button", { name: "重新检测" });
+      expect(refreshButton).toBeDisabled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        savedRoot,
+      );
+
+      await act(async () => {
+        savedDetect.resolve(buildDetectResults([]));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      checkboxes = screen.getAllByRole("checkbox");
+      expect(checkboxes).toHaveLength(9);
+      checkboxes.forEach((checkbox) => {
+        expect(checkbox).toHaveAttribute("data-state", "checked");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-runs detection when the install root changes and removes installed tools from selection", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
