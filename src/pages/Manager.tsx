@@ -313,7 +313,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
             type="text"
             value={editRoot}
             onChange={(e) => setEditRoot(e.target.value)}
-            placeholder="D:\AITools"
+            placeholder="D:\\AgenticBoot"
             className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 font-mono text-[13px] focus:border-primary focus:ring-0 focus:outline-none transition-colors"
             onBlur={(e) => {
               const newRoot = e.target.value.trim();

@@ -338,6 +338,51 @@ describe("Wizard install detection", () => {
     }
   });
 
+  it("does not let a late saved root overwrite a user-typed install root", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const savedRoot = "F:\\SavedTools";
+      const userRoot = "E:\\MyTools";
+      const deferredRoot = createDeferred<string | null>();
+      toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <Wizard onComplete={vi.fn()} />
+        </QueryClientProvider>,
+      );
+
+      fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
+        target: { value: userRoot },
+      });
+
+      await act(async () => {
+        deferredRoot.resolve(savedRoot);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByDisplayValue(userRoot)).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        userRoot,
+      );
+      expect(toolsApiMock.detectTools).not.toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        savedRoot,
+      );
+      expect(screen.getByDisplayValue(userRoot)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-runs detection when the install root changes and removes installed tools from selection", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>

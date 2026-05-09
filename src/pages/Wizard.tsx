@@ -116,6 +116,7 @@ export function Wizard({
   const [isDetectingTools, setIsDetectingTools] = useState(true);
   const detectionRequestIdRef = useRef(0);
   const activeRootPathRef = useRef(rootPath);
+  const rootPathDirtyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,7 +133,9 @@ export function Wizard({
         }
 
         if (savedRoot) {
-          setRootPath(savedRoot);
+          if (!rootPathDirtyRef.current) {
+            setRootPath(savedRoot);
+          }
         }
         setIsInstallRootReady(true);
       })
@@ -444,7 +447,10 @@ export function Wizard({
             <Input
               id="install-root"
               value={rootPath}
-              onChange={(e) => setRootPath(e.target.value)}
+              onChange={(e) => {
+                rootPathDirtyRef.current = true;
+                setRootPath(e.target.value);
+              }}
               placeholder={DEFAULT_ROOT}
               className="font-mono text-sm"
             />
@@ -456,6 +462,7 @@ export function Wizard({
                 import("@tauri-apps/plugin-dialog").then(({ open }) => {
                   open({ directory: true, multiple: false }).then((result) => {
                     if (result && typeof result === "string") {
+                      rootPathDirtyRef.current = true;
                       setRootPath(result);
                     }
                   });
