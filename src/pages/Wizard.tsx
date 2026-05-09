@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Loader2,
   CheckCircle,
@@ -71,7 +71,8 @@ const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
   },
 ];
 
-const DEFAULT_ROOT = "D:\\AITools";
+const DEFAULT_ROOT = "D:\\AgenticBoot";
+const INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS = 500;
 
 interface WizardProps {
   onComplete: () => void;
@@ -106,39 +107,57 @@ export function Wizard({
 }: WizardProps) {
   const { t } = useTranslation();
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
-  const [hasLoadedInstallRoot, setHasLoadedInstallRoot] = useState(false);
+  const [isInstallRootReady, setIsInstallRootReady] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
+  const detectionRequestIdRef = useRef(0);
+  const activeRootPathRef = useRef(rootPath);
+  const rootPathDirtyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    const fallbackTimer = setTimeout(() => {
+      if (!cancelled) {
+        setIsInstallRootReady(true);
+      }
+    }, INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS);
 
-    toolsApi
-      .getInstallRoot()
+    toolsApi.getInstallRoot()
       .then((savedRoot) => {
-        if (cancelled || !savedRoot?.trim()) {
+        if (cancelled) {
           return;
         }
-        setRootPath(savedRoot.trim());
+
+        if (savedRoot) {
+          if (!rootPathDirtyRef.current) {
+            setRootPath(savedRoot);
+          }
+        }
+        setIsInstallRootReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsInstallRootReady(true);
+        }
       })
       .finally(() => {
-        if (!cancelled) {
-          setHasLoadedInstallRoot(true);
-        }
+        clearTimeout(fallbackTimer);
       });
 
     return () => {
       cancelled = true;
+      clearTimeout(fallbackTimer);
     };
   }, []);
 
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
       const ids = AVAILABLE_TOOLS.map((tool) => tool.id);
+      const requestId = ++detectionRequestIdRef.current;
       setIsDetectingTools(true);
       const detectPromise = forceRefresh
         ? toolsApi.detectTools(ids, rootPath, true)
@@ -146,6 +165,10 @@ export function Wizard({
 
       return detectPromise
         .then((results) => {
+          if (requestId !== detectionRequestIdRef.current) {
+            return;
+          }
+
           const next = buildSelectionFromDetection(
             ids,
             results,
@@ -154,15 +177,40 @@ export function Wizard({
           setInstalledIds(next.detected);
           setSelectedTools(next.selected);
         })
+        .catch((error) => {
+          if (requestId !== detectionRequestIdRef.current) {
+            return;
+          }
+
+          throw error;
+        })
         .finally(() => {
-          setIsDetectingTools(false);
+          if (requestId === detectionRequestIdRef.current) {
+            setIsDetectingTools(false);
+          }
         });
     },
     [initialSelectedToolIds, rootPath],
   );
 
   useEffect(() => {
-    if (!hasLoadedInstallRoot) {
+    if (!isInstallRootReady) {
+      activeRootPathRef.current = rootPath;
+      return;
+    }
+
+    if (activeRootPathRef.current !== rootPath) {
+      activeRootPathRef.current = rootPath;
+      detectionRequestIdRef.current += 1;
+      setIsDetectingTools(true);
+      return;
+    }
+
+    activeRootPathRef.current = rootPath;
+  }, [isInstallRootReady, rootPath]);
+
+  useEffect(() => {
+    if (!isInstallRootReady) {
       return;
     }
 
@@ -181,7 +229,7 @@ export function Wizard({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [hasLoadedInstallRoot, refreshDetectedTools]);
+  }, [isInstallRootReady, refreshDetectedTools]);
 
   const {
     data: netStatus,
@@ -399,8 +447,11 @@ export function Wizard({
             <Input
               id="install-root"
               value={rootPath}
-              onChange={(e) => setRootPath(e.target.value)}
-              placeholder="D:\\AITools"
+              onChange={(e) => {
+                rootPathDirtyRef.current = true;
+                setRootPath(e.target.value);
+              }}
+              placeholder={DEFAULT_ROOT}
               className="font-mono text-sm"
             />
             <Button
@@ -411,6 +462,7 @@ export function Wizard({
                 import("@tauri-apps/plugin-dialog").then(({ open }) => {
                   open({ directory: true, multiple: false }).then((result) => {
                     if (result && typeof result === "string") {
+                      rootPathDirtyRef.current = true;
                       setRootPath(result);
                     }
                   });

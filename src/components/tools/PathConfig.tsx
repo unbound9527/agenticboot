@@ -12,7 +12,7 @@ interface PathConfigProps {
   onBack: () => void;
 }
 
-const DEFAULT_ROOT = 'D:\\AITools';
+const DEFAULT_ROOT = 'D:\\AgenticBoot';
 
 const TOOL_PREVIEWS = [
   'claude-code-cli',
@@ -43,7 +43,7 @@ export function PathConfig({ onNext, onBack }: PathConfigProps) {
             id="install-root"
             value={rootPath}
             onChange={(e) => setRootPath(e.target.value)}
-            placeholder="D:\AITools"
+            placeholder={DEFAULT_ROOT}
             className="font-mono text-sm"
           />
           <Button
