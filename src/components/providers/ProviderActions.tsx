@@ -71,7 +71,7 @@ export function ProviderActions({
   onSetAsDefault,
 }: ProviderActionsProps) {
   const { t } = useTranslation();
-  const iconButtonClass = "h-8 w-8 p-1";
+  const iconButtonClass = "h-8 w-8 p-1 rounded-lg hover:bg-muted/80 transition-colors text-muted-foreground hover:text-foreground";
 
   // 累加模式应用（OpenCode 非 OMO / OpenClaw / Hermes）
   const isAdditiveMode =
@@ -237,8 +237,8 @@ export function ProviderActions({
               className={cn(
                 "w-fit px-2.5",
                 isDefaultModel
-                  ? "bg-gray-200 text-muted-foreground dark:bg-gray-700 opacity-60 cursor-not-allowed"
-                  : "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
+                  ? "opacity-40 cursor-not-allowed"
+                  : "",
               )}
             >
               <Zap className="h-4 w-4" />
@@ -249,7 +249,7 @@ export function ProviderActions({
 
       <Button
         size="sm"
-        variant={buttonState.variant}
+        variant="default"
         onClick={handleMainButtonClick}
         disabled={buttonState.disabled}
         className={cn("w-[4.5rem] px-2.5", buttonState.className)}
@@ -267,7 +267,7 @@ export function ProviderActions({
           title={isReadOnly ? readOnlyHint : t("common.edit")}
           className={cn(
             iconButtonClass,
-            isReadOnly && "opacity-40 cursor-not-allowed text-muted-foreground",
+            isReadOnly && "opacity-40 cursor-not-allowed",
           )}
         >
           <Edit className="h-4 w-4" />
@@ -291,7 +291,7 @@ export function ProviderActions({
           title={t("modelTest.testProvider", "测试模型")}
           className={cn(
             iconButtonClass,
-            !onTest && "opacity-40 cursor-not-allowed text-muted-foreground",
+            !onTest && "opacity-40 cursor-not-allowed",
           )}
         >
           {isTesting ? (
@@ -309,7 +309,7 @@ export function ProviderActions({
           className={cn(
             iconButtonClass,
             !onConfigureUsage &&
-              "opacity-40 cursor-not-allowed text-muted-foreground",
+              "opacity-40 cursor-not-allowed",
           )}
         >
           <BarChart3 className="h-4 w-4" />
@@ -321,10 +321,7 @@ export function ProviderActions({
             variant="ghost"
             onClick={onOpenTerminal}
             title={t("provider.openTerminal", "打开终端")}
-            className={cn(
-              iconButtonClass,
-              "hover:text-emerald-600 dark:hover:text-emerald-400",
-            )}
+            className={iconButtonClass}
           >
             <Terminal className="h-4 w-4" />
           </Button>
@@ -337,8 +334,8 @@ export function ProviderActions({
           title={isReadOnly ? readOnlyHint : t("common.delete")}
           className={cn(
             iconButtonClass,
-            canDelete && "hover:text-red-500 dark:hover:text-red-400",
-            !canDelete && "opacity-40 cursor-not-allowed text-muted-foreground",
+            canDelete && "hover:bg-red-100 hover:text-red-600",
+            !canDelete && "opacity-40 cursor-not-allowed",
           )}
         >
           <Trash2 className="h-4 w-4" />

@@ -53,6 +53,22 @@ Only managed installs are candidates for automatic directory cleanup during unin
 - macOS: framework only
 - Linux: framework only
 
+## Development startup
+
+On Windows, use the repository-managed startup script to run the desktop app with the Node.js version declared in [`.node-version`](./.node-version) and the `pnpm` version declared in [`package.json`](./package.json).
+
+```powershell
+.\scripts\dev-desktop.ps1
+```
+
+You can also use the `cmd` wrapper:
+
+```bat
+scripts\dev-desktop.cmd
+```
+
+The script downloads a managed Node.js runtime on first use, runs `pnpm install --frozen-lockfile` through Corepack, and then starts the Tauri desktop app.
+
 ## Repo docs
 
 - Tool docs: [docs/tools/README.md](./docs/tools/README.md)

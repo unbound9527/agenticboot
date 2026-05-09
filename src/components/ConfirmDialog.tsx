@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -37,7 +38,7 @@ export function ConfirmDialog({
 
   const IconComponent = variant === "info" ? Info : AlertTriangle;
   const iconClass =
-    variant === "info" ? "h-5 w-5 text-blue-500" : "h-5 w-5 text-destructive";
+    variant === "info" ? "h-5 w-5 text-[#FF5A36]" : "h-5 w-5 text-red-500";
 
   return (
     <Dialog
@@ -48,17 +49,17 @@ export function ConfirmDialog({
         }
       }}
     >
-      <DialogContent className="max-w-sm" zIndex={zIndex}>
-        <DialogHeader className="space-y-3 border-b-0 bg-transparent pb-0">
+      <DialogContent className={cn("max-w-sm", zIndex === "alert" ? "z-[100]" : "")} zIndex={zIndex}>
+        <DialogHeader className="space-y-3">
           <DialogTitle className="flex items-center gap-2 text-lg font-semibold">
             <IconComponent className={iconClass} />
             {title}
           </DialogTitle>
-          <DialogDescription className="whitespace-pre-line text-sm leading-relaxed">
+          <DialogDescription className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
             {message}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter className="flex gap-2 border-t-0 bg-transparent pt-2 sm:justify-end">
+        <DialogFooter className="flex gap-2 sm:justify-end">
           <Button variant="outline" onClick={onCancel}>
             {cancelText || t("common.cancel")}
           </Button>

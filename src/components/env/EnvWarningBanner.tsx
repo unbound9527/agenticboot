@@ -111,38 +111,38 @@ export function EnvWarningBanner({
 
   return (
     <>
-      <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-50 dark:bg-yellow-950 border-b border-yellow-200 dark:border-yellow-900 shadow-lg animate-slide-down">
+      <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-50 border-b-4 border-amber-300 animate-slide-down">
         <div className="container mx-auto px-4 py-3">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+                  <h3 className="text-sm font-semibold text-foreground">
                     {t("env.warning.title")}
                   </h3>
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-0.5">
+                  <p className="text-sm text-muted-foreground mt-0.5">
                     {t("env.warning.description", { count: conflicts.length })}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="text-yellow-900 dark:text-yellow-100 hover:bg-yellow-100 dark:hover:bg-yellow-900/50"
+                    className="h-7"
                   >
                     {isExpanded ? (
                       <>
                         {t("env.actions.collapse")}
-                        <ChevronUp className="h-4 w-4 ml-1" />
+                        <ChevronUp className="h-3 w-3 ml-1" />
                       </>
                     ) : (
                       <>
                         {t("env.actions.expand")}
-                        <ChevronDown className="h-4 w-4 ml-1" />
+                        <ChevronDown className="h-3 w-3 ml-1" />
                       </>
                     )}
                   </Button>
@@ -151,7 +151,7 @@ export function EnvWarningBanner({
                     variant="ghost"
                     size="icon"
                     onClick={onDismiss}
-                    className="text-yellow-900 dark:text-yellow-100 hover:bg-yellow-100 dark:hover:bg-yellow-900/50"
+                    className="h-8 w-8"
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -160,7 +160,7 @@ export function EnvWarningBanner({
 
               {isExpanded && (
                 <div className="mt-4 space-y-3">
-                  <div className="flex items-center gap-2 pb-2 border-b border-yellow-200 dark:border-yellow-900/50">
+                  <div className="flex items-center gap-2 pb-2 border-b">
                     <Checkbox
                       id="select-all"
                       checked={selectedConflicts.size === conflicts.length}
@@ -168,7 +168,7 @@ export function EnvWarningBanner({
                     />
                     <label
                       htmlFor="select-all"
-                      className="text-sm font-medium text-yellow-900 dark:text-yellow-100 cursor-pointer"
+                      className="text-sm font-medium cursor-pointer"
                     >
                       {t("env.actions.selectAll")}
                     </label>
@@ -180,7 +180,7 @@ export function EnvWarningBanner({
                       return (
                         <div
                           key={key}
-                          className="flex items-start gap-3 p-3 bg-white dark:bg-gray-900 rounded-md border border-yellow-200 dark:border-yellow-900/50"
+                          className="flex items-start gap-3 p-3 rounded-lg border bg-background"
                         >
                           <Checkbox
                             id={key}
@@ -191,14 +191,14 @@ export function EnvWarningBanner({
                           <div className="flex-1 min-w-0">
                             <label
                               htmlFor={key}
-                              className="block text-sm font-medium text-foreground cursor-pointer"
+                              className="block text-sm font-medium cursor-pointer"
                             >
                               {conflict.varName}
                             </label>
-                            <p className="text-xs text-muted-foreground mt-1 break-all">
+                            <p className="text-xs text-muted-foreground mt-1 break-all font-mono">
                               {t("env.field.value")}: {conflict.varValue}
                             </p>
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="text-xs text-muted-foreground mt-1 font-mono">
                               {t("env.field.source")}:{" "}
                               {getSourceDescription(conflict)}
                             </p>
@@ -208,13 +208,13 @@ export function EnvWarningBanner({
                     })}
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-yellow-200 dark:border-yellow-900/50">
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setSelectedConflicts(new Set())}
                       disabled={selectedConflicts.size === 0}
-                      className="text-yellow-900 dark:text-yellow-100 border-yellow-300 dark:border-yellow-800"
+                      className="h-7"
                     >
                       {t("env.actions.clearSelection")}
                     </Button>
@@ -226,7 +226,7 @@ export function EnvWarningBanner({
                       disabled={selectedConflicts.size === 0 || isDeleting}
                       className="gap-1"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3 w-3" />
                       {isDeleting
                         ? t("env.actions.deleting")
                         : t("env.actions.deleteSelected", {

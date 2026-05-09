@@ -194,7 +194,7 @@ export function SettingsPage({
           onValueChange={setActiveTab}
           className="flex flex-col h-full"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
+          <TabsList className="grid w-full grid-cols-6 mb-6">
             <TabsTrigger value="general">
               {t("settings.tabGeneral")}
             </TabsTrigger>
@@ -290,22 +290,22 @@ export function SettingsPage({
                     >
                       <AccordionItem
                         value="directory"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
                             <FolderSearch className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.configDir.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.configDir.description")}
                               </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <DirectorySettings
                             appConfigDir={appConfigDir}
                             resolvedDirs={resolvedDirs}
@@ -327,22 +327,22 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="data"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
-                            <Database className="h-5 w-5 text-blue-500" />
+                            <Database className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.data.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.data.description")}
                               </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <ImportExportSection
                             status={importStatus}
                             selectedFile={selectedFile}
@@ -359,18 +359,18 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="backup"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
-                            <HardDriveDownload className="h-5 w-5 text-amber-500" />
+                            <HardDriveDownload className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.backup.title", {
                                   defaultValue: "Backup & Restore",
                                 })}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.backup.description", {
                                   defaultValue:
                                     "Manage automatic backups, view and restore database snapshots",
@@ -379,7 +379,7 @@ export function SettingsPage({
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <BackupListSection
                             backupIntervalHours={settings.backupIntervalHours}
                             backupRetainCount={settings.backupRetainCount}
@@ -392,22 +392,22 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="cloudSync"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
-                            <Cloud className="h-5 w-5 text-blue-500" />
+                            <Cloud className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.cloudSync.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.cloudSync.description")}
                               </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <WebdavSyncSection
                             config={settings?.webdavSync}
                             settings={settings}
@@ -418,44 +418,44 @@ export function SettingsPage({
 
                       <AccordionItem
                         value="test"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
-                            <FlaskConical className="h-5 w-5 text-emerald-500" />
+                            <FlaskConical className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.modelTest.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.modelTest.description")}
                               </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <ModelTestConfigPanel />
                         </AccordionContent>
                       </AccordionItem>
 
                       <AccordionItem
                         value="logConfig"
-                        className="rounded-xl glass-card overflow-hidden"
+                        className="border rounded-lg overflow-hidden bg-card"
                       >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
                           <div className="flex items-center gap-3">
-                            <ScrollText className="h-5 w-5 text-cyan-500" />
+                            <ScrollText className="h-5 w-5 text-primary" />
                             <div className="text-left">
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.logConfig.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
+                              <p className="text-sm text-muted-foreground">
                                 {t("settings.advanced.logConfig.description")}
                               </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t">
                           <LogConfigPanel />
                         </AccordionContent>
                       </AccordionItem>
@@ -475,11 +475,10 @@ export function SettingsPage({
 
             {activeTab === "advanced" && settings && (
               <div
-                className="flex-shrink-0 pt-4 border-t border-border-default"
-                style={{ backgroundColor: "hsl(var(--background))" }}
+                className="flex-shrink-0 pt-4 border-t"
               >
                 <div className="px-6 flex items-center justify-end gap-3">
-                  <Button onClick={handleSave} disabled={isSaving}>
+                  <Button variant="default" onClick={handleSave} disabled={isSaving}>
                     {isSaving ? (
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -503,9 +502,9 @@ export function SettingsPage({
         open={showRestartPrompt}
         onOpenChange={(open) => !open && handleRestartLater()}
       >
-        <DialogContent zIndex="alert" className="max-w-md glass border-border">
+        <DialogContent zIndex="alert" className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t("settings.restartRequired")}</DialogTitle>
+            <DialogTitle className="text-lg font-semibold">{t("settings.restartRequired")}</DialogTitle>
           </DialogHeader>
           <div className="px-6">
             <p className="text-sm text-muted-foreground">
@@ -514,15 +513,14 @@ export function SettingsPage({
           </div>
           <DialogFooter>
             <Button
-              variant="ghost"
+              variant="outline"
               onClick={handleRestartLater}
-              className="hover:bg-muted/50"
             >
               {t("settings.restartLater")}
             </Button>
             <Button
+              variant="default"
               onClick={handleRestartNow}
-              className="bg-primary hover:bg-primary/90"
             >
               {t("settings.restartNow")}
             </Button>

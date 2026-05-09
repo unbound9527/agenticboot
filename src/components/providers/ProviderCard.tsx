@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { GripVertical, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   DraggableAttributes,
@@ -250,241 +250,202 @@ export function ProviderCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border border-border p-4 transition-all duration-300",
-        "bg-card text-card-foreground group",
-        isAutoFailoverEnabled || isProxyTakeover
-          ? "hover:border-emerald-500/50"
-          : "hover:border-border-active",
-        shouldUseGreen &&
-          "border-emerald-500/60 shadow-sm shadow-emerald-500/10",
-        shouldUseBlue && "border-blue-500/60 shadow-sm shadow-blue-500/10",
-        !(isActiveProvider || hasPersistentConfigHighlight) &&
-          "hover:shadow-sm",
-        dragHandleProps?.isDragging &&
-          "cursor-grabbing border-primary shadow-lg scale-105 z-10",
+        "claude-card group flex items-center gap-4",
+        isActiveProvider && "active",
+        shouldUseGreen && "border-emerald-500/50",
+        shouldUseBlue && "border-primary/50",
+        dragHandleProps?.isDragging && "cursor-grabbing",
       )}
     >
-      <div
-        className={cn(
-          "absolute inset-0 bg-gradient-to-r to-transparent transition-opacity duration-500 pointer-events-none",
-          shouldUseGreen && "from-emerald-500/10",
-          shouldUseBlue && "from-blue-500/10",
-          !shouldUseGreen && !shouldUseBlue && "from-primary/10",
-          isActiveProvider || hasPersistentConfigHighlight
-            ? "opacity-100"
-            : "opacity-0",
-        )}
-      />
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 items-center gap-2">
+      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+        <ProviderIcon
+          icon={provider.icon}
+          name={provider.name}
+          color={provider.iconColor}
+          size={24}
+        />
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="text-[15px] font-medium text-foreground">{provider.name}</h3>
+
+          {isOmo && (
+            <span className="inline-flex items-center bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400 px-2 py-0.5 text-xs font-medium rounded-md">
+              OMO
+            </span>
+          )}
+
+          {isOmoSlim && (
+            <span className="inline-flex items-center bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400 px-2 py-0.5 text-xs font-medium rounded-md">
+              Slim
+            </span>
+          )}
+
+          {isProxyRunning && isInFailoverQueue && health && (
+            <ProviderHealthBadge
+              consecutiveFailures={health.consecutive_failures}
+            />
+          )}
+
+          {isAutoFailoverEnabled &&
+            isInFailoverQueue &&
+            failoverPriority && (
+              <FailoverPriorityBadge priority={failoverPriority} />
+            )}
+
+          {provider.category === "third_party" &&
+            provider.meta?.isPartner && (
+              <span
+                className="text-yellow-500 font-bold"
+                title={t("provider.officialPartner", {
+                  defaultValue: "官方合作伙伴",
+                })}
+              >
+                ⭐
+              </span>
+            )}
+
+          {isHermesReadOnly && (
+            <span
+              className="inline-flex items-center bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium rounded"
+              title={t("provider.managedByHermesHint", {
+                defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
+              })}
+            >
+              {t("provider.managedByHermes", {
+                defaultValue: "Hermes Managed",
+              })}
+            </span>
+          )}
+        </div>
+
+        {displayUrl && (
           <button
             type="button"
+            onClick={handleOpenWebsite}
             className={cn(
-              "-ml-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing p-1.5",
-              "text-muted-foreground/50 hover:text-muted-foreground transition-colors",
-              dragHandleProps?.isDragging && "cursor-grabbing",
+              "inline-flex items-center text-[13px] max-w-[280px] font-mono mt-1 text-muted-foreground",
+              isClickableUrl
+                ? "text-primary/70 hover:text-primary hover:underline cursor-pointer transition-colors"
+                : "cursor-default",
             )}
-            aria-label={t("provider.dragHandle")}
-            {...(dragHandleProps?.attributes ?? {})}
-            {...(dragHandleProps?.listeners ?? {})}
+            title={displayUrl}
+            disabled={!isClickableUrl}
           >
-            <GripVertical className="h-4 w-4" />
+            <span className="truncate">{displayUrl}</span>
           </button>
+        )}
+      </div>
 
-          <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center border border-border group-hover:scale-105 transition-transform duration-300">
-            <ProviderIcon
-              icon={provider.icon}
-              name={provider.name}
-              color={provider.iconColor}
-              size={20}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2 min-h-7">
-              <h3 className="text-base font-semibold leading-none">
-                {provider.name}
-              </h3>
-
-              {isOmo && (
-                <span className="inline-flex items-center rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                  OMO
-                </span>
-              )}
-
-              {isOmoSlim && (
-                <span className="inline-flex items-center rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                  Slim
-                </span>
-              )}
-
-              {isProxyRunning && isInFailoverQueue && health && (
-                <ProviderHealthBadge
-                  consecutiveFailures={health.consecutive_failures}
-                />
-              )}
-
-              {isAutoFailoverEnabled &&
-                isInFailoverQueue &&
-                failoverPriority && (
-                  <FailoverPriorityBadge priority={failoverPriority} />
-                )}
-
-              {provider.category === "third_party" &&
-                provider.meta?.isPartner && (
-                  <span
-                    className="text-yellow-500 dark:text-yellow-400"
-                    title={t("provider.officialPartner", {
-                      defaultValue: "官方合作伙伴",
-                    })}
-                  >
-                    ⭐
-                  </span>
-                )}
-
-              {isHermesReadOnly && (
-                <span
-                  className="inline-flex items-center rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700/60 dark:text-slate-200"
-                  title={t("provider.managedByHermesHint", {
-                    defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
-                  })}
-                >
-                  {t("provider.managedByHermes", {
-                    defaultValue: "Hermes Managed",
+      <div className="flex items-center ml-auto min-w-0 gap-3">
+        <div className="ml-auto">
+          <div className="flex items-center gap-2">
+            {isCopilot ? (
+              <CopilotQuotaFooter
+                meta={provider.meta}
+                inline={true}
+                isCurrent={isCurrent}
+              />
+            ) : isCodexOauth ? (
+              <CodexOauthQuotaFooter
+                meta={provider.meta}
+                inline={true}
+                isCurrent={isCurrent}
+              />
+            ) : isOfficial ? (
+              <SubscriptionQuotaFooter
+                appId={appId}
+                inline={true}
+                isCurrent={isCurrent}
+              />
+            ) : hasMultiplePlans ? (
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <span className="font-medium">
+                  {t("usage.multiplePlans", {
+                    count: usage?.data?.length || 0,
+                    defaultValue: `${usage?.data?.length || 0} 个套餐`,
                   })}
                 </span>
-              )}
-            </div>
-
-            {displayUrl && (
+              </div>
+            ) : (
+              <UsageFooter
+                provider={provider}
+                providerId={provider.id}
+                appId={appId}
+                usageEnabled={usageEnabled}
+                isCurrent={isCurrent}
+                isInConfig={isInConfig}
+                inline={true}
+              />
+            )}
+            {hasMultiplePlans && (
               <button
-                type="button"
-                onClick={handleOpenWebsite}
-                className={cn(
-                  "inline-flex items-center text-sm max-w-[280px]",
-                  isClickableUrl
-                    ? "text-blue-500 transition-colors hover:underline dark:text-blue-400 cursor-pointer"
-                    : "text-muted-foreground cursor-default",
-                )}
-                title={displayUrl}
-                disabled={!isClickableUrl}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(!isExpanded);
+                }}
+                className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground flex-shrink-0"
+                title={
+                  isExpanded
+                    ? t("usage.collapse", { defaultValue: "收起" })
+                    : t("usage.expand", { defaultValue: "展开" })
+                }
               >
-                <span className="truncate">{displayUrl}</span>
+                {isExpanded ? (
+                  <ChevronUp size={14} />
+                ) : (
+                  <ChevronDown size={14} />
+                )}
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex items-center ml-auto min-w-0 gap-3">
-          <div className="ml-auto">
-            <div className="flex items-center gap-1">
-              {isCopilot ? (
-                <CopilotQuotaFooter
-                  meta={provider.meta}
-                  inline={true}
-                  isCurrent={isCurrent}
-                />
-              ) : isCodexOauth ? (
-                <CodexOauthQuotaFooter
-                  meta={provider.meta}
-                  inline={true}
-                  isCurrent={isCurrent}
-                />
-              ) : isOfficial ? (
-                <SubscriptionQuotaFooter
-                  appId={appId}
-                  inline={true}
-                  isCurrent={isCurrent}
-                />
-              ) : hasMultiplePlans ? (
-                <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">
-                    {t("usage.multiplePlans", {
-                      count: usage?.data?.length || 0,
-                      defaultValue: `${usage?.data?.length || 0} 个套餐`,
-                    })}
-                  </span>
-                </div>
-              ) : (
-                <UsageFooter
-                  provider={provider}
-                  providerId={provider.id}
-                  appId={appId}
-                  usageEnabled={usageEnabled}
-                  isCurrent={isCurrent}
-                  isInConfig={isInConfig}
-                  inline={true}
-                />
-              )}
-              {hasMultiplePlans && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsExpanded(!isExpanded);
-                  }}
-                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-500 dark:text-gray-400 flex-shrink-0"
-                  title={
-                    isExpanded
-                      ? t("usage.collapse", { defaultValue: "收起" })
-                      : t("usage.expand", { defaultValue: "展开" })
-                  }
-                >
-                  {isExpanded ? (
-                    <ChevronUp size={14} />
-                  ) : (
-                    <ChevronDown size={14} />
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto transition-opacity duration-200">
-            <ProviderActions
-              appId={appId}
-              isCurrent={isCurrent}
-              isInConfig={isInConfig}
-              isTesting={isTesting}
-              isProxyTakeover={isProxyTakeover}
-              isOfficialBlockedByProxy={isOfficialBlockedByProxy}
-              isReadOnly={isHermesReadOnly}
-              isOmo={isAnyOmo}
-              onSwitch={() => onSwitch(provider)}
-              onEdit={() => onEdit(provider)}
-              onDuplicate={() => onDuplicate(provider)}
-              onTest={
-                onTest && !isOfficial && !isCopilot && !isCodexOauth
-                  ? () => onTest(provider)
-                  : undefined
-              }
-              onConfigureUsage={
-                isOfficial || isCopilot || isCodexOauth
-                  ? undefined
-                  : () => onConfigureUsage(provider)
-              }
-              onDelete={() => onDelete(provider)}
-              onRemoveFromConfig={
-                onRemoveFromConfig
-                  ? () => onRemoveFromConfig(provider)
-                  : undefined
-              }
-              onDisableOmo={handleDisableAnyOmo}
-              onOpenTerminal={
-                onOpenTerminal ? () => onOpenTerminal(provider) : undefined
-              }
-              isAutoFailoverEnabled={isAutoFailoverEnabled}
-              isInFailoverQueue={isInFailoverQueue}
-              onToggleFailover={onToggleFailover}
-              // OpenClaw: default model
-              isDefaultModel={isDefaultModel}
-              onSetAsDefault={onSetAsDefault}
-            />
-          </div>
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto transition-all duration-150">
+          <ProviderActions
+            appId={appId}
+            isCurrent={isCurrent}
+            isInConfig={isInConfig}
+            isTesting={isTesting}
+            isProxyTakeover={isProxyTakeover}
+            isOfficialBlockedByProxy={isOfficialBlockedByProxy}
+            isReadOnly={isHermesReadOnly}
+            isOmo={isAnyOmo}
+            onSwitch={() => onSwitch(provider)}
+            onEdit={() => onEdit(provider)}
+            onDuplicate={() => onDuplicate(provider)}
+            onTest={
+              onTest && !isOfficial && !isCopilot && !isCodexOauth
+                ? () => onTest(provider)
+                : undefined
+            }
+            onConfigureUsage={
+              isOfficial || isCopilot || isCodexOauth
+                ? undefined
+                : () => onConfigureUsage(provider)
+            }
+            onDelete={() => onDelete(provider)}
+            onRemoveFromConfig={
+              onRemoveFromConfig
+                ? () => onRemoveFromConfig(provider)
+                : undefined
+            }
+            onDisableOmo={handleDisableAnyOmo}
+            onOpenTerminal={
+              onOpenTerminal ? () => onOpenTerminal(provider) : undefined
+            }
+            isAutoFailoverEnabled={isAutoFailoverEnabled}
+            isInFailoverQueue={isInFailoverQueue}
+            onToggleFailover={onToggleFailover}
+            isDefaultModel={isDefaultModel}
+            onSetAsDefault={onSetAsDefault}
+          />
         </div>
       </div>
 
       {isExpanded && hasMultiplePlans && (
-        <div className="mt-4 pt-4 border-t border-border-default">
+        <div className="mt-4 pt-4 border-t">
           <UsageFooter
             provider={provider}
             providerId={provider.id}

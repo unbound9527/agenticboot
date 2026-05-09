@@ -18,8 +18,16 @@ export const toolsApi = {
     return invoke('check_network');
   },
 
-  detectTools(toolIds: string[], installRoot?: string): Promise<DetectResult[]> {
-    return invoke('detect_tools', { toolIds, installRoot: installRoot ?? null });
+  detectTools(
+    toolIds: string[],
+    installRoot?: string,
+    forceRefresh = false
+  ): Promise<DetectResult[]> {
+    return invoke('detect_tools', {
+      toolIds,
+      installRoot: installRoot ?? null,
+      forceRefresh,
+    });
   },
 
   resolveInstallPlan(toolIds: string[], installRoot?: string): Promise<InstallPlan> {

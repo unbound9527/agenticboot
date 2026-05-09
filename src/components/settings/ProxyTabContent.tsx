@@ -92,21 +92,21 @@ export function ProxyTabContent({
         {/* Local Proxy */}
         <AccordionItem
           value="proxy"
-          className="rounded-xl glass-card overflow-hidden"
+          className="border rounded-lg overflow-hidden bg-card"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline">
             <div className="flex items-center gap-3">
-              <Server className="h-5 w-5 text-green-500" />
+              <Server className="h-5 w-5 text-primary" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.proxy.title")}
                 </h3>
-                <p className="text-sm text-muted-foreground font-normal">
+                <p className="text-sm text-muted-foreground">
                   {t("settings.advanced.proxy.description")}
                 </p>
               </div>
               <Badge
-                variant={isRunning ? "default" : "secondary"}
+                variant={isRunning ? "default" : "outline"}
                 className="gap-1.5 h-6 ml-auto mr-2"
               >
                 <Activity
@@ -118,7 +118,7 @@ export function ProxyTabContent({
               </Badge>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+          <AccordionContent className="px-6 pb-6 pt-4 border-t">
             <ProxyPanel
               enableLocalProxy={settings?.enableLocalProxy ?? false}
               onEnableLocalProxyChange={(checked) =>
@@ -133,25 +133,25 @@ export function ProxyTabContent({
         {/* Auto Failover */}
         <AccordionItem
           value="failover"
-          className="rounded-xl glass-card overflow-hidden"
+          className="border rounded-lg overflow-hidden bg-card"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline">
             <div className="flex items-center gap-3">
-              <Activity className="h-5 w-5 text-orange-500" />
+              <Activity className="h-5 w-5 text-primary" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.failover.title")}
                 </h3>
-                <p className="text-sm text-muted-foreground font-normal">
+                <p className="text-sm text-muted-foreground">
                   {t("settings.advanced.failover.description")}
                 </p>
               </div>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+          <AccordionContent className="px-6 pb-6 pt-4 border-t">
             <div className="space-y-6">
               <ToggleRow
-                icon={<ShieldAlert className="h-4 w-4 text-orange-500" />}
+                icon={<ShieldAlert className="h-4 w-4 text-primary" />}
                 title={t("settings.advanced.proxy.enableFailoverToggle")}
                 description={t(
                   "settings.advanced.proxy.enableFailoverToggleDescription",
@@ -161,8 +161,8 @@ export function ProxyTabContent({
               />
 
               {!isRunning && (
-                <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                  <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
+                  <p className="text-sm font-medium">
                     {t("proxy.failover.proxyRequired", {
                       defaultValue: "需要先启动代理服务才能配置故障转移",
                     })}

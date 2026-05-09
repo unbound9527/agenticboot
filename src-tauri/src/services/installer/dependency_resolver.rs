@@ -8,6 +8,51 @@ use crate::tool_types::{InstallPlan, InstallStep};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+fn satisfies_min_version(current: &str, requirement: &str) -> bool {
+    let req = requirement.trim();
+    if let Some(version_str) = req.strip_prefix(">=") {
+        let min_ver = version_str.trim();
+        return compare_semver(current, min_ver) >= 0;
+    }
+    if let Some(version_str) = req.strip_prefix(">") {
+        let min_ver = version_str.trim();
+        return compare_semver(current, min_ver) > 0;
+    }
+    if let Some(version_str) = req.strip_prefix("<=") {
+        let min_ver = version_str.trim();
+        return compare_semver(current, min_ver) <= 0;
+    }
+    if let Some(version_str) = req.strip_prefix("<") {
+        let min_ver = version_str.trim();
+        return compare_semver(current, min_ver) < 0;
+    }
+    compare_semver(current, req) == 0
+}
+
+fn compare_semver(a: &str, b: &str) -> i32 {
+    let a_parts: Vec<u64> = a
+        .trim_start_matches('v')
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    let b_parts: Vec<u64> = b
+        .trim_start_matches('v')
+        .split('.')
+        .filter_map(|s| s.parse().ok())
+        .collect();
+    let max_len = a_parts.len().max(b_parts.len());
+    for i in 0..max_len {
+        let av = a_parts.get(i).copied().unwrap_or(0);
+        let bv = b_parts.get(i).copied().unwrap_or(0);
+        match av.cmp(&bv) {
+            std::cmp::Ordering::Less => return -1,
+            std::cmp::Ordering::Greater => return 1,
+            std::cmp::Ordering::Equal => continue,
+        }
+    }
+    0
+}
+
 /// 解析工具安装计划
 ///
 /// # Arguments
@@ -54,6 +99,21 @@ pub fn resolve_install_plan(tool_ids: &[String], install_root: Option<&Path>) ->
         let meta = plugin.metadata();
         let detect = plugin.detect(install_root);
 
+        let mut is_installed = detect.installed;
+        if is_installed {
+            if let Some(ref version) = detect.version {
+                let deps = plugin.dependencies();
+                for dep in &deps {
+                    if let Some(ref min_ver) = dep.min_version {
+                        if !satisfies_min_version(version, min_ver) {
+                            is_installed = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         let reason = if original_ids.contains(id) {
             "selected".to_string()
         } else {
@@ -78,7 +138,7 @@ pub fn resolve_install_plan(tool_ids: &[String], install_root: Option<&Path>) ->
             tool_name: meta.name,
             category: meta.category,
             reason,
-            is_installed: detect.installed,
+            is_installed,
         });
     }
 

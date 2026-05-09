@@ -97,7 +97,7 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
 
     return (
       <div className="flex flex-col flex-1 min-h-0 px-6">
-        <div className="flex-shrink-0 py-4 glass rounded-xl border border-white/10 mb-4 px-6">
+        <div className="flex-shrink-0 py-4 border-b mb-4">
           <div className="text-sm text-muted-foreground">
             {t("prompts.count", { count: promptEntries.length })} ·{" "}
             {enabledPrompt
@@ -112,11 +112,11 @@ const PromptPanel = React.forwardRef<PromptPanelHandle, PromptPanelProps>(
               {t("prompts.loading")}
             </div>
           ) : promptEntries.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center">
+            <div className="text-center py-12 border border-dashed border-muted-foreground/30 rounded-lg p-8">
+              <div className="w-16 h-16 mx-auto mb-4 bg-muted rounded-lg flex items-center justify-center">
                 <FileText size={24} className="text-muted-foreground" />
               </div>
-              <h3 className="text-lg font-medium text-foreground mb-2">
+              <h3 className="text-lg font-semibold mb-2">
                 {t("prompts.empty")}
               </h3>
               <p className="text-muted-foreground text-sm">

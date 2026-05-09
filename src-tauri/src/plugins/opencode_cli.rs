@@ -1,6 +1,7 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    find_command_on_path, find_managed_paths, npm_prefix_candidates, read_command_version,
+    detect_windows_cli_version, find_managed_paths, find_npm_in_install_root,
+    npm_prefix_candidates, read_command_version,
 };
 use crate::tool_types::{
     DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
@@ -27,6 +28,11 @@ impl ToolPlugin for OpenCodeCliPlugin {
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
+        log::info!(
+            "[OpenCode CLI] Starting detect, install_root={:?}",
+            install_root.map(|p| p.to_string_lossy().to_string())
+        );
+
         if let Some(root) = install_root {
             let candidates = npm_prefix_candidates("opencode");
             let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
@@ -37,27 +43,25 @@ impl ToolPlugin for OpenCodeCliPlugin {
                     version: read_command_version(executable, &["--version"]),
                     install_path: detect_paths
                         .install_root
+                        .as_ref()
                         .map(|path| path.to_string_lossy().to_string()),
                 };
             }
         }
 
-        if let Ok(output) = Command::new("opencode").arg("--version").output() {
-            if output.status.success() {
-                return DetectResult {
-                    installed: true,
-                    version: Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
-                    install_path: find_command_on_path("opencode")
-                        .and_then(|path| path.parent().map(|dir| dir.to_string_lossy().to_string())),
-                };
-            }
+        if let Some(version) = detect_windows_cli_version("opencode") {
+            log::info!(
+                "[OpenCode CLI] Detected via Windows shell fallback, version={}",
+                version
+            );
+            return DetectResult {
+                installed: true,
+                version: Some(version),
+                install_path: None,
+            };
         }
 
-        DetectResult {
-            installed: false,
-            version: None,
-            install_path: None,
-        }
+        DetectResult::not_installed()
     }
 
     fn dependencies(&self) -> Vec<ToolDependency> {
@@ -68,7 +72,12 @@ impl ToolPlugin for OpenCodeCliPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-cli".into(),
             tool_name: "OpenCode CLI".into(),
@@ -77,7 +86,8 @@ impl ToolPlugin for OpenCodeCliPlugin {
             message: "正在通过官方 npm 包安装 OpenCode CLI...".into(),
         });
 
-        let output = Command::new("npm")
+        let npm_path = find_npm_in_install_root(install_root);
+        let output = Command::new(npm_path.as_deref().unwrap_or("npm"))
             .args([
                 "install",
                 "-g",
@@ -86,10 +96,10 @@ impl ToolPlugin for OpenCodeCliPlugin {
                 &target_dir.to_string_lossy(),
             ])
             .output()
-            .map_err(|e| format!("npm install 失败: {e}"))?;
+            .map_err(|e| format!("npm install failed: {e}"))?;
         if !output.status.success() {
             return Err(format!(
-                "npm install 失败: {}",
+                "npm install failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
@@ -97,7 +107,12 @@ impl ToolPlugin for OpenCodeCliPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(
+        &self,
+        target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+    ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-cli".into(),
             tool_name: "OpenCode CLI".into(),
@@ -118,7 +133,9 @@ impl ToolPlugin for OpenCodeCliPlugin {
         );
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
-        rt.block_on(async { crate::services::downloader::download_file(&url, &tar_path, None).await })?;
+        rt.block_on(async {
+            crate::services::downloader::download_file(&url, &tar_path, None).await
+        })?;
 
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-cli".into(),
@@ -151,9 +168,49 @@ impl ToolPlugin for OpenCodeCliPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
+    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
+        if target_dir.exists() {
+            std::fs::remove_dir_all(target_dir)
+                .map_err(|e| format!("删除失败: {e}"))?;
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
+        let output = Command::new("npm")
+            .args([
+                "uninstall",
+                "-g",
+                "opencode-ai",
+                "--prefix",
+                &target_dir.to_string_lossy(),
+            ])
+            .output()
+            .map_err(|e| format!("npm uninstall failed: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "npm uninstall failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        if target_dir.exists() {
+            std::fs::remove_dir_all(target_dir)
+                .map_err(|e| format!("删除失败: {e}"))?;
+        }
+        Ok(())
+    }
+}
+
+impl OpenCodeCliPlugin {
+    #[cfg(not(target_os = "windows"))]
     fn fetch_latest_version() -> Result<String, String> {
         let output = std::process::Command::new("curl")
-            .args(["-s", "https://api.github.com/repos/opencode-ai/opencode/releases/latest"])
+            .args([
+                "-s",
+                "https://api.github.com/repos/opencode-ai/opencode/releases/latest",
+            ])
             .output()
             .map_err(|e| format!("获取版本失败: {e}"))?;
         let text = String::from_utf8_lossy(&output.stdout);
@@ -173,40 +230,26 @@ impl ToolPlugin for OpenCodeCliPlugin {
     fn get_os_arch() -> (&'static str, &'static str) {
         #[cfg(target_os = "macos")]
         {
-            ("mac", if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" })
+            (
+                "mac",
+                if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x86_64"
+                },
+            )
         }
         #[cfg(target_os = "linux")]
         {
-            ("linux", if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" })
+            (
+                "linux",
+                if cfg!(target_arch = "aarch64") {
+                    "arm64"
+                } else {
+                    "x86_64"
+                },
+            )
         }
-    }
-
-    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
-        {
-            let output = Command::new("npm")
-                .args([
-                    "uninstall",
-                    "-g",
-                    "opencode-ai",
-                    "--prefix",
-                    &target_dir.to_string_lossy(),
-                ])
-                .output()
-                .map_err(|e| format!("npm uninstall 失败: {e}"))?;
-            if !output.status.success() {
-                return Err(format!(
-                    "npm uninstall 失败: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-            }
-        }
-
-        if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir)
-                .map_err(|e| format!("删除失败: {e}"))?;
-        }
-        Ok(())
     }
 }
 

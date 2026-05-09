@@ -134,9 +134,11 @@ impl Database {
     pub fn has_any_installed_tools(&self) -> Result<bool, AppError> {
         let conn = lock_conn!(self.conn);
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM installed_tools", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM installed_tools WHERE status IN ('installed', 'detected')",
+                [],
+                |row| row.get(0),
+            )
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(count > 0)
     }
@@ -149,5 +151,68 @@ impl Database {
     /// 设置安装根目录路径
     pub fn set_install_root(&self, path: &str) -> Result<(), AppError> {
         self.set_setting("install_root", path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InstalledToolRecord;
+    use crate::database::Database;
+
+    #[test]
+    fn has_any_installed_tools_ignores_error_records() {
+        let db = Database::memory().expect("create db");
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "openclaw".into(),
+            name: "OpenClaw".into(),
+            version: None,
+            install_path: "D:\\AITools\\openclaw".into(),
+            install_root: "D:\\AITools".into(),
+            category: "ai-cli".into(),
+            status: "error".into(),
+            installed_at: None,
+            updated_at: Some(1),
+        })
+        .expect("seed error record");
+
+        assert!(!db.has_any_installed_tools().expect("query installed tools"));
+    }
+
+    #[test]
+    fn has_any_installed_tools_counts_installed_records() {
+        let db = Database::memory().expect("create db");
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "openclaw".into(),
+            name: "OpenClaw".into(),
+            version: None,
+            install_path: "D:\\AITools\\openclaw".into(),
+            install_root: "D:\\AITools".into(),
+            category: "ai-cli".into(),
+            status: "installed".into(),
+            installed_at: Some(1),
+            updated_at: Some(1),
+        })
+        .expect("seed installed record");
+
+        assert!(db.has_any_installed_tools().expect("query installed tools"));
+    }
+
+    #[test]
+    fn has_any_installed_tools_counts_detected_records() {
+        let db = Database::memory().expect("create db");
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "claude-code-cli".into(),
+            name: "Claude Code (CLI)".into(),
+            version: Some("1.2.3".into()),
+            install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
+            install_root: "D:\\AITools".into(),
+            category: "ai-cli".into(),
+            status: "detected".into(),
+            installed_at: None,
+            updated_at: Some(1),
+        })
+        .expect("seed detected record");
+
+        assert!(db.has_any_installed_tools().expect("query installed tools"));
     }
 }

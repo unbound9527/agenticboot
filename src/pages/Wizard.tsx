@@ -1,5 +1,3 @@
-// 装机向导页 — 单页整合：网络检测 + 安装目录 + 工具选择
-
 import { useState, useCallback, useEffect } from "react";
 import {
   Loader2,
@@ -27,7 +25,7 @@ import {
 } from "@/hooks/useTools";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
 import { toolsApi } from "@/lib/api/tools";
-import type { InstallPlan } from "@/types/tools";
+import type { DetectResult, InstallPlan } from "@/types/tools";
 
 const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
   {
@@ -69,7 +67,7 @@ const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
   {
     id: "hermes",
     name: "Hermes (Web UI)",
-    description: "多供应商 AI 编程助手，Web UI 交互",
+    description: "多提供商 AI 编程助手，Web UI 交互",
   },
 ];
 
@@ -77,34 +75,86 @@ const DEFAULT_ROOT = "D:\\AITools";
 
 interface WizardProps {
   onComplete: () => void;
+  initialSelectedToolIds?: string[];
 }
 
-export function Wizard({ onComplete }: WizardProps) {
+function buildSelectionFromDetection(
+  ids: string[],
+  results: DetectResult[],
+  requestedToolIds?: string[],
+) {
+  const detected = new Set<string>();
+  results.forEach((result, index) => {
+    if (result.installed) detected.add(ids[index]);
+  });
+
+  const available = ids.filter((id) => !detected.has(id));
+  const selected =
+    requestedToolIds && requestedToolIds.length > 0
+      ? available.filter((id) => new Set(requestedToolIds).has(id))
+      : available;
+
+  return {
+    detected,
+    selected: new Set(selected),
+  };
+}
+
+export function Wizard({
+  onComplete,
+  initialSelectedToolIds,
+}: WizardProps) {
   const { t } = useTranslation();
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(
-    new Set(AVAILABLE_TOOLS.map((t) => t.id)),
-  );
+  const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
+  const [isDetectingTools, setIsDetectingTools] = useState(true);
 
-  // 一次性检测本地已安装工具
-  useEffect(() => {
-    const ids = AVAILABLE_TOOLS.map((t) => t.id);
-    toolsApi
-      .detectTools(ids, rootPath)
-      .then((results) => {
-        const detected = new Set<string>();
-        results.forEach((r, i) => {
-          if (r.installed) detected.add(ids[i]);
+  const refreshDetectedTools = useCallback(
+    (forceRefresh = false) => {
+      const ids = AVAILABLE_TOOLS.map((tool) => tool.id);
+      setIsDetectingTools(true);
+      const detectPromise = forceRefresh
+        ? toolsApi.detectTools(ids, rootPath, true)
+        : toolsApi.detectTools(ids, rootPath);
+
+      return detectPromise
+        .then((results) => {
+          const next = buildSelectionFromDetection(
+            ids,
+            results,
+            initialSelectedToolIds,
+          );
+          setInstalledIds(next.detected);
+          setSelectedTools(next.selected);
+        })
+        .finally(() => {
+          setIsDetectingTools(false);
         });
-        setInstalledIds(detected);
-        setSelectedTools(new Set(ids.filter((id) => !detected.has(id))));
-      })
-      .catch(() => {});
-  }, [rootPath]);
+    },
+    [initialSelectedToolIds, rootPath],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      refreshDetectedTools(false).catch(() => {
+        if (!cancelled) {
+          setInstalledIds(new Set());
+          setSelectedTools(new Set());
+          setIsDetectingTools(false);
+        }
+      });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [refreshDetectedTools]);
 
   const {
     data: netStatus,
@@ -156,35 +206,44 @@ export function Wizard({ onComplete }: WizardProps) {
         },
       },
     );
-  }, [selectedTools, rootPath, resolvePlan, executePlan, resetProgress, t]);
+  }, [executePlan, resetProgress, resolvePlan, rootPath, selectedTools, t]);
 
-  const toggleTool = useCallback((id: string) => {
-    setSelectedTools((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const toggleTool = useCallback(
+    (id: string) => {
+      if (isDetectingTools || installedIds.has(id)) {
+        return;
+      }
 
-  // 未安装的工具 ID 列表
-  const availableIds = AVAILABLE_TOOLS.map((t) => t.id).filter(
+      setSelectedTools((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [installedIds, isDetectingTools],
+  );
+
+  const availableIds = AVAILABLE_TOOLS.map((tool) => tool.id).filter(
     (id) => !installedIds.has(id),
   );
 
   const toggleAll = useCallback(() => {
+    if (isDetectingTools) {
+      return;
+    }
+
     if (selectedTools.size === availableIds.length) {
       setSelectedTools(new Set());
     } else {
       setSelectedTools(new Set(availableIds));
     }
-  }, [availableIds, selectedTools.size]);
+  }, [availableIds, isDetectingTools, selectedTools.size]);
 
-  // 安装进行中 → 显示进度
   if (started && installPlan) {
     return (
       <div className="px-6 py-6">
-        <div className="text-center mb-8">
+        <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold">
             {t("tools.wizardInstall", "安装中")}
           </h1>
@@ -196,49 +255,74 @@ export function Wizard({ onComplete }: WizardProps) {
 
   return (
     <div className="px-6 py-6">
-      <div className="text-center mb-8">
+      <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold">
           {t("tools.wizardTitle", "装机向导")}
         </h1>
       </div>
 
       <div className="space-y-8">
-        {/* 1. 工具选择 */}
-        <section className="rounded-lg border p-4 space-y-3">
+        <section className="space-y-3 rounded-lg border p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">
               {t("tools.wizardTools", "选择工具")}
             </span>
-            <Button
-              variant="link"
-              size="sm"
-              onClick={toggleAll}
-              className="text-xs"
-            >
-              {selectedTools.size === availableIds.length
-                ? t("tools.none", "全部取消")
-                : t("tools.all", "全部勾选")}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  refreshDetectedTools(true).catch(() => {});
+                }}
+                className="text-xs"
+                disabled={isDetectingTools}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" />
+                {t("tools.refreshDetection", "重新检测")}
+              </Button>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={toggleAll}
+                className="text-xs"
+                disabled={isDetectingTools}
+              >
+                {selectedTools.size === availableIds.length
+                  ? t("tools.none", "全部取消")
+                  : t("tools.all", "全部勾选")}
+              </Button>
+            </div>
           </div>
+
+          {isDetectingTools && (
+            <p className="text-xs text-muted-foreground">
+              {t("tools.detectingInstalled", "正在识别已安装工具...")}
+            </p>
+          )}
 
           <div className="space-y-1">
             {AVAILABLE_TOOLS.map((tool) => {
               const isInstalled = installedIds.has(tool.id);
+              const isDisabled = isInstalled || isDetectingTools;
+
               return (
                 <Card
                   key={tool.id}
                   className={`flex items-center gap-3 p-3 transition-colors ${
                     isInstalled
-                      ? "opacity-60 cursor-default"
-                      : "cursor-pointer hover:border-blue-500/50"
+                      ? "cursor-default opacity-60"
+                      : isDetectingTools
+                        ? "cursor-wait opacity-80"
+                        : "cursor-pointer hover:border-blue-500/50"
                   }`}
-                  onClick={() => !isInstalled && toggleTool(tool.id)}
+                  onClick={() => toggleTool(tool.id)}
                 >
                   {isInstalled ? (
-                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <CheckCircle className="h-4 w-4 flex-shrink-0 text-green-500" />
                   ) : (
                     <Checkbox
                       checked={selectedTools.has(tool.id)}
+                      disabled={isDisabled}
                       onCheckedChange={() => toggleTool(tool.id)}
                     />
                   )}
@@ -247,10 +331,10 @@ export function Wizard({ onComplete }: WizardProps) {
                     size={20}
                     className="flex-shrink-0"
                   />
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <Label
-                        className={`text-sm font-medium ${isInstalled ? "" : "cursor-pointer"}`}
+                        className={`text-sm font-medium ${isDisabled ? "" : "cursor-pointer"}`}
                       >
                         {tool.name}
                       </Label>
@@ -272,16 +356,15 @@ export function Wizard({ onComplete }: WizardProps) {
             })}
           </div>
 
-          <p className="text-xs text-muted-foreground text-center pt-1">
+          <p className="pt-1 text-center text-xs text-muted-foreground">
             {t(
               "tools.autoDepsNote",
-              "所需依赖（如 Node.js、Git）将在安装过程中自动配置，无需手动处理",
+              "所需依赖，如 Node.js 和 Git，将在安装过程中自动配置，无需手动处理",
             )}
           </p>
         </section>
 
-        {/* 2. 安装目录 */}
-        <section className="rounded-lg border p-4 space-y-3">
+        <section className="space-y-3 rounded-lg border p-4">
           <Label htmlFor="install-root" className="text-sm font-medium">
             {t("tools.installRoot", "安装根目录")}
           </Label>
@@ -290,7 +373,7 @@ export function Wizard({ onComplete }: WizardProps) {
               id="install-root"
               value={rootPath}
               onChange={(e) => setRootPath(e.target.value)}
-              placeholder="D:\AITools"
+              placeholder="D:\\AITools"
               className="font-mono text-sm"
             />
             <Button
@@ -300,8 +383,9 @@ export function Wizard({ onComplete }: WizardProps) {
               onClick={() => {
                 import("@tauri-apps/plugin-dialog").then(({ open }) => {
                   open({ directory: true, multiple: false }).then((result) => {
-                    if (result && typeof result === "string")
+                    if (result && typeof result === "string") {
                       setRootPath(result);
+                    }
                   });
                 });
               }}
@@ -314,24 +398,23 @@ export function Wizard({ onComplete }: WizardProps) {
           </p>
         </section>
 
-        {/* 3. 网络状态 */}
         <section className="rounded-lg border p-4">
           <div className="flex items-center gap-4">
             {(netLoading || netFetching) && (
-              <Loader2 className="h-4 w-4 animate-spin text-blue-500 flex-shrink-0" />
+              <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-500" />
             )}
             {!netLoading && !netFetching && netOk && (
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+              <CheckCircle className="h-4 w-4 flex-shrink-0 text-green-500" />
             )}
             {!netLoading &&
               !netFetching &&
               (netError || netStatus?.errorMessage) && (
-                <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500" />
               )}
 
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-3 text-xs">
-                <span className="text-muted-foreground">连通性:</span>
+                <span className="text-muted-foreground">连通性</span>
                 {netLoading || netFetching ? (
                   <span className="text-muted-foreground">检测中...</span>
                 ) : (
@@ -343,7 +426,7 @@ export function Wizard({ onComplete }: WizardProps) {
                           : "text-red-500"
                       }
                     >
-                      GitHub {netStatus?.githubReachable ? "✓" : "✗"}
+                      GitHub {netStatus?.githubReachable ? "✓" : "×"}
                     </span>
                     <span
                       className={
@@ -352,7 +435,7 @@ export function Wizard({ onComplete }: WizardProps) {
                           : "text-red-500"
                       }
                     >
-                      npm {netStatus?.npmReachable ? "✓" : "✗"}
+                      npm {netStatus?.npmReachable ? "✓" : "×"}
                     </span>
                     <span
                       className={
@@ -361,13 +444,13 @@ export function Wizard({ onComplete }: WizardProps) {
                           : "text-muted-foreground"
                       }
                     >
-                      YouTube {netStatus?.youtubeReachable ? "✓" : "✗"}
+                      YouTube {netStatus?.youtubeReachable ? "✓" : "×"}
                     </span>
                   </>
                 )}
               </div>
               {netStatus?.errorMessage && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
                   {netStatus.errorMessage}
                 </p>
               )}
@@ -383,11 +466,10 @@ export function Wizard({ onComplete }: WizardProps) {
             </Button>
           </div>
 
-          {/* 网络不通时提供解决链接 */}
           {!netLoading && !netFetching && !netOk && (
             <button
               onClick={() => setHelpOpen(true)}
-              className="inline-flex items-center gap-1 mt-3 text-xs text-blue-500 hover:text-blue-600 hover:underline"
+              className="mt-3 inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 hover:underline"
             >
               <ExternalLink className="h-3 w-3" />
               网络不通？点击查看解决方法
@@ -395,7 +477,6 @@ export function Wizard({ onComplete }: WizardProps) {
           )}
         </section>
 
-        {/* 操作按钮 */}
         <div className="flex justify-center gap-4 pt-2">
           <Button variant="outline" size="lg" onClick={onComplete}>
             {t("tools.skipForNow", "跳过")}
@@ -403,7 +484,9 @@ export function Wizard({ onComplete }: WizardProps) {
           <Button
             size="lg"
             onClick={handleStartInstall}
-            disabled={resolvePlan.isPending || !rootPath.trim()}
+            disabled={
+              isDetectingTools || resolvePlan.isPending || !rootPath.trim()
+            }
             className="px-12"
           >
             {resolvePlan.isPending

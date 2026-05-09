@@ -307,7 +307,7 @@ export function ProviderList({
         {[0, 1, 2].map((index) => (
           <div
             key={index}
-            className="w-full border border-dashed rounded-lg h-28 border-muted-foreground/40 bg-muted/40"
+            className="w-full border border-dashed rounded-lg h-28 border-muted-foreground/30 bg-muted/30"
           />
         ))}
       </div>
@@ -334,7 +334,7 @@ export function ProviderList({
         items={filteredProviders.map((provider) => provider.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div className="space-y-3">
+        <div className="claude-list">
           {filteredProviders.map((provider) => {
             const isOmo = provider.category === "omo";
             const isOmoSlim = provider.category === "omo-slim";
@@ -410,7 +410,7 @@ export function ProviderList({
             transition={{ duration: 0.18, ease: "easeOut" }}
             className="fixed left-1/2 top-[6.5rem] z-40 w-[min(90vw,26rem)] -translate-x-1/2 sm:right-6 sm:left-auto sm:translate-x-0"
           >
-            <div className="p-4 space-y-3 border shadow-md rounded-2xl border-white/10 bg-background/95 shadow-black/20 backdrop-blur-md">
+            <div className="p-4 space-y-3 rounded-xl border bg-background shadow-md">
               <div className="relative flex items-center gap-2">
                 <Search className="absolute w-4 h-4 -translate-y-1/2 pointer-events-none left-3 top-1/2 text-muted-foreground" />
                 <Input
@@ -423,22 +423,22 @@ export function ProviderList({
                   aria-label={t("provider.searchAriaLabel", {
                     defaultValue: "Search providers",
                   })}
-                  className="pr-16 pl-9"
+                  className="pr-16 pl-9 border-0 focus:border-primary focus:ring-0 bg-muted/50 rounded-lg font-mono text-sm"
                 />
                 {searchTerm && (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="absolute text-xs -translate-y-1/2 right-11 top-1/2"
+                    className="absolute text-xs -translate-y-1/2 right-11 top-1/2 h-7"
                     onClick={() => setSearchTerm("")}
                   >
                     {t("common.clear", { defaultValue: "Clear" })}
                   </Button>
                 )}
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="icon"
-                  className="ml-auto"
+                  className="ml-auto h-8 w-8"
                   onClick={() => setIsSearchOpen(false)}
                   aria-label={t("provider.searchCloseAriaLabel", {
                     defaultValue: "Close provider search",
@@ -447,7 +447,7 @@ export function ProviderList({
                   <X className="w-4 h-4" />
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-[#666]">
                 <span>
                   {t("provider.searchScopeHint", {
                     defaultValue: "Matches provider name, notes, and URL.",

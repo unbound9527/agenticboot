@@ -86,7 +86,7 @@ export function UsageDashboard() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border/50 bg-card/40 backdrop-blur-sm p-4">
+        <div className="rounded-lg border bg-card p-4">
           <div className="flex flex-wrap items-center gap-1.5">
             {APP_FILTER_OPTIONS.map((type) => (
               <button
@@ -94,10 +94,10 @@ export function UsageDashboard() {
                 type="button"
                 onClick={() => setAppType(type)}
                 className={cn(
-                  "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+                  "px-4 py-1.5 text-sm font-medium transition-all rounded-md",
                   appType === type
-                    ? "bg-primary/10 text-primary shadow-sm border border-primary/20"
-                    : "text-muted-foreground hover:text-primary hover:bg-muted/50 border border-transparent",
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80",
                 )}
               >
                 {t(`usage.appFilter.${type}`)}
@@ -196,22 +196,22 @@ export function UsageDashboard() {
       <Accordion type="multiple" defaultValue={[]} className="w-full space-y-4">
         <AccordionItem
           value="pricing"
-          className="rounded-xl glass-card overflow-hidden"
+          className="border rounded-lg overflow-hidden bg-card"
         >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline">
             <div className="flex items-center gap-3">
-              <Coins className="h-5 w-5 text-yellow-500" />
+              <Coins className="h-5 w-5 text-primary" />
               <div className="text-left">
                 <h3 className="text-base font-semibold">
                   {t("settings.advanced.pricing.title")}
                 </h3>
-                <p className="text-sm text-muted-foreground font-normal">
+                <p className="text-sm text-muted-foreground">
                   {t("settings.advanced.pricing.description")}
                 </p>
               </div>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+          <AccordionContent className="px-6 pb-6 pt-4 border-t">
             <PricingConfigPanel />
           </AccordionContent>
         </AccordionItem>

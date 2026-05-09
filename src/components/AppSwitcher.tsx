@@ -56,17 +56,17 @@ export function AppSwitcher({
   });
 
   return (
-    <div className="inline-flex gap-1">
+    <div className="inline-flex gap-1 p-1 rounded-lg bg-muted/60">
       {appsToShow.map((app) => (
         <button
           key={app}
           type="button"
           onClick={() => handleSwitch(app)}
           className={cn(
-            "group inline-flex items-center px-3 h-8 text-sm font-bold transition-all duration-150 border-2 border-[#111]",
+            "group inline-flex items-center px-3 h-7 text-[13px] font-medium transition-all duration-150 rounded-md",
             activeApp === app
-              ? "bg-[#FF5A36] text-white shadow-[3px_3px_0_#111]"
-              : "bg-white text-[#111] shadow-[3px_3px_0_#111] hover:shadow-[1px_1px_0_#111] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none active:translate-x-[3px] active:translate-y-[3px]",
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
             compact ? "w-8 px-0 justify-center" : ""
           )}
         >

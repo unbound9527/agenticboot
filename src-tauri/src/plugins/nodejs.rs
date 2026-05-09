@@ -62,7 +62,7 @@ impl ToolPlugin for NodeJsPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let zip_path = target_dir.join("nodejs.zip");
         let url = "https://nodejs.org/dist/v22.15.0/win-x64/node-v22.15.0-win-x64.zip";
         let _ = progress.blocking_send(InstallProgress {
@@ -108,7 +108,7 @@ impl ToolPlugin for NodeJsPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, _target_dir: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, _install_root: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
         Err("Node.js 自动安装目前仅支持 Windows，macOS/Linux 请手动安装".into())
     }
 

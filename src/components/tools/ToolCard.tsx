@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { InstallProgress, InstalledTool, ToolMeta } from "@/types/tools";
 
@@ -32,21 +31,21 @@ export function ToolCard({
     progress && !["complete", "error", "skipped"].includes(progress.phase);
 
   return (
-    <Card className="flex items-center gap-4 p-4">
+    <div className="claude-card flex items-center gap-4 p-4">
       <ToolIcon toolId={tool.id} size={22} />
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{tool.name}</span>
+          <span className="text-[14px] font-medium truncate">{tool.name}</span>
           {"category" in tool && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-[11px] px-1.5 py-0">
               {tool.category === "dependency"
                 ? t("tools.badgeDependency", "依赖")
                 : t("tools.badgeTool", "工具")}
             </Badge>
           )}
         </div>
-        <p className="text-xs text-muted-foreground truncate">
+        <p className="text-[12px] text-muted-foreground truncate mt-0.5">
           {"description" in tool
             ? tool.description
             : tool.installPath || tool.name}
@@ -61,8 +60,8 @@ export function ToolCard({
         {variant === "installed" && (
           <>
             <Badge
-              variant="outline"
-              className="text-xs text-green-600 dark:text-green-400"
+              variant="secondary"
+              className="text-[11px] px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
             >
               {t("tools.installed", "已安装")}
               {"version" in tool && tool.version ? ` v${tool.version}` : ""}
@@ -73,12 +72,13 @@ export function ToolCard({
                 size="icon"
                 title={t("tools.uninstall", "卸载")}
                 onClick={onUninstall}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
               >
-                <Trash2 className="h-4 w-4 text-red-500" />
+                <Trash2 className="h-4 w-4" />
               </Button>
             )}
             {onUpdate && (
-              <Button variant="outline" size="sm" onClick={onUpdate}>
+              <Button variant="secondary" size="sm" onClick={onUpdate} className="text-[12px]">
                 <RefreshCw className="h-3 w-3 mr-1" />
                 {t("tools.update", "更新")}
               </Button>
@@ -87,18 +87,18 @@ export function ToolCard({
         )}
 
         {variant === "available" && !isInstalling && (
-          <Button size="sm" onClick={onInstall}>
-            <Download className="h-3 w-3 mr-1" />
+          <Button size="sm" onClick={onInstall} className="text-[13px]">
+            <Download className="h-3 w-3 mr-1.5" />
             {t("tools.install", "安装")}
           </Button>
         )}
 
         {isInstalling && progress && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             {progress.percent}%
           </span>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

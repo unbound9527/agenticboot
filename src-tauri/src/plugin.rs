@@ -13,6 +13,7 @@ pub trait ToolPlugin: Send + Sync {
     fn install(
         &self,
         target_dir: &Path,
+        install_root: &Path,
         progress: Sender<InstallProgress>,
     ) -> Result<(), String>;
 

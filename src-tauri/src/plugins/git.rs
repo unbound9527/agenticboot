@@ -62,7 +62,7 @@ impl ToolPlugin for GitPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let git_zip = target_dir.join("MinGit.zip");
         let url = "https://github.com/git-for-windows/git/releases/download/v2.51.0.windows.1/MinGit-2.51.0-64-bit.zip";
         let _ = progress.blocking_send(InstallProgress {
@@ -108,7 +108,7 @@ impl ToolPlugin for GitPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, _target_dir: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, _install_root: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
         Err("Git 自动安装目前仅支持 Windows，macOS/Linux 请手动安装".into())
     }
 

@@ -90,13 +90,13 @@ export function RepoManagerPanel({
       onClose={onClose}
     >
       {/* 添加仓库表单 */}
-      <div className="space-y-4 glass-card rounded-xl p-6">
-        <h3 className="text-base font-semibold text-foreground">
+      <div className="space-y-4 rounded-lg border p-6 bg-card">
+        <h3 className="text-base font-semibold">
           {t("skills.addRepo")}
         </h3>
         <div className="space-y-4">
           <div>
-            <Label htmlFor="repo-url" className="text-foreground">
+            <Label htmlFor="repo-url">
               {t("skills.repo.url")}
             </Label>
             <Input
@@ -108,7 +108,7 @@ export function RepoManagerPanel({
             />
           </div>
           <div>
-            <Label htmlFor="branch" className="text-foreground">
+            <Label htmlFor="branch">
               {t("skills.repo.branch")}
             </Label>
             <Input
@@ -120,11 +120,11 @@ export function RepoManagerPanel({
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-red-600">{error}</p>
           )}
           <Button
             onClick={handleAdd}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            variant="default"
             type="button"
           >
             <Plus className="h-4 w-4 mr-2" />
@@ -135,11 +135,11 @@ export function RepoManagerPanel({
 
       {/* 仓库列表 */}
       <div className="space-y-4">
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-semibold">
           {t("skills.repo.list")}
         </h3>
         {repos.length === 0 ? (
-          <div className="text-center py-12 glass-card rounded-xl">
+          <div className="text-center py-12 border border-dashed border-muted-foreground/30 rounded-lg p-8">
             <p className="text-sm text-muted-foreground">
               {t("skills.repo.empty")}
             </p>
@@ -149,15 +149,15 @@ export function RepoManagerPanel({
             {repos.map((repo) => (
               <div
                 key={`${repo.owner}/${repo.name}`}
-                className="flex items-center justify-between glass-card rounded-xl px-4 py-3"
+                className="flex items-center justify-between rounded-lg border px-4 py-3 bg-card"
               >
                 <div>
-                  <div className="text-sm font-medium text-foreground">
+                  <div className="text-sm font-medium">
                     {repo.owner}/{repo.name}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {t("skills.repo.branch")}: {repo.branch || "main"}
-                    <span className="ml-3 inline-flex items-center rounded-full border border-border-default px-2 py-0.5 text-[11px]">
+                    <span className="ml-3 inline-flex items-center bg-muted px-2 py-0.5 text-xs">
                       {t("skills.repo.skillCount", {
                         count: getSkillCount(repo),
                       })}

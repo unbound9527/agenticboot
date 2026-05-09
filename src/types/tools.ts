@@ -48,7 +48,7 @@ export interface InstalledTool {
   installPath: string;
   installRoot: string;
   category: 'tool' | 'dependency';
-  status: 'not_installed' | 'installing' | 'installed' | 'error';
+  status: 'not_installed' | 'installing' | 'installed' | 'detected' | 'error';
   installedAt?: number;
   updatedAt?: number;
 }

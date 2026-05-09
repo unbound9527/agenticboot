@@ -1,10 +1,11 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    find_local_program_executable, find_uninstall_entry, run_winget, winget_exists,
+    find_uninstall_entry_ex, run_winget, winget_exists,
 };
 use crate::tool_types::{
     DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
 };
+use log::debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -27,32 +28,27 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
     }
 
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
-        if let Some(exe) =
-            find_local_program_executable(&["Claude", "AnthropicClaude"], &["Claude.exe"])
-        {
-            return DetectResult {
-                installed: true,
-                version: None,
-                install_path: exe.parent().map(|dir| dir.to_string_lossy().to_string()),
-            };
-        }
+        if let Some(entry) = find_uninstall_entry_ex(&["Claude", "AnthropicClaude"], &["CLI", "npm"]) {
+            // Skip CLI installations (identified by AnthropicClaude path)
+            if entry.install_location.as_ref().is_some_and(|p| p.to_string_lossy().contains("AnthropicClaude")) {
+                debug!("detected Claude but skipping CLI at {:?}", entry.install_location);
+                return DetectResult::not_installed();
+            }
 
-        if let Some(entry) = find_uninstall_entry(&["Claude"]) {
             let install_path = entry
                 .install_location
                 .or(entry.display_icon.and_then(|path| path.parent().map(PathBuf::from)));
+
+            debug!("detected Claude desktop: version={:?}, path={:?}", entry.display_version, install_path);
             return DetectResult {
                 installed: true,
-                version: None,
+                version: entry.display_version,
                 install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
             };
         }
 
-        DetectResult {
-            installed: false,
-            version: None,
-            install_path: None,
-        }
+        debug!("Claude desktop not found in registry");
+        DetectResult::not_installed()
     }
 
     fn dependencies(&self) -> Vec<ToolDependency> {
@@ -60,7 +56,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, _target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "claude-code-desktop".into(),
             tool_name: "Claude 桌面版".into(),
@@ -106,7 +102,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, _target_dir: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, _install_root: &Path, _progress: Sender<InstallProgress>) -> Result<(), String> {
         Err("Claude 桌面版自动安装目前仅支持 Windows".into())
     }
 
@@ -126,7 +122,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
                 return Ok(());
             }
 
-            if let Some(entry) = find_uninstall_entry(&["Claude"]) {
+            if let Some(entry) = find_uninstall_entry_ex(&["Claude", "AnthropicClaude"], &["CLI", "npm"]) {
                 if let Some(uninstall_string) = entry.uninstall_string {
                     let status = Command::new("cmd")
                         .args(["/C", &uninstall_string])

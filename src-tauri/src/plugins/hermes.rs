@@ -82,6 +82,7 @@ impl ToolPlugin for HermesPlugin {
     fn install(
         &self,
         target_dir: &Path,
+        _install_root: &Path,
         progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
@@ -155,6 +156,7 @@ impl ToolPlugin for HermesPlugin {
     fn install(
         &self,
         _target_dir: &Path,
+        _install_root: &Path,
         _progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
         Err("Automatic Hermes install is currently implemented only for Windows".into())

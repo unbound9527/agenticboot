@@ -1,31 +1,98 @@
-//! AgenticBoot 工具管理 Tauri 命令
-//!
-//! 前端通过 invoke 调用这些命令来管理 AI 编程工具的安装和卸载。
+//! AgenticBoot tool-management Tauri commands.
 
+use crate::database::{Database, InstalledToolRecord};
 use crate::services::installer::dependency_resolver::resolve_install_plan as resolve_plan;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
-use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
+use crate::tool_types::{
+    DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo,
+};
 use std::path::Path;
+use std::sync::Arc;
 
 fn should_use_db_fallback(install_root: Option<&str>) -> bool {
     install_root.is_none()
 }
 
-/// 检测网络连通性
+fn cache_matches_install_root(record: &InstalledToolRecord, install_root: Option<&str>) -> bool {
+    match install_root {
+        Some(root) => record.install_root == root,
+        None => true,
+    }
+}
+
+fn detect_result_from_cache_record(record: &InstalledToolRecord) -> Option<DetectResult> {
+    match record.status.as_str() {
+        "installed" | "detected" => Some(DetectResult {
+            installed: true,
+            version: record.version.clone(),
+            install_path: Some(record.install_path.clone()),
+        }),
+        "not_installed" => Some(DetectResult::not_installed()),
+        _ => None,
+    }
+}
+
+fn cache_status_for_detect_result(
+    previous: Option<&InstalledToolRecord>,
+    result: &DetectResult,
+) -> &'static str {
+    if result.installed {
+        if previous.is_some_and(|record| record.status == "installed") {
+            "installed"
+        } else {
+            "detected"
+        }
+    } else {
+        "not_installed"
+    }
+}
+
+fn persist_detect_result_cache(
+    db: &Arc<Database>,
+    tool_id: &str,
+    install_root: Option<&str>,
+    previous: Option<&InstalledToolRecord>,
+    result: &DetectResult,
+) {
+    let record = InstalledToolRecord {
+        id: tool_id.to_string(),
+        name: previous
+            .map(|record| record.name.clone())
+            .unwrap_or_else(|| tool_id.to_string()),
+        version: result.version.clone(),
+        install_path: result.install_path.clone().unwrap_or_default(),
+        install_root: install_root
+            .map(str::to_string)
+            .or_else(|| previous.map(|record| record.install_root.clone()))
+            .unwrap_or_default(),
+        category: previous
+            .map(|record| record.category.clone())
+            .unwrap_or_else(|| "tool".to_string()),
+        status: cache_status_for_detect_result(previous, result).to_string(),
+        installed_at: previous.and_then(|record| record.installed_at),
+        updated_at: Some(chrono::Utc::now().timestamp()),
+    };
+
+    if let Err(error) = db.upsert_installed_tool(&record) {
+        log::warn!("failed to persist detect cache for {tool_id}: {error}");
+    }
+}
+
 #[tauri::command]
 pub async fn check_network() -> Result<NetworkStatus, String> {
     Ok(InstallerService::check_network().await)
 }
 
-/// 解析安装计划（传入安装根目录用于检测已有安装）
 #[tauri::command]
-pub fn resolve_install_plan(tool_ids: Vec<String>, install_root: Option<String>) -> Result<InstallPlan, String> {
+pub fn resolve_install_plan(
+    tool_ids: Vec<String>,
+    install_root: Option<String>,
+) -> Result<InstallPlan, String> {
     let root = install_root.as_deref().map(Path::new);
     resolve_plan(&tool_ids, root)
 }
 
-/// 执行安装计划
 #[tauri::command]
 pub async fn execute_install_plan(
     root_path: String,
@@ -38,10 +105,12 @@ pub async fn execute_install_plan(
         .set_install_root(&root_path)
         .map_err(|e| format!("保存安装根目录失败: {e}"))?;
 
-    Err("此命令仅保存安装根目录，请使用 execute_install_plan_with_plan 传入完整安装计划".to_string())
+    Err(
+        "此命令仅保存安装根目录，请使用 execute_install_plan_with_plan 传入完整安装计划"
+            .to_string(),
+    )
 }
 
-/// 执行安装计划（带完整计划参数）
 #[tauri::command]
 pub async fn execute_install_plan_with_plan(
     plan: InstallPlan,
@@ -59,18 +128,21 @@ pub async fn execute_install_plan_with_plan(
         .await
 }
 
-/// 卸载工具
 #[tauri::command]
-pub fn uninstall_tool(
+pub async fn uninstall_tool(
     tool_id: String,
     root_path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let service = InstallerService::new(Path::new(&root_path));
-    service.uninstall_tool(&tool_id, &state.db)
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let service = InstallerService::new(Path::new(&root_path));
+        service.uninstall_tool(&tool_id, &db)
+    })
+    .await
+    .map_err(|e| format!("卸载任务执行失败: {e}"))?
 }
 
-/// 获取所有已安装工具
 #[tauri::command]
 pub fn get_installed_tools(
     state: tauri::State<'_, AppState>,
@@ -96,87 +168,112 @@ pub fn get_installed_tools(
         .collect())
 }
 
-/// 是否有任何已安装工具
 #[tauri::command]
-pub fn has_any_installed_tools(
-    state: tauri::State<'_, AppState>,
-) -> Result<bool, String> {
+pub fn has_any_installed_tools(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     state
         .db
         .has_any_installed_tools()
         .map_err(|e| format!("查询失败: {e}"))
 }
 
-/// 批量检测工具安装状态（一次性，非实时）
-///
-/// 检测来源：插件运行时检测 + 数据库记录（任一来源标记已安装即视为已安装）
 #[tauri::command]
-pub fn detect_tools(
+pub async fn detect_tools(
     tool_ids: Vec<String>,
     install_root: Option<String>,
+    force_refresh: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<DetectResult>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        detect_tools_sync(tool_ids, install_root, force_refresh.unwrap_or(false), &db)
+    })
+    .await
+    .map_err(|e| format!("检测工具任务执行失败: {e}"))?
+}
+
+fn detect_tools_sync(
+    tool_ids: Vec<String>,
+    install_root: Option<String>,
+    force_refresh: bool,
+    db: &Arc<Database>,
+) -> Result<Vec<DetectResult>, String> {
     use crate::plugin::get_plugin_by_id;
+
     let root = install_root.as_deref().map(Path::new);
     let allow_db_fallback = should_use_db_fallback(install_root.as_deref());
     let mut results = Vec::new();
+
     for id in &tool_ids {
-        let mut result = if let Some(plugin) = get_plugin_by_id(id) {
-            plugin.detect(root)
-        } else {
-            DetectResult { installed: false, version: None, install_path: None }
-        };
-        // 数据库补充：运行时检测未发现，但数据库有成功安装记录
+        let cached_record = db.get_installed_tool(id).ok().flatten();
+
+        if !force_refresh {
+            if let Some(record) = cached_record.as_ref() {
+                if cache_matches_install_root(record, install_root.as_deref()) {
+                    if let Some(cached) = detect_result_from_cache_record(record) {
+                        results.push(cached);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let mut result = get_plugin_by_id(id)
+            .map(|plugin| plugin.detect(root))
+            .unwrap_or_else(DetectResult::not_installed);
+
         if !result.installed && allow_db_fallback {
-            if let Ok(Some(record)) = state.db.get_installed_tool(id) {
+            if let Some(record) = cached_record.as_ref() {
                 if record.status == "installed" {
                     result = DetectResult {
                         installed: true,
-                        version: record.version,
-                        install_path: Some(record.install_path),
+                        version: record.version.clone(),
+                        install_path: Some(record.install_path.clone()),
                     };
                 }
             }
         }
+
+        persist_detect_result_cache(
+            db,
+            id,
+            install_root.as_deref(),
+            cached_record.as_ref(),
+            &result,
+        );
         results.push(result);
     }
+
     Ok(results)
 }
 
-/// 设置安装根目录
 #[tauri::command]
-pub fn set_install_root(
-    path: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub fn set_install_root(path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     state
         .db
         .set_install_root(&path)
         .map_err(|e| format!("保存安装根目录失败: {e}"))
 }
 
-/// 获取安装根目录
 #[tauri::command]
-pub fn get_install_root(
-    state: tauri::State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    state
-        .db
-        .get_install_root()
-        .map_err(|e| format!("查询失败: {e}"))
+pub fn get_install_root(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    state.db.get_install_root().map_err(|e| format!("查询失败: {e}"))
 }
 
-/// 检查工具更新
 #[tauri::command]
-pub fn check_tool_updates(
+pub async fn check_tool_updates(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<ToolUpdateInfo>, String> {
-    InstallerService::check_tool_updates(&state.db)
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || InstallerService::check_tool_updates(&db))
+        .await
+        .map_err(|e| format!("检测工具更新任务执行失败: {e}"))?
 }
 
 #[cfg(test)]
 mod tests {
-    use super::should_use_db_fallback;
+    use super::{detect_tools_sync, should_use_db_fallback};
+    use crate::database::{Database, InstalledToolRecord};
+    use std::sync::Arc;
 
     #[test]
     fn detect_tools_db_fallback_is_disabled_for_explicit_install_root() {
@@ -186,5 +283,96 @@ mod tests {
     #[test]
     fn detect_tools_db_fallback_stays_enabled_without_install_root() {
         assert!(should_use_db_fallback(None));
+    }
+
+    #[test]
+    fn detect_tools_sync_uses_db_fallback_without_explicit_install_root() {
+        let db = Arc::new(Database::memory().expect("create db"));
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "unknown-tool".into(),
+            name: "Unknown Tool".into(),
+            version: Some("1.2.3".into()),
+            install_path: "D:\\Tools\\unknown-tool".into(),
+            install_root: "D:\\Tools".into(),
+            category: "tool".into(),
+            status: "installed".into(),
+            installed_at: Some(1),
+            updated_at: Some(1),
+        })
+        .expect("seed installed tool");
+
+        let results = detect_tools_sync(vec!["unknown-tool".into()], None, false, &db)
+            .expect("detect tools");
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].installed);
+        assert_eq!(results[0].version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            results[0].install_path.as_deref(),
+            Some("D:\\Tools\\unknown-tool")
+        );
+    }
+
+    #[test]
+    fn detect_tools_sync_skips_cache_for_mismatched_install_root() {
+        let db = Arc::new(Database::memory().expect("create db"));
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "unknown-tool".into(),
+            name: "Unknown Tool".into(),
+            version: Some("1.2.3".into()),
+            install_path: "D:\\Tools\\unknown-tool".into(),
+            install_root: "D:\\Tools".into(),
+            category: "tool".into(),
+            status: "detected".into(),
+            installed_at: None,
+            updated_at: Some(1),
+        })
+        .expect("seed detected tool");
+
+        let results = detect_tools_sync(
+            vec!["unknown-tool".into()],
+            Some("D:\\AITools".into()),
+            false,
+            &db,
+        )
+        .expect("detect tools");
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].installed);
+        assert_eq!(results[0].version, None);
+        assert_eq!(results[0].install_path, None);
+    }
+
+    #[test]
+    fn detect_tools_sync_reuses_cached_detection_for_matching_install_root() {
+        let db = Arc::new(Database::memory().expect("create db"));
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "unknown-tool".into(),
+            name: "Unknown Tool".into(),
+            version: Some("9.9.9".into()),
+            install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
+            install_root: "D:\\AITools".into(),
+            category: "tool".into(),
+            status: "detected".into(),
+            installed_at: None,
+            updated_at: Some(1),
+        })
+        .expect("seed detected cache");
+
+        let results = detect_tools_sync(
+            vec!["unknown-tool".into()],
+            Some("D:\\AITools".into()),
+            false,
+            &db,
+        )
+        .expect("detect tools");
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].installed);
+        assert_eq!(results[0].version.as_deref(), Some("9.9.9"));
+        assert_eq!(
+            results[0].install_path.as_deref(),
+            Some("C:\\Users\\me\\AppData\\Roaming\\npm")
+        );
     }
 }

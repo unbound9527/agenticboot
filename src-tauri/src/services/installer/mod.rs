@@ -177,22 +177,27 @@ impl InstallerService {
             let (tx, mut rx) = mpsc::channel::<InstallProgress>(32);
 
             let install_target = target_dir.clone();
-            let install_handle = app_handle.clone();
             let install_tool_id = step.tool_id.clone();
             let install_tool_name = install_tool_name.clone();
             let _install_category = step.category.clone();
+            let install_root = self.root_path.clone();
 
-            // 在独立线程中执行安装
+            let progress_forwarder = tokio::spawn({
+                let progress_handle = app_handle.clone();
+                async move {
+                    while let Some(progress) = rx.recv().await {
+                        let _ = progress_handle.emit("install-progress", progress);
+                    }
+                }
+            });
+
             let install_result = tokio::task::spawn_blocking(move || {
-                plugin.install(&install_target, tx)
+                plugin.install(&install_target, &install_root, tx)
             })
             .await
             .map_err(|e| format!("安装线程错误: {e}"))?;
 
-            // 消费进度通道（即使安装已完成，也需要排空）
-            while let Ok(progress) = rx.try_recv() {
-                let _ = install_handle.emit("install-progress", progress);
-            }
+            progress_forwarder.abort();
 
             // 重新获取插件以进行后续操作
             let post_plugin = get_plugin_by_id(&install_tool_id)
@@ -315,6 +320,12 @@ impl InstallerService {
 
         let uninstall_result = plugin.uninstall(target_dir);
 
+        if let Err(err) = uninstall_result {
+            if !matches!(strategy, InstallStrategy::ManagedPrefix) {
+                return Err(err);
+            }
+        }
+
         if matches!(strategy, InstallStrategy::ManagedPrefix) {
             self.path_manager.remove_shim(&get_exe_name(tool_id))?;
         } else if matches!(strategy, InstallStrategy::PythonPackage) && owned_by_root {
@@ -326,13 +337,6 @@ impl InstallerService {
                 .map_err(|e| format!("删除安装目录失败: {e}"))?;
         }
 
-        if let Err(err) = uninstall_result {
-            if !matches!(strategy, InstallStrategy::ManagedPrefix) {
-                return Err(err);
-            }
-        }
-
-        // 删除数据库记录
         db.delete_installed_tool(tool_id)
             .map_err(|e| format!("删除工具记录失败: {e}"))?;
 

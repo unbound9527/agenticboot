@@ -1,8 +1,9 @@
 use crate::plugin::ToolPlugin;
-use crate::services::installer::windows::{find_local_program_executable, find_uninstall_entry};
+use crate::services::installer::windows::find_uninstall_entry_ex;
 use crate::tool_types::{
     DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
 };
+use log::debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -25,30 +26,21 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     }
 
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
-        if let Some(exe) = find_local_program_executable(&["OpenCode"], &["OpenCode.exe"]) {
-            return DetectResult {
-                installed: true,
-                version: None,
-                install_path: exe.parent().map(|dir| dir.to_string_lossy().to_string()),
-            };
-        }
-
-        if let Some(entry) = find_uninstall_entry(&["OpenCode"]) {
+        if let Some(entry) = find_uninstall_entry_ex(&["OpenCode"], &["CLI", "npm"]) {
             let install_path = entry
                 .install_location
                 .or(entry.display_icon.and_then(|path| path.parent().map(PathBuf::from)));
+
+            debug!("detected OpenCode desktop: version={:?}, path={:?}", entry.display_version, install_path);
             return DetectResult {
                 installed: true,
-                version: None,
+                version: entry.display_version,
                 install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
             };
         }
 
-        DetectResult {
-            installed: false,
-            version: None,
-            install_path: None,
-        }
+        debug!("OpenCode desktop not found in registry");
+        DetectResult::not_installed()
     }
 
     fn dependencies(&self) -> Vec<ToolDependency> {
@@ -56,7 +48,7 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     }
 
     #[cfg(target_os = "windows")]
-    fn install(&self, _target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, _target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-desktop".into(),
             tool_name: "OpenCode 桌面版".into(),
@@ -89,7 +81,7 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn install(&self, target_dir: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
+    fn install(&self, target_dir: &Path, _install_root: &Path, progress: Sender<InstallProgress>) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "opencode-desktop".into(),
             tool_name: "OpenCode 桌面版".into(),
@@ -176,7 +168,7 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
     fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            if let Some(entry) = find_uninstall_entry(&["OpenCode"]) {
+            if let Some(entry) = find_uninstall_entry_ex(&["OpenCode"], &["CLI", "npm"]) {
                 if let Some(uninstall_string) = entry.uninstall_string {
                     let status = Command::new("cmd")
                         .args(["/C", &uninstall_string])

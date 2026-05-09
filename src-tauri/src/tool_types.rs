@@ -42,6 +42,16 @@ pub struct DetectResult {
     pub install_path: Option<String>,
 }
 
+impl DetectResult {
+    pub fn not_installed() -> Self {
+        DetectResult {
+            installed: false,
+            version: None,
+            install_path: None,
+        }
+    }
+}
+
 /// 工具依赖声明
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
