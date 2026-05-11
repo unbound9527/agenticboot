@@ -12,7 +12,7 @@ interface PathConfigProps {
   onBack: () => void;
 }
 
-const DEFAULT_ROOT = 'D:\\AgenticBoot';
+const DEFAULT_ROOT = 'D:\\AgenticTools';
 
 const TOOL_PREVIEWS = [
   'claude-code-cli',

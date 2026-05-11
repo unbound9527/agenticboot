@@ -345,7 +345,7 @@ git commit -m "feat: add dependency resolver with topological sort"
 // struct PathManager { root_dir: PathBuf }
 
 // fn new(root_dir: &Path) -> Self:
-//   root_dir is the user's unified install root (e.g., D:\AITools)
+//   root_dir is the user's unified install root (e.g., D:\AgenticTools)
 
 // fn ensure_bin_dir() -> Result<PathBuf, String>:
 //   Create <root>/bin/ if it doesn't exist
@@ -1149,13 +1149,13 @@ git commit -m "feat: add network status check panel component"
 // Props: { onNext: (rootPath: string) => void, onBack: () => void }
 
 // State:
-//   rootPath: string (default: "C:\\AITools" on Windows)
+//   rootPath: string (default: "C:\\AgenticTools" on Windows)
 
 // UI:
 //   Input field with label "安装根目录"
 //   Browse button → use Tauri dialog plugin to pick directory
 //   Preview section showing what the directory tree will look like:
-//     C:\AITools\
+//     C:\AgenticTools\
 //       bin\           ← shim scripts
 //       claude-code\
 //       codex\

@@ -1,3 +1,5 @@
+use crate::services::installer::logging::InstallLogEmitter;
+use crate::tool_types::InstallLogLevel;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -150,6 +152,41 @@ fn find_nvm_root<S: WindowsShell>(shell: &mut S) -> Option<PathBuf> {
     nvm_root_from_env()
         .or_else(nvm_root_from_settings_or_path)
         .or_else(|| nvm_root_via_cmd(shell))
+}
+
+pub fn find_windows_cli_install_dir_with_shell<S: WindowsShell>(
+    shell: &mut S,
+    command_name: &str,
+) -> Option<PathBuf> {
+    resolve_windows_cli_command(shell, command_name)
+        .and_then(|command_path| Path::new(&command_path).parent().map(PathBuf::from))
+        .or_else(|| {
+            let nvm_root = find_nvm_root(shell)?;
+            find_windows_cli_install_dir_in_nvm_root(command_name, &nvm_root)
+        })
+}
+
+pub fn find_windows_cli_install_dir_in_nvm_root(
+    command_name: &str,
+    nvm_root: &Path,
+) -> Option<PathBuf> {
+    let versions = list_nvm_version_directories(nvm_root);
+    for version in versions {
+        let version_dir = nvm_root.join(&version);
+        if let Some(candidate) = cli_shim_candidates(command_name, &version_dir)
+            .into_iter()
+            .next()
+        {
+            if candidate.starts_with(&version_dir) {
+                return Some(version_dir);
+            }
+            if let Some(parent) = candidate.parent() {
+                return Some(parent.to_path_buf());
+            }
+        }
+    }
+
+    None
 }
 
 fn nvm_root_from_env() -> Option<PathBuf> {
@@ -336,6 +373,27 @@ pub fn find_node_on_system() -> Option<PathBuf> {
         }
     }
 
+    if let Some(nvm_home) = std::env::var_os("NVM_HOME") {
+        let windows_nvm = PathBuf::from(nvm_home).join("versions").join("node");
+        if windows_nvm.exists() {
+            if let Ok(entries) = std::fs::read_dir(&windows_nvm) {
+                for entry in entries.flatten() {
+                    let node_exe = entry.path().join("node.exe");
+                    if node_exe.exists() {
+                        return Some(node_exe);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(nvm_symlink) = std::env::var_os("NVM_SYMLINK") {
+        let node_exe = PathBuf::from(nvm_symlink).join("node.exe");
+        if node_exe.exists() {
+            return Some(node_exe);
+        }
+    }
+
     // Volta: ~/.volta/bin/node
     let volta_node = home.join(".volta").join("bin").join("node");
     if volta_node.exists() {
@@ -433,7 +491,13 @@ pub fn npm_prefix_candidates(cmd_name: &str) -> Vec<String> {
         format!("{cmd_name}.exe"),
         format!("bin\\{cmd_name}.cmd"),
         format!("bin\\{cmd_name}.exe"),
+        format!("node_modules\\.bin\\{cmd_name}.cmd"),
+        format!("node_modules\\.bin\\{cmd_name}.exe"),
     ]
+}
+
+pub fn find_command_install_dir(command: &str) -> Option<PathBuf> {
+    find_command_on_path(command).and_then(|path| path.parent().map(PathBuf::from))
 }
 
 pub fn find_command_on_path(command: &str) -> Option<PathBuf> {
@@ -483,6 +547,54 @@ pub fn run_winget(args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
+pub fn run_winget_with_logs(
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    args: &[&str],
+) -> Result<(), String> {
+    run_command_checked_with_logs(install_log, phase, "winget", args, "winget 执行失败")
+}
+
+#[allow(dead_code)]
+pub fn run_spawned_command_with_logs<P: AsRef<Path>>(
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    program: P,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    let program = program.as_ref();
+    install_log.emit_command(
+        phase,
+        format_command_for_log(&program.to_string_lossy(), args),
+    );
+
+    let status = Command::new(program)
+        .args(args)
+        .spawn()
+        .map_err(|e| {
+            let error = format!("{failure_context}: {e}");
+            install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+            error
+        })?
+        .wait()
+        .map_err(|e| {
+            let error = format!("{failure_context}: {e}");
+            install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+            error
+        })?;
+
+    if status.success() {
+        install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+        return Ok(());
+    }
+
+    let details = format!("exit code: {:?}", status.code());
+    install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+    Err(format!("{failure_context}: {details}"))
+}
+
 pub fn run_command_checked(
     program: &str,
     args: &[&str],
@@ -493,40 +605,94 @@ pub fn run_command_checked(
     run_command_checked_with_command(&mut command, failure_context)
 }
 
+#[allow(dead_code)]
+pub fn run_command_checked_with_logs(
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    program: &str,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    let command_line = format_command_for_log(program, args);
+    install_log.emit_command(phase, command_line);
+
+    let mut command = Command::new(program);
+    command.args(args);
+    let output = match run_command_output(&mut command, failure_context) {
+        Ok(output) => output,
+        Err(error) => {
+            install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+            return Err(error);
+        }
+    };
+    emit_output_lines(install_log, phase, &output);
+
+    if output.status.success() {
+        install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+        return Ok(());
+    }
+
+    let details = command_failure_details(&output);
+    install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+    Err(format!("{failure_context}: {details}"))
+}
+
 fn run_command_checked_with_command(
     command: &mut Command,
     failure_context: &str,
 ) -> Result<(), String> {
-    let output = command
-        .output()
-        .map_err(|e| format!("{failure_context}: {e}"))?;
+    log::info!("[run_command_checked_with_command] 执行命令: {:?}", command);
+    let output = run_command_output(command, failure_context)?;
 
     if output.status.success() {
+        log::info!(
+            "[run_command_checked_with_command] 成功, stdout: {}",
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_string()
+                .lines()
+                .take(5)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
         return Ok(());
     }
 
+    let details = command_failure_details(&output);
+    log::error!(
+        "[run_command_checked_with_command] 失败: {}, stderr: {}",
+        details,
+        String::from_utf8_lossy(&output.stderr).trim().to_string()
+    );
+    Err(format!("{failure_context}: {details}"))
+}
+
+fn run_command_output(command: &mut Command, failure_context: &str) -> Result<Output, String> {
+    command
+        .output()
+        .map_err(|e| format!("{failure_context}: {e}"))
+}
+
+fn command_failure_details(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() {
+    if !stderr.is_empty() {
         stderr
     } else if !stdout.is_empty() {
         stdout
     } else {
         format!("exit code: {:?}", output.status.code())
-    };
-
-    Err(format!("{failure_context}: {details}"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ManagedNpmCommand {
+pub(crate) struct ManagedNpmCommand {
     program: PathBuf,
     prefix_args: Vec<String>,
 }
 
-fn resolve_managed_npm_command(install_root: &Path) -> Option<ManagedNpmCommand> {
-    let nodejs_dir = install_root.join("nodejs");
-    let npm_cmd = nodejs_dir.join("npm.cmd");
+fn resolve_npm_command_from_node_dir(node_dir: &Path) -> Option<ManagedNpmCommand> {
+    let npm_cmd = node_dir.join("npm.cmd");
     if npm_cmd.exists() {
         return Some(ManagedNpmCommand {
             program: npm_cmd,
@@ -534,8 +700,8 @@ fn resolve_managed_npm_command(install_root: &Path) -> Option<ManagedNpmCommand>
         });
     }
 
-    let node_exe = nodejs_dir.join("node.exe");
-    let npm_cli = nodejs_dir
+    let node_exe = node_dir.join("node.exe");
+    let npm_cli = node_dir
         .join("node_modules")
         .join("npm")
         .join("bin")
@@ -550,18 +716,203 @@ fn resolve_managed_npm_command(install_root: &Path) -> Option<ManagedNpmCommand>
     None
 }
 
+fn resolve_managed_npm_command(install_root: &Path) -> Option<ManagedNpmCommand> {
+    resolve_npm_command_from_node_dir(&install_root.join("nodejs"))
+}
+
+fn resolve_system_npm_command() -> Option<ManagedNpmCommand> {
+    if let Some(npm_path) = find_command_on_path("npm") {
+        return Some(ManagedNpmCommand {
+            program: npm_path,
+            prefix_args: Vec::new(),
+        });
+    }
+
+    let node_exe = find_node_on_system()?;
+    let node_dir = node_exe.parent()?;
+    resolve_npm_command_from_node_dir(node_dir)
+}
+
 pub fn run_npm_command_checked(
     install_root: &Path,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    log::info!(
+        "[run_npm_command_checked] install_root={}, args={:?}",
+        install_root.display(),
+        args
+    );
+    if let Some(managed) = resolve_managed_npm_command(install_root) {
+        log::info!(
+            "[run_npm_command_checked] 使用托管 npm: {:?}",
+            managed.program
+        );
+        let mut command = Command::new(&managed.program);
+        command.args(&managed.prefix_args).args(args);
+        return run_command_checked_with_command(&mut command, failure_context);
+    }
+
+    if let Some(system) = resolve_system_npm_command() {
+        log::info!(
+            "[run_npm_command_checked] 使用系统 npm: {:?}",
+            system.program
+        );
+        let mut command = Command::new(&system.program);
+        command.args(&system.prefix_args).args(args);
+        return run_command_checked_with_command(&mut command, failure_context);
+    }
+
+    log::info!("[run_npm_command_checked] 使用 PATH 中的 npm");
+    run_command_checked("npm", args, failure_context)
+}
+
+pub(crate) fn resolve_npm_command_for_uninstall(
+    install_dir: &Path,
+) -> Option<ManagedNpmCommand> {
+    resolve_npm_command_from_node_dir(install_dir)
+        .or_else(|| {
+            install_dir
+                .parent()
+                .and_then(resolve_managed_npm_command)
+        })
+        .or_else(resolve_system_npm_command)
+}
+
+pub fn run_npm_command_checked_for_uninstall(
+    install_dir: &Path,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    log::info!(
+        "[run_npm_command_checked_for_uninstall] install_dir={}, args={:?}",
+        install_dir.display(),
+        args
+    );
+    if let Some(npm) = resolve_npm_command_for_uninstall(install_dir) {
+        log::info!(
+            "[run_npm_command_checked_for_uninstall] 使用 npm: {:?}",
+            npm.program
+        );
+        let mut command = Command::new(&npm.program);
+        command.args(&npm.prefix_args).args(args);
+        return run_command_checked_with_command(&mut command, failure_context);
+    }
+
+    run_command_checked("npm", args, failure_context)
+}
+
+#[allow(dead_code)]
+pub fn run_npm_command_checked_with_logs(
+    install_root: &Path,
+    install_log: &InstallLogEmitter,
+    phase: &str,
     args: &[&str],
     failure_context: &str,
 ) -> Result<(), String> {
     if let Some(managed) = resolve_managed_npm_command(install_root) {
         let mut command = Command::new(&managed.program);
         command.args(&managed.prefix_args).args(args);
-        return run_command_checked_with_command(&mut command, failure_context);
+
+        let all_args = managed
+            .prefix_args
+            .iter()
+            .map(String::as_str)
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>();
+        install_log.emit_command(
+            phase,
+            format_command_for_log(&managed.program.to_string_lossy(), &all_args),
+        );
+
+        let output = match run_command_output(&mut command, failure_context) {
+            Ok(output) => output,
+            Err(error) => {
+                install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+                return Err(error);
+            }
+        };
+        emit_output_lines(install_log, phase, &output);
+        if output.status.success() {
+            install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+            return Ok(());
+        }
+
+        let details = command_failure_details(&output);
+        install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+        return Err(format!("{failure_context}: {details}"));
     }
 
-    run_command_checked("npm", args, failure_context)
+    if let Some(system) = resolve_system_npm_command() {
+        let mut command = Command::new(&system.program);
+        command.args(&system.prefix_args).args(args);
+
+        let all_args = system
+            .prefix_args
+            .iter()
+            .map(String::as_str)
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>();
+        install_log.emit_command(
+            phase,
+            format_command_for_log(&system.program.to_string_lossy(), &all_args),
+        );
+
+        let output = match run_command_output(&mut command, failure_context) {
+            Ok(output) => output,
+            Err(error) => {
+                install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+                return Err(error);
+            }
+        };
+        emit_output_lines(install_log, phase, &output);
+        if output.status.success() {
+            install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+            return Ok(());
+        }
+
+        let details = command_failure_details(&output);
+        install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+        return Err(format!("{failure_context}: {details}"));
+    }
+
+    run_command_checked_with_logs(install_log, phase, "npm", args, failure_context)
+}
+
+#[allow(dead_code)]
+fn emit_output_lines(install_log: &InstallLogEmitter, phase: &str, output: &Output) {
+    for line in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        install_log.emit_output(phase, InstallLogLevel::Stdout, line.to_string());
+    }
+
+    for line in String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        install_log.emit_output(phase, InstallLogLevel::Stderr, line.to_string());
+    }
+}
+
+#[allow(dead_code)]
+fn format_command_for_log(program: &str, args: &[&str]) -> String {
+    std::iter::once(program.to_string())
+        .chain(args.iter().map(|arg| quote_command_arg(arg)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[allow(dead_code)]
+fn quote_command_arg(arg: &str) -> String {
+    if arg.contains([' ', '\t', '"']) {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        arg.to_string()
+    }
 }
 
 pub fn find_local_program_executable(dir_names: &[&str], exe_names: &[&str]) -> Option<PathBuf> {
@@ -610,6 +961,74 @@ pub fn find_local_program_executable(dir_names: &[&str], exe_names: &[&str]) -> 
     }
 
     None
+}
+
+pub fn find_local_uninstaller_executable(install_dir: &Path) -> Option<PathBuf> {
+    let direct_candidates = [
+        "uninstall.exe",
+        "Uninstall.exe",
+        "unins000.exe",
+        "unins001.exe",
+        "remove.exe",
+        "Remove.exe",
+    ];
+
+    if let Some(found) = find_executable_in_dir(install_dir, &direct_candidates) {
+        return Some(found);
+    }
+
+    for subdir in ["uninstall", "Uninstall", "uninstaller", "Uninstaller", "remove", "Remove"] {
+        let candidate_dir = install_dir.join(subdir);
+        if let Some(found) = find_executable_in_dir(&candidate_dir, &direct_candidates) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+pub fn run_windows_uninstaller_with_common_args(uninstaller: &Path) -> Result<(), String> {
+    let attempts: &[&[&str]] = &[
+        &["/S"],
+        &["/silent"],
+        &["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+        &[],
+    ];
+
+    let mut last_error: Option<String> = None;
+
+    for args in attempts {
+        let mut command = Command::new(uninstaller);
+        command.args(*args);
+        match command.spawn() {
+            Ok(mut child) => match child.wait() {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(status) => {
+                    last_error = Some(format!(
+                        "{} exited with code {:?}",
+                        uninstaller.display(),
+                        status.code()
+                    ));
+                }
+                Err(e) => {
+                    last_error = Some(format!(
+                        "failed to wait for {}: {e}",
+                        uninstaller.display()
+                    ));
+                }
+            },
+            Err(e) => {
+                last_error = Some(format!(
+                    "failed to launch {}: {e}",
+                    uninstaller.display()
+                ));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        format!("failed to run uninstaller {}", uninstaller.display())
+    }))
 }
 
 fn search_app_version_dir(app_dir: &Path, exe_name: &str) -> Option<PathBuf> {
@@ -1048,12 +1467,17 @@ fn run_detection_command_output_with_timeout(
 mod tests {
     use super::{
         detect_windows_cli_version_with_shell, find_command_in_directory, find_node_on_system,
-        list_nvm_version_directories, read_command_version, read_nvm_root_from_settings,
-        resolve_managed_npm_command, run_command_checked,
+        find_local_uninstaller_executable, list_nvm_version_directories, read_command_version,
+        read_nvm_root_from_settings, resolve_managed_npm_command,
+        resolve_npm_command_for_uninstall, resolve_npm_command_from_node_dir,
+        run_command_checked, run_command_checked_with_logs,
         run_detection_command_output_with_timeout, run_with_node_env, ManagedNpmCommand,
         ShellCommandOutput, WindowsShell,
     };
+    use crate::services::installer::logging::InstallLogEmitter;
+    use crate::tool_types::{InstallLogEvent, InstallLogKind, InstallLogLevel};
     use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Debug, Clone)]
     struct FakeShell {
@@ -1096,6 +1520,17 @@ mod tests {
             stdout: String::new(),
             stderr: stderr.to_string(),
         })
+    }
+
+    fn test_install_log_emitter() -> (InstallLogEmitter, Arc<Mutex<Vec<InstallLogEvent>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let emitter =
+            InstallLogEmitter::new_for_test("codex-desktop", "Codex (Desktop)", move |event| {
+                sink.lock().unwrap().push(event);
+            });
+
+        (emitter, events)
     }
 
     #[test]
@@ -1200,6 +1635,26 @@ mod tests {
     }
 
     #[test]
+    fn windows_cli_install_dir_can_be_found_without_version_output() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nvm_root = tmp.path().join("nvm");
+        let version_dir = nvm_root.join("v22.11.0");
+        std::fs::create_dir_all(version_dir.join("node_modules").join(".bin")).unwrap();
+        std::fs::write(
+            version_dir
+                .join("node_modules")
+                .join(".bin")
+                .join("opencode.cmd"),
+            b"",
+        )
+        .unwrap();
+
+        let install_dir = super::find_windows_cli_install_dir_in_nvm_root("opencode", &nvm_root);
+
+        assert_eq!(install_dir.as_deref(), Some(version_dir.as_path()));
+    }
+
+    #[test]
     fn list_nvm_version_directories_sorts_newest_first_and_ignores_noise() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("v18.20.0")).unwrap();
@@ -1282,6 +1737,68 @@ mod tests {
     }
 
     #[test]
+    fn run_command_checked_with_logs_emits_output_error_without_terminal_result_on_failure() {
+        let (install_log, events) = test_install_log_emitter();
+
+        let err = run_command_checked_with_logs(
+            &install_log,
+            "installing",
+            "cmd",
+            &["/C", "echo command failed 1>&2 && exit /b 17"],
+            "npm uninstall failed",
+        )
+        .unwrap_err();
+
+        let events = events.lock().unwrap();
+
+        assert!(err.contains("npm uninstall failed"));
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Command
+                && event.command.as_deref()
+                    == Some("cmd /C \"echo command failed 1>&2 && exit /b 17\"")
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Output
+                && event.level == InstallLogLevel::Stderr
+                && event.line.contains("command failed")
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Output
+                && event.level == InstallLogLevel::Error
+                && event.line.contains("command failed")
+        }));
+        assert!(!events
+            .iter()
+            .any(|event| event.kind == InstallLogKind::Result));
+    }
+
+    #[test]
+    fn run_command_checked_with_logs_emits_raw_error_line_on_spawn_failure() {
+        let (install_log, events) = test_install_log_emitter();
+
+        let err = run_command_checked_with_logs(
+            &install_log,
+            "installing",
+            "definitely_missing_command_12345",
+            &["--version"],
+            "launch failed",
+        )
+        .unwrap_err();
+
+        let events = events.lock().unwrap();
+
+        assert!(err.contains("launch failed"));
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Output
+                && event.level == InstallLogLevel::Error
+                && event.line == err
+        }));
+        assert!(!events
+            .iter()
+            .any(|event| event.kind == InstallLogKind::Result));
+    }
+
+    #[test]
     fn resolve_managed_npm_command_prefers_npm_cmd() {
         let tmp = tempfile::tempdir().unwrap();
         let nodejs_dir = tmp.path().join("nodejs");
@@ -1317,6 +1834,73 @@ mod tests {
                 program: nodejs_dir.join("node.exe"),
                 prefix_args: vec![npm_cli.join("npm-cli.js").to_string_lossy().to_string()],
             })
+        );
+    }
+
+    #[test]
+    fn resolve_npm_command_from_node_dir_prefers_adjacent_npm_cmd() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("npm.cmd"), b"").unwrap();
+        std::fs::write(tmp.path().join("node.exe"), b"").unwrap();
+
+        let resolved = resolve_npm_command_from_node_dir(tmp.path());
+
+        assert_eq!(
+            resolved,
+            Some(ManagedNpmCommand {
+                program: tmp.path().join("npm.cmd"),
+                prefix_args: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_npm_command_from_node_dir_uses_node_plus_local_npm_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let npm_cli = tmp.path().join("node_modules").join("npm").join("bin");
+        std::fs::create_dir_all(&npm_cli).unwrap();
+        std::fs::write(tmp.path().join("node.exe"), b"").unwrap();
+        std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
+
+        let resolved = resolve_npm_command_from_node_dir(tmp.path());
+
+        assert_eq!(
+            resolved,
+            Some(ManagedNpmCommand {
+                program: tmp.path().join("node.exe"),
+                prefix_args: vec![npm_cli.join("npm-cli.js").to_string_lossy().to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_npm_command_for_uninstall_prefers_the_install_directory_itself() {
+        let tmp = tempfile::tempdir().unwrap();
+        let npm_cli = tmp.path().join("node_modules").join("npm").join("bin");
+        std::fs::create_dir_all(&npm_cli).unwrap();
+        std::fs::write(tmp.path().join("node.exe"), b"").unwrap();
+        std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
+
+        let resolved = resolve_npm_command_for_uninstall(tmp.path());
+
+        assert_eq!(
+            resolved,
+            Some(ManagedNpmCommand {
+                program: tmp.path().join("node.exe"),
+                prefix_args: vec![npm_cli.join("npm-cli.js").to_string_lossy().to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn find_local_uninstaller_executable_finds_common_uninstall_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uninstall = tmp.path().join("unins000.exe");
+        std::fs::write(&uninstall, b"").unwrap();
+
+        assert_eq!(
+            find_local_uninstaller_executable(tmp.path()).as_deref(),
+            Some(uninstall.as_path())
         );
     }
 }

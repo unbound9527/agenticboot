@@ -36,6 +36,7 @@ const toolsApiMock = vi.hoisted(() => ({
   setInstallRoot: vi.fn(),
   checkToolUpdates: vi.fn(),
   onInstallProgress: vi.fn(),
+  onInstallLog: vi.fn(),
   onInstallComplete: vi.fn(),
   onInstallError: vi.fn(),
 }));
@@ -71,10 +72,20 @@ function buildDetectResults(installedIds: string[]) {
   }));
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Manager install detection", () => {
   beforeEach(() => {
     toolsApiMock.getInstalledTools.mockResolvedValue([]);
-    toolsApiMock.getInstallRoot.mockResolvedValue("D:\\AITools");
+    toolsApiMock.getInstallRoot.mockResolvedValue("D:\\AgenticTools");
     toolsApiMock.checkToolUpdates.mockResolvedValue([]);
     toolsApiMock.uninstallTool.mockResolvedValue(undefined);
     toolsApiMock.detectTools.mockResolvedValue(
@@ -90,10 +101,16 @@ describe("Manager install detection", () => {
         installProgressListener = null;
       };
     });
+    toolsApiMock.onInstallLog.mockImplementation(async (_callback) => {
+      return () => {
+        // No-op listener cleanup for tests that do not inspect install logs.
+      };
+    });
   });
 
-  it("shows externally detected tools as installed without offering uninstall", async () => {
-    const { container } = render(
+  it("shows externally detected tools as installed with an uninstall button", async () => {
+    const user = userEvent.setup();
+    render(
       <QueryClientProvider client={createTestQueryClient()}>
         <Manager />
       </QueryClientProvider>,
@@ -102,16 +119,25 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AITools",
+        "D:\\AgenticTools",
+        false,
       );
     });
 
-    expect(await screen.findByText("OpenCode (CLI)")).toBeInTheDocument();
-    expect(container.querySelectorAll('button[title="鍗歌浇"]')).toHaveLength(
-      0,
+    const openCodeCard = (await screen.findByText("OpenCode (CLI)")).closest(
+      ".claude-card",
     );
-  });
+    expect(openCodeCard).not.toBeNull();
+    const uninstallButton = within(openCodeCard as HTMLElement).getByRole("button");
+    await user.click(uninstallButton);
 
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "opencode-cli",
+        "D:\\AgenticTools",
+      );
+    });
+  });
   it("uninstalls managed tools using the tool's recorded install root", async () => {
     const user = userEvent.setup();
     toolsApiMock.getInstalledTools.mockResolvedValue([
@@ -128,17 +154,18 @@ describe("Manager install detection", () => {
     toolsApiMock.getInstallRoot.mockResolvedValue("D:\\DifferentRoot");
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
-    const { container } = render(
+    render(
       <QueryClientProvider client={createTestQueryClient()}>
         <Manager />
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("Codex (CLI)")).toBeInTheDocument();
-
-    const uninstallButton = container.querySelector('button[title="卸载"]');
-    expect(uninstallButton).not.toBeNull();
-    await user.click(uninstallButton as HTMLElement);
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+    const uninstallButton = within(codexCard as HTMLElement).getByRole("button");
+    await user.click(uninstallButton);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -148,22 +175,73 @@ describe("Manager install detection", () => {
     });
   });
 
+  it("moves an uninstalled managed tool back to the available list", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([
+        {
+          id: "codex-cli",
+          name: "Codex (CLI)",
+          version: "0.1.0",
+          installPath: "D:\\AgenticTools\\codex-cli",
+          installRoot: "D:\\AgenticTools",
+          category: "tool",
+          status: "installed",
+        },
+      ])
+      .mockResolvedValue([]);
+    toolsApiMock.detectTools
+      .mockResolvedValueOnce(buildDetectResults(["codex-cli"]))
+      .mockResolvedValueOnce(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(within(codexCard as HTMLElement).getByRole("button"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "codex-cli",
+        "D:\\AgenticTools",
+      );
+    });
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        true,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getAllByRole("tab")[0]).toHaveTextContent("(0)");
+      expect(screen.getAllByRole("tab")[1]).toHaveTextContent("(9)");
+    });
+  });
+
   it("does not treat errored database records as installed tools", async () => {
     toolsApiMock.getInstalledTools.mockResolvedValue([
       {
         id: "openclaw",
         name: "OpenClaw",
         version: null,
-        installPath: "D:\\AITools\\openclaw",
-        installRoot: "D:\\AITools",
+        installPath: "D:\\AgenticTools\\openclaw",
+        installRoot: "D:\\AgenticTools",
         category: "tool",
         status: "error",
       },
     ]);
-    toolsApiMock.getInstallRoot.mockResolvedValue("D:\\AITools");
+    toolsApiMock.getInstallRoot.mockResolvedValue("D:\\AgenticTools");
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
-    const { container } = render(
+    render(
       <QueryClientProvider client={createTestQueryClient()}>
         <Manager />
       </QueryClientProvider>,
@@ -172,14 +250,12 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AITools",
+        "D:\\AgenticTools",
+        false,
       );
     });
 
     expect(screen.queryByText("OpenClaw")).not.toBeInTheDocument();
-    expect(container.querySelectorAll('button[title="閸楁瓕娴?]')).toHaveLength(
-      0,
-    );
   });
 
   it("installs a single available tool directly instead of routing back to the wizard", async () => {
@@ -209,11 +285,12 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AITools",
+        "D:\\AgenticTools",
+        false,
       );
     });
 
-    await user.click(screen.getByRole("tab", { name: /未安装/ }));
+    await user.click(screen.getAllByRole("tab")[1]);
 
     const codexCard = (await screen.findByText("Codex (CLI)")).closest(
       ".claude-card",
@@ -224,16 +301,70 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.resolveInstallPlan).toHaveBeenCalledWith(
         ["codex-cli"],
-        "D:\\AITools",
+        "D:\\AgenticTools",
       );
     });
     await waitFor(() => {
       expect(toolsApiMock.executeInstallPlan).toHaveBeenCalledWith(
         plan,
-        "D:\\AITools",
+        "D:\\AgenticTools",
       );
     });
     expect(onInstallMore).not.toHaveBeenCalled();
+  });
+
+  it("shows immediate install feedback before the install plan finishes resolving", async () => {
+    const user = userEvent.setup();
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    await user.click(screen.getAllByRole("tab")[1]);
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(
+      within(codexCard as HTMLElement).getByRole("button", { name: /安装/ }),
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.resolveInstallPlan).toHaveBeenCalledWith(
+        ["codex-cli"],
+        "D:\\AgenticTools",
+      );
+    });
+    expect(
+      within(codexCard as HTMLElement).queryByRole("button", { name: /安装/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(codexCard as HTMLElement).getByText(/Preparing installation|准备安装/),
+    ).toBeInTheDocument();
+    expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
   });
 
   it("uses the updated install root for detection and direct installs", async () => {
@@ -260,7 +391,7 @@ describe("Manager install detection", () => {
       </QueryClientProvider>,
     );
 
-    const rootInput = await screen.findByDisplayValue("D:\\AITools");
+    const rootInput = await screen.findByDisplayValue("D:\\AgenticTools");
     fireEvent.change(rootInput, {
       target: { value: "E:\\CustomTools" },
     });
@@ -275,10 +406,11 @@ describe("Manager install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         "E:\\CustomTools",
+        false,
       );
     });
 
-    await user.click(screen.getByRole("tab", { name: /未安装/ }));
+    await user.click(screen.getAllByRole("tab")[1]);
 
     const codexCard = (await screen.findByText("Codex (CLI)")).closest(
       ".claude-card",
@@ -300,6 +432,52 @@ describe("Manager install detection", () => {
     });
   });
 
+  it("uses cached detection on initial mount", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+  });
+
+  it("forces a fresh detect pass only when clicking refresh", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "重新检测" }),
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        true,
+      );
+    });
+  });
+
   it("shows in-flight install messages for available tools", async () => {
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
@@ -309,7 +487,7 @@ describe("Manager install detection", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /未安装|鏈畨瑁?/ }));
+    await userEvent.click(screen.getAllByRole("tab")[1]);
     expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
 
     await act(async () => {

@@ -71,12 +71,13 @@ const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
   },
 ];
 
-const DEFAULT_ROOT = "D:\\AgenticBoot";
+const DEFAULT_ROOT = "D:\\AgenticTools";
 const INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS = 500;
 
 interface WizardProps {
   onComplete: () => void;
   initialSelectedToolIds?: string[];
+  forceDetectionRefreshToken?: number;
 }
 
 function buildSelectionFromDetection(
@@ -101,9 +102,26 @@ function buildSelectionFromDetection(
   };
 }
 
+function buildPendingInstallPlan(toolIds: string[]): InstallPlan {
+  const selectedIds = new Set(toolIds);
+
+  return {
+    steps: AVAILABLE_TOOLS.filter((tool) => selectedIds.has(tool.id)).map(
+      (tool) => ({
+        toolId: tool.id,
+        toolName: tool.name,
+        category: "tool",
+        reason: "selected",
+        isInstalled: false,
+      }),
+    ),
+  };
+}
+
 export function Wizard({
   onComplete,
   initialSelectedToolIds,
+  forceDetectionRefreshToken = 0,
 }: WizardProps) {
   const { t } = useTranslation();
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
@@ -117,6 +135,7 @@ export function Wizard({
   const detectionRequestIdRef = useRef(0);
   const activeRootPathRef = useRef(rootPath);
   const rootPathDirtyRef = useRef(false);
+  const lastAppliedForceDetectionRefreshTokenRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +178,7 @@ export function Wizard({
       const ids = AVAILABLE_TOOLS.map((tool) => tool.id);
       const requestId = ++detectionRequestIdRef.current;
       setIsDetectingTools(true);
-      const detectPromise = forceRefresh
-        ? toolsApi.detectTools(ids, rootPath, true)
-        : toolsApi.detectTools(ids, rootPath);
+      const detectPromise = toolsApi.detectTools(ids, rootPath, forceRefresh);
 
       return detectPromise
         .then((results) => {
@@ -215,8 +232,14 @@ export function Wizard({
     }
 
     let cancelled = false;
+    const shouldForceRefresh =
+      forceDetectionRefreshToken > lastAppliedForceDetectionRefreshTokenRef.current;
+    if (shouldForceRefresh) {
+      lastAppliedForceDetectionRefreshTokenRef.current =
+        forceDetectionRefreshToken;
+    }
     const timer = setTimeout(() => {
-      refreshDetectedTools(false).catch(() => {
+      refreshDetectedTools(shouldForceRefresh).catch(() => {
         if (!cancelled) {
           setInstalledIds(new Set());
           setSelectedTools(new Set());
@@ -229,7 +252,7 @@ export function Wizard({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isInstallRootReady, refreshDetectedTools]);
+  }, [forceDetectionRefreshToken, isInstallRootReady, refreshDetectedTools]);
 
   const {
     data: netStatus,
@@ -252,13 +275,15 @@ export function Wizard({
       return;
     }
 
+    setInstallPlan(buildPendingInstallPlan(toolIds));
+    resetProgress();
+    setStarted(true);
+
     resolvePlan.mutate(
       { toolIds, installRoot: rootPath || undefined },
       {
         onSuccess: (plan) => {
           setInstallPlan(plan);
-          resetProgress();
-          setStarted(true);
           executePlan.mutate(
             { plan, rootPath },
             {
@@ -273,6 +298,8 @@ export function Wizard({
           );
         },
         onError: (err) => {
+          setStarted(false);
+          setInstallPlan(null);
           toast.error(
             t("tools.resolvePlanFailed", "解析安装计划失败: {{error}}", {
               error: String(err),

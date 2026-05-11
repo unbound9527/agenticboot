@@ -2592,7 +2592,15 @@
     "allUpToDate": "All tools are up to date",
     "uninstalled": "Uninstalled successfully",
     "uninstallFailed": "Uninstall failed: {{error}}",
-    "autoDepsNote": "Dependencies (Node.js, Git, etc.) will be automatically configured during installation — no manual setup required",
-    "notSet": "Not set"
+    "autoDepsNote": "Dependencies (Node.js, Git, etc.) will be automatically configured during installation",
+    "notSet": "Not set",
+    "installConsole": "Install Console",
+    "installConsoleSummary": "Summary",
+    "installConsoleRaw": "Raw Output",
+    "installConsoleEmpty": "No summary entries yet.",
+    "installConsoleEmptyRaw": "No log output yet.",
+    "consoleWaiting": "Initializing...",
+    "installConsoleSession": "Session",
+    "installConsoleStarted": "Started"
   }
 }

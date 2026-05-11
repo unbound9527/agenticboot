@@ -287,7 +287,7 @@ fn windows_paths_nodejs_detects_root_level_node_exe_after_zip_extract() {
 fn windows_paths_cli_shim_targets_actual_managed_executable_path() {
     let tmp = tempfile::tempdir().unwrap();
     let pm = PathManager::new(tmp.path());
-    pm.create_shim("claude", "D:\\AITools\\claude-code-cli\\claude.cmd").unwrap();
+    pm.create_shim("claude", "D:\\AgenticTools\\claude-code-cli\\claude.cmd").unwrap();
 
     let content = std::fs::read_to_string(tmp.path().join("bin").join("claude.cmd")).unwrap();
     assert!(content.contains("claude-code-cli\\claude.cmd"));
@@ -789,7 +789,7 @@ it("shows externally installed tools in the installed tab", async () => {
       id: "claude-code-cli",
       name: "Claude Code (CLI)",
       installPath: "C:\\Users\\me\\AppData\\Roaming\\npm",
-      installRoot: "D:\\AITools",
+      installRoot: "D:\\AgenticTools",
       category: "tool",
       status: "installed",
     },

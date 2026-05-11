@@ -242,8 +242,8 @@ it("shows the latest retained install session for a tool after progress complete
       timestamp: "2026-05-09T12:00:00.000Z",
       level: "info",
       kind: "command",
-      line: "npm install -g @openai/codex --prefix D:\\AITools\\codex-cli",
-      command: "npm install -g @openai/codex --prefix D:\\AITools\\codex-cli",
+      line: "npm install -g @openai/codex --prefix D:\\AgenticTools\\codex-cli",
+      command: "npm install -g @openai/codex --prefix D:\\AgenticTools\\codex-cli",
     });
   });
 
@@ -525,9 +525,9 @@ git commit -m "feat: log codex desktop install commands"
 ```rust
 #[test]
 fn gemini_cli_logs_npm_command_before_install() {
-    let lines = build_gemini_cli_install_preview("D:\\AITools\\gemini-cli");
+    let lines = build_gemini_cli_install_preview("D:\\AgenticTools\\gemini-cli");
 
-    assert!(lines.iter().any(|line| line.contains("npm install -g @google/gemini-cli --prefix D:\\AITools\\gemini-cli")));
+    assert!(lines.iter().any(|line| line.contains("npm install -g @google/gemini-cli --prefix D:\\AgenticTools\\gemini-cli")));
 }
 ```
 
@@ -557,8 +557,8 @@ run_npm_command_checked_with_logs(
 
 ```powershell
 param(
-  [string]$InstallRoot = "D:\\AITools",
-  [string]$TargetDir = "D:\\AITools\\gemini-cli"
+  [string]$InstallRoot = "D:\\AgenticTools",
+  [string]$TargetDir = "D:\\AgenticTools\\gemini-cli"
 )
 
 Write-Host "[phase] install"
@@ -595,9 +595,9 @@ git commit -m "feat: log gemini cli install commands"
 ```rust
 #[test]
 fn opencode_cli_logs_npm_command_before_install() {
-    let lines = build_opencode_cli_install_preview("D:\\AITools\\opencode-cli");
+    let lines = build_opencode_cli_install_preview("D:\\AgenticTools\\opencode-cli");
 
-    assert!(lines.iter().any(|line| line.contains("npm install -g opencode-ai --prefix D:\\AITools\\opencode-cli")));
+    assert!(lines.iter().any(|line| line.contains("npm install -g opencode-ai --prefix D:\\AgenticTools\\opencode-cli")));
 }
 ```
 
@@ -627,8 +627,8 @@ run_npm_command_checked_with_logs(
 
 ```powershell
 param(
-  [string]$InstallRoot = "D:\\AITools",
-  [string]$TargetDir = "D:\\AITools\\opencode-cli"
+  [string]$InstallRoot = "D:\\AgenticTools",
+  [string]$TargetDir = "D:\\AgenticTools\\opencode-cli"
 )
 
 Write-Host "[phase] install"

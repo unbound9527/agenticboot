@@ -28,9 +28,43 @@ const toolsApiMock = vi.hoisted(() => ({
   setInstallRoot: vi.fn(),
   checkToolUpdates: vi.fn(),
   onInstallProgress: vi.fn(),
+  onInstallLog: vi.fn(),
   onInstallComplete: vi.fn(),
   onInstallError: vi.fn(),
 }));
+
+let installProgressListener:
+  | ((progress: {
+      toolId: string;
+      toolName: string;
+      phase:
+        | "starting"
+        | "downloading"
+        | "extracting"
+        | "installing"
+        | "configuring"
+        | "complete"
+        | "error"
+        | "skipped";
+      percent: number;
+      message: string;
+    }) => void)
+  | null = null;
+
+let installLogListener:
+  | ((event: {
+      toolId: string;
+      toolName: string;
+      sessionId: string;
+      timestamp: string;
+      phase?: string;
+      level: "info" | "stdout" | "stderr" | "success" | "error";
+      kind: "session-started" | "phase" | "command" | "output" | "result";
+      line: string;
+      command?: string;
+      exitCode?: number | null;
+    }) => void)
+  | null = null;
 
 vi.mock("@/lib/api/tools", () => ({
   toolsApi: toolsApiMock,
@@ -67,12 +101,27 @@ describe("Wizard install detection", () => {
     toolsApiMock.detectTools.mockResolvedValue(
       buildDetectResults(["claude-code-cli"]),
     );
+    toolsApiMock.resolveInstallPlan.mockReset();
+    toolsApiMock.executeInstallPlan.mockReset();
     toolsApiMock.getInstallRoot.mockReset();
     toolsApiMock.getInstallRoot.mockResolvedValue(null);
-    toolsApiMock.onInstallProgress.mockResolvedValue(() => {});
+    installProgressListener = null;
+    installLogListener = null;
+    toolsApiMock.onInstallProgress.mockImplementation(async (callback) => {
+      installProgressListener = callback;
+      return () => {
+        installProgressListener = null;
+      };
+    });
+    toolsApiMock.onInstallLog.mockImplementation(async (callback) => {
+      installLogListener = callback;
+      return () => {
+        installLogListener = null;
+      };
+    });
   });
 
-  it("uses D:\\AgenticBoot by default when there is no saved install root", async () => {
+  it("uses D:\\AgenticTools by default when there is no saved install root", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <Wizard onComplete={vi.fn()} />
@@ -82,13 +131,14 @@ describe("Wizard install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AgenticBoot",
+        "D:\\AgenticTools",
+        false,
       );
     });
 
-    expect(screen.getByDisplayValue("D:\\AgenticBoot")).toHaveAttribute(
+    expect(screen.getByDisplayValue("D:\\AgenticTools")).toHaveAttribute(
       "placeholder",
-      "D:\\AgenticBoot",
+      "D:\\AgenticTools",
     );
   });
 
@@ -124,6 +174,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
         savedRoot,
+        false,
       );
       expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
       expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
@@ -132,7 +183,7 @@ describe("Wizard install detection", () => {
     }
   });
 
-  it("falls back to D:\\AgenticBoot when install-root loading hangs", async () => {
+  it("falls back to D:\\AgenticTools when install-root loading hangs", async () => {
     vi.useFakeTimers();
 
     try {
@@ -156,10 +207,11 @@ describe("Wizard install detection", () => {
 
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AgenticBoot",
+        "D:\\AgenticTools",
+        false,
       );
       expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
-      expect(screen.getByDisplayValue("D:\\AgenticBoot")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("D:\\AgenticTools")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -176,7 +228,7 @@ describe("Wizard install detection", () => {
 
       toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
       toolsApiMock.detectTools.mockImplementation((_toolIds, installRoot) => {
-        if (installRoot === "D:\\AgenticBoot") {
+        if (installRoot === "D:\\AgenticTools") {
           return defaultDetect.promise;
         }
 
@@ -203,7 +255,8 @@ describe("Wizard install detection", () => {
 
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AgenticBoot",
+        "D:\\AgenticTools",
+        false,
       );
       expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
 
@@ -220,6 +273,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         savedRoot,
+        false,
       );
       expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
 
@@ -263,7 +317,7 @@ describe("Wizard install detection", () => {
 
       toolsApiMock.getInstallRoot.mockReturnValueOnce(deferredRoot.promise);
       toolsApiMock.detectTools.mockImplementation((_toolIds, installRoot) => {
-        if (installRoot === "D:\\AgenticBoot") {
+        if (installRoot === "D:\\AgenticTools") {
           return defaultDetect.promise;
         }
 
@@ -290,7 +344,8 @@ describe("Wizard install detection", () => {
 
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AgenticBoot",
+        "D:\\AgenticTools",
+        false,
       );
       expect(toolsApiMock.detectTools).toHaveBeenCalledTimes(1);
 
@@ -321,6 +376,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         savedRoot,
+        false,
       );
 
       await act(async () => {
@@ -354,7 +410,7 @@ describe("Wizard install detection", () => {
         </QueryClientProvider>,
       );
 
-      fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
+      fireEvent.change(screen.getByDisplayValue("D:\\AgenticTools"), {
         target: { value: userRoot },
       });
 
@@ -373,10 +429,12 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         userRoot,
+        false,
       );
       expect(toolsApiMock.detectTools).not.toHaveBeenCalledWith(
         [...TOOL_IDS],
         savedRoot,
+        false,
       );
       expect(screen.getByDisplayValue(userRoot)).toBeInTheDocument();
     } finally {
@@ -394,7 +452,8 @@ describe("Wizard install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
-        "D:\\AgenticBoot",
+        "D:\\AgenticTools",
+        false,
       );
     });
 
@@ -402,7 +461,7 @@ describe("Wizard install detection", () => {
       expect(screen.getAllByRole("checkbox")).toHaveLength(8);
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticTools"), {
       target: { value: "E:\\CustomTools" },
     });
 
@@ -410,6 +469,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         "E:\\CustomTools",
+        false,
       );
     });
   });
@@ -435,7 +495,7 @@ describe("Wizard install detection", () => {
       expect(codexCheckbox).toHaveAttribute("data-state", "unchecked");
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticTools"), {
       target: { value: "E:\\CustomTools" },
     });
 
@@ -443,6 +503,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         "E:\\CustomTools",
+        false,
       );
     });
 
@@ -470,7 +531,7 @@ describe("Wizard install detection", () => {
       expect(screen.getAllByRole("checkbox")).toHaveLength(8);
     });
 
-    fireEvent.change(screen.getByDisplayValue("D:\\AgenticBoot"), {
+    fireEvent.change(screen.getByDisplayValue("D:\\AgenticTools"), {
       target: { value: "E:\\CustomTools" },
     });
 
@@ -478,6 +539,7 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
         [...TOOL_IDS],
         "E:\\CustomTools",
+        false,
       );
     });
 
@@ -511,6 +573,260 @@ describe("Wizard install detection", () => {
       expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
         [...TOOL_IDS],
         "E:\\CustomTools",
+        false,
+      );
+    });
+  });
+
+  it("forces a fresh detect pass when the post-uninstall refresh token changes", async () => {
+    toolsApiMock.detectTools
+      .mockResolvedValueOnce(buildDetectResults(["claude-code-cli"]))
+      .mockResolvedValueOnce(buildDetectResults([]));
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <Wizard onComplete={vi.fn()} forceDetectionRefreshToken={0} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getAllByRole("checkbox")).toHaveLength(8);
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <Wizard onComplete={vi.fn()} forceDetectionRefreshToken={1} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        true,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getAllByRole("checkbox")).toHaveLength(9);
+    });
+  });
+
+  it("shows the most recent retained session in install progress when no step is active", async () => {
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockResolvedValue({
+      steps: [
+        {
+          toolId: "codex-cli",
+          toolName: "Codex (CLI)",
+          category: "tool",
+          reason: "selected",
+          isInstalled: false,
+        },
+        {
+          toolId: "gemini-cli",
+          toolName: "Gemini CLI",
+          category: "tool",
+          reason: "selected",
+          isInstalled: false,
+        },
+      ],
+    });
+    toolsApiMock.executeInstallPlan.mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} initialSelectedToolIds={["codex-cli", "gemini-cli"]} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /开始安装|寮€濮嬪畨瑁?/ }),
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.executeInstallPlan).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      installProgressListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        phase: "complete",
+        percent: 100,
+        message: "Codex complete",
+      });
+      installProgressListener?.({
+        toolId: "gemini-cli",
+        toolName: "Gemini CLI",
+        phase: "complete",
+        percent: 100,
+        message: "Gemini complete",
+      });
+
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-1",
+        timestamp: "2026-05-09T12:00:00.000Z",
+        level: "success",
+        kind: "result",
+        line: "Codex retained session",
+        exitCode: 0,
+      });
+      installLogListener?.({
+        toolId: "gemini-cli",
+        toolName: "Gemini CLI",
+        sessionId: "session-2",
+        timestamp: "2026-05-09T12:01:00.000Z",
+        level: "success",
+        kind: "result",
+        line: "Gemini retained session",
+        exitCode: 0,
+      });
+    });
+
+    expect(
+      await screen.findAllByText("Gemini retained session"),
+    ).not.toHaveLength(0);
+    expect(screen.queryByText("Codex retained session")).not.toBeInTheDocument();
+  });
+
+  it("does not show the completion state before any install progress event arrives", async () => {
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockResolvedValue({
+      steps: [
+        {
+          toolId: "codex-cli",
+          toolName: "Codex (CLI)",
+          category: "tool",
+          reason: "selected",
+          isInstalled: false,
+        },
+      ],
+    });
+    toolsApiMock.executeInstallPlan.mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} initialSelectedToolIds={["codex-cli"]} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /开始安装|寮€濮嬪畨瑁?/ }),
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.executeInstallPlan).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("Codex (CLI)")).toBeInTheDocument();
+    expect(screen.queryByText(/安装完成|瀹夎瀹屾垚/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /进入管理|杩涘叆绠＄悊/ }),
+    ).not.toBeInTheDocument();
+  });
+  it("switches to the install progress view immediately after clicking start", async () => {
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} initialSelectedToolIds={["codex-cli"]} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    fireEvent.click(
+      (await screen.findByText(/开始安装/)).closest("button") as HTMLElement,
+    );
+
+    expect(await screen.findByText(/瀹夎涓?|安装中/)).toBeInTheDocument();
+    expect(screen.getByText("Codex (CLI)")).toBeInTheDocument();
+    expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it("uses cached detection after loading a saved install root", async () => {
+    const savedRoot = "E:\\SavedTools";
+    toolsApiMock.getInstallRoot.mockResolvedValue(savedRoot);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        savedRoot,
+        false,
+      );
+    });
+  });
+
+  it("forces a fresh detect pass only when clicking refresh", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenLastCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        true,
       );
     });
   });

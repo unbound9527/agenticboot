@@ -11,10 +11,12 @@ interface ToolIconProps {
   toolId: string;
   size?: number;
   className?: string;
+  spinning?: boolean;
 }
 
-export function ToolIcon({ toolId, size = 20, className = '' }: ToolIconProps) {
-  const cls = `flex-shrink-0 rounded-md flex items-center justify-center ${className}`;
+export function ToolIcon({ toolId, size = 20, className = '', spinning = false }: ToolIconProps) {
+  const spinningClass = spinning ? 'animate-spin' : '';
+  const cls = `flex-shrink-0 rounded-md flex items-center justify-center ${className} ${spinningClass}`;
 
   switch (toolId) {
     case 'claude-code-cli':

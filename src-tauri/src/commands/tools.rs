@@ -117,11 +117,17 @@ pub async fn execute_install_plan_with_plan(
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    log::info!(
+        "[Install] 开始执行安装计划, root_path={}, plan_steps={}",
+        root_path,
+        plan.steps.len()
+    );
     let service = InstallerService::new(Path::new(&root_path));
     state
         .db
         .set_install_root(&root_path)
         .map_err(|e| format!("保存安装根目录失败: {e}"))?;
+    log::info!("[Install] 保存安装根目录完成: {}", root_path);
     service
         .execute_install_plan(&plan, &app_handle, &state.db)
         .await
@@ -311,7 +317,7 @@ mod tests {
 
     #[test]
     fn detect_tools_db_fallback_is_disabled_for_explicit_install_root() {
-        assert!(!should_use_db_fallback(Some("D:\\AITools")));
+        assert!(!should_use_db_fallback(Some("D:\\AgenticTools")));
     }
 
     #[test]
@@ -365,7 +371,7 @@ mod tests {
 
         let results = detect_tools_sync(
             vec!["unknown-tool".into()],
-            Some("D:\\AITools".into()),
+            Some("D:\\AgenticTools".into()),
             false,
             &db,
         )
@@ -385,7 +391,7 @@ mod tests {
             name: "Unknown Tool".into(),
             version: Some("9.9.9".into()),
             install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
-            install_root: "D:\\AITools".into(),
+            install_root: "D:\\AgenticTools".into(),
             category: "tool".into(),
             status: "detected".into(),
             installed_at: None,
@@ -395,7 +401,7 @@ mod tests {
 
         let results = detect_tools_sync(
             vec!["unknown-tool".into()],
-            Some("D:\\AITools".into()),
+            Some("D:\\AgenticTools".into()),
             false,
             &db,
         )

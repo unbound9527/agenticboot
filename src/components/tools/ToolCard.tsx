@@ -1,11 +1,16 @@
-import { Trash2, Download, RefreshCw } from "lucide-react";
+import { Trash2, Download, RefreshCw, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { formatInstalledVersion } from "@/lib/tools/version";
-import type { InstallProgress, InstalledTool, ToolMeta } from "@/types/tools";
+import type {
+  InstallProgress,
+  InstalledTool,
+  ToolInstallSession,
+  ToolMeta,
+} from "@/types/tools";
 
 type ToolData = InstalledTool | ToolMeta;
 
@@ -15,7 +20,10 @@ interface ToolCardProps {
   onInstall?: () => void;
   onUninstall?: () => void;
   onUpdate?: () => void;
+  isUninstalling?: boolean;
   progress?: InstallProgress | null;
+  installSession?: ToolInstallSession | null;
+  onShowConsole?: () => void;
 }
 
 export function ToolCard({
@@ -24,7 +32,10 @@ export function ToolCard({
   onInstall,
   onUninstall,
   onUpdate,
+  isUninstalling = false,
   progress,
+  installSession,
+  onShowConsole,
 }: ToolCardProps) {
   const { t } = useTranslation();
   const formattedVersion =
@@ -33,6 +44,7 @@ export function ToolCard({
   const isInstalling =
     progress && !["complete", "error", "skipped"].includes(progress.phase);
 
+  // 用户自行安装的工具（不在管理目录下）不允许卸载
   return (
     <div className="claude-card flex items-center gap-4 p-4">
       <ToolIcon toolId={tool.id} size={22} />
@@ -62,9 +74,27 @@ export function ToolCard({
             </p>
           </>
         )}
+
+        {!isInstalling && installSession?.lastSummary && (
+          <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+            {installSession.lastSummary}
+          </p>
+        )}
       </div>
 
       <div className="flex-shrink-0 flex items-center gap-2">
+        {installSession && onShowConsole && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onShowConsole}
+            className="text-[12px]"
+          >
+            {t("tools.console", "Console")}
+          </Button>
+        )}
+
+        
         {variant === "installed" && (
           <>
             <Badge
@@ -80,9 +110,14 @@ export function ToolCard({
                 size="icon"
                 title={t("tools.uninstall", "卸载")}
                 onClick={onUninstall}
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                disabled={isUninstalling}
+                className="h-8 w-8 text-muted-foreground hover:text-destructive data[state=disabled]:opacity-50"
               >
-                <Trash2 className="h-4 w-4" />
+                {isUninstalling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
               </Button>
             )}
             {onUpdate && (

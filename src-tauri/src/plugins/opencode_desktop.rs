@@ -1,5 +1,8 @@
-use crate::plugin::ToolPlugin;
-use crate::services::installer::windows::find_uninstall_entry_ex;
+﻿use crate::plugin::ToolPlugin;
+use crate::services::installer::windows::{
+    find_local_uninstaller_executable, find_uninstall_entry_ex,
+    run_windows_uninstaller_with_common_args,
+};
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
 use std::path::{Path, PathBuf};
@@ -198,7 +201,7 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
         }
     }
 
-    fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
             if let Some(entry) = find_uninstall_entry_ex(&["OpenCode"], &["CLI", "npm"]) {
@@ -217,6 +220,11 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
                     }
                     return Ok(());
                 }
+            }
+
+            if let Some(uninstaller) = find_local_uninstaller_executable(target_dir) {
+                run_windows_uninstaller_with_common_args(&uninstaller)?;
+                return Ok(());
             }
 
             return Err("未找到可自动卸载的 OpenCode 官方桌面应用。".into());

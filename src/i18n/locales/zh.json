@@ -2593,6 +2593,14 @@
     "uninstalled": "卸载成功",
     "uninstallFailed": "卸载失败: {{error}}",
     "autoDepsNote": "所需依赖（如 Node.js、Git）将在安装过程中自动配置，无需手动处理",
-    "notSet": "未设置"
+    "notSet": "未设置",
+    "installConsole": "安装控制台",
+    "installConsoleSummary": "摘要",
+    "installConsoleRaw": "原始输出",
+    "installConsoleEmpty": "暂无摘要信息",
+    "installConsoleEmptyRaw": "暂无日志输出",
+    "consoleWaiting": "初始化中...",
+    "installConsoleSession": "会话",
+    "installConsoleStarted": "开始时间"
   }
 }

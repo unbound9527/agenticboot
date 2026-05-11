@@ -3,6 +3,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "dev-desktop.helpers.ps1")
+
 function Get-ProjectRoot {
   return (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 }
@@ -27,11 +29,16 @@ function Get-NodeVersion {
 }
 
 function Get-ManagedNodeRoot {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectRoot
+  )
+
   if ($env:AGENTICBOOT_MANAGED_NODE_ROOT) {
     return $env:AGENTICBOOT_MANAGED_NODE_ROOT
   }
 
-  return Join-Path $env:LOCALAPPDATA "AgenticBoot\managed-node"
+  return Join-Path $ProjectRoot ".managed-node"
 }
 
 function Ensure-ManagedNode {
@@ -59,13 +66,58 @@ function Ensure-ManagedNode {
   Invoke-WebRequest $downloadUrl -OutFile $zipPath
 
   Write-Host "Extracting Node.js $NodeVersion to $ManagedRoot"
-  Expand-Archive -Path $zipPath -DestinationPath $ManagedRoot -Force
+  try {
+    Expand-Archive -Path $zipPath -DestinationPath $ManagedRoot -Force
+  }
+  finally {
+    if (Test-Path $zipPath) {
+      Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+    }
+  }
 
   if (-not (Test-Path $nodeExe)) {
     throw "Managed Node.js installation failed: $nodeExe not found"
   }
 
   return $nodeDir
+}
+
+function Stop-StaleRendererDevServer {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$ManagedNodeDir,
+    [Parameter()]
+    [int]$Port = 3000
+  )
+
+  $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if (-not $listener) {
+    return
+  }
+
+  $processInfo = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $listener.OwningProcess) -ErrorAction SilentlyContinue
+  if (-not $processInfo) {
+    throw "Port $Port is already in use by process $($listener.OwningProcess)."
+  }
+
+  $executablePath = $processInfo.ExecutablePath
+  $commandLine = $processInfo.CommandLine
+  if ($processInfo -and $executablePath -and $commandLine -and (Test-IsProjectRendererDevServer `
+        -ProjectRoot $ProjectRoot `
+        -ManagedNodeDir $ManagedNodeDir `
+        -ExecutablePath $executablePath `
+        -CommandLine $commandLine)) {
+    Write-Host "Stopping stale renderer dev server on port $Port (PID $($listener.OwningProcess))"
+    Stop-Process -Id $listener.OwningProcess -Force
+    Start-Sleep -Seconds 2
+    return
+  }
+
+  $owner = if ($executablePath) { $executablePath } else { "PID $($listener.OwningProcess)" }
+  throw "Port $Port is already in use by $owner. Please stop that process and try again."
 }
 
 function Invoke-ManagedCommand {
@@ -86,7 +138,7 @@ function Invoke-ManagedCommand {
 
 $projectRoot = Get-ProjectRoot
 $nodeVersion = Get-NodeVersion -ProjectRoot $projectRoot
-$managedRoot = Get-ManagedNodeRoot
+$managedRoot = Get-ManagedNodeRoot -ProjectRoot $projectRoot
 $nodeDir = Ensure-ManagedNode -NodeVersion $nodeVersion -ManagedRoot $managedRoot
 
 $nodeExe = Join-Path $nodeDir "node.exe"
@@ -111,6 +163,8 @@ try {
 
   Write-Host "Installing dependencies with Corepack-managed pnpm"
   Invoke-ManagedCommand -FilePath $corepackCmd -Arguments @("pnpm", "install", "--frozen-lockfile") -WorkingDirectory $projectRoot
+
+  Stop-StaleRendererDevServer -ProjectRoot $projectRoot -ManagedNodeDir $nodeDir
 
   $devArgs = @("run", "dev")
   if ($args.Count -gt 0) {

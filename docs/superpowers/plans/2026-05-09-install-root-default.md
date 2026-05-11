@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Change the install wizard's default root from `D:\AITools` to `D:\AgenticBoot` for sessions without a saved install root, while preserving saved-root override behavior.
+**Goal:** Change the install wizard's default root from `D:\AgenticTools` to `D:\AgenticBoot` for sessions without a saved install root, while preserving saved-root override behavior.
 
 **Architecture:** Keep the change entirely in the frontend. Update the active wizard entry point in `src/pages/Wizard.tsx`, align the legacy `PathConfig` component in `src/components/tools/PathConfig.tsx`, and prove the behavior with focused Vitest component tests so the default cannot silently drift back.
 
@@ -67,8 +67,8 @@ pnpm exec vitest run tests/components/Wizard.installDetection.test.tsx
 ```
 
 Expected:
-- FAIL because the rendered input still shows `D:\AITools`
-- At least one assertion or mock-call expectation still reports `D:\AITools` instead of `D:\AgenticBoot`
+- FAIL because the rendered input still shows `D:\AgenticTools`
+- At least one assertion or mock-call expectation still reports `D:\AgenticTools` instead of `D:\AgenticBoot`
 
 - [ ] **Step 3: Write the minimal wizard implementation**
 
@@ -142,7 +142,7 @@ pnpm exec vitest run tests/components/PathConfig.test.tsx
 ```
 
 Expected:
-- FAIL because the component still initializes with `D:\AITools`
+- FAIL because the component still initializes with `D:\AgenticTools`
 - The placeholder and preview assertions also reflect the old root
 
 - [ ] **Step 3: Write the minimal `PathConfig` implementation**

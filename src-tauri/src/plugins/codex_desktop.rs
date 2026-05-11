@@ -1,10 +1,11 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    find_appx_install_location, find_uninstall_entry_ex, run_winget, winget_exists,
+    find_appx_install_location, find_executable_in_dir, find_local_uninstaller_executable,
+    find_uninstall_entry_ex, run_windows_uninstaller_with_common_args, run_winget, winget_exists,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
@@ -14,8 +15,8 @@ impl ToolPlugin for CodexDesktopPlugin {
     fn metadata(&self) -> ToolMeta {
         ToolMeta {
             id: "codex-desktop".into(),
-            name: "Codex (桌面版)".into(),
-            description: "Codex 官方 Windows 桌面应用".into(),
+            name: "Codex (Desktop)".into(),
+            description: "OpenAI official Windows desktop app".into(),
             icon: "codex".into(),
             category: "ai-cli".into(),
         }
@@ -25,7 +26,19 @@ impl ToolPlugin for CodexDesktopPlugin {
         InstallStrategy::DesktopInstaller
     }
 
-    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
+        if let Some((install_path, version)) = detect_local_codex_installation(install_root) {
+            debug!(
+                "detected Codex via local installation: version={:?}, path={:?}",
+                version, install_path
+            );
+            return DetectResult {
+                installed: true,
+                version,
+                install_path: Some(install_path.to_string_lossy().to_string()),
+            };
+        }
+
         if let Some(entry) = find_uninstall_entry_ex(&["Codex", "OpenAI Codex"], &["CLI", "npm"]) {
             let install_path = entry.install_location.or(entry
                 .display_icon
@@ -71,14 +84,14 @@ impl ToolPlugin for CodexDesktopPlugin {
     ) -> Result<(), String> {
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "codex-desktop".into(),
-            tool_name: "Codex 桌面版".into(),
+            tool_name: "Codex (Desktop)".into(),
             phase: "installing".into(),
             percent: 0,
-            message: "正在通过 Microsoft Store 安装 Codex 应用...".into(),
+            message: "Installing Codex desktop app via Microsoft Store...".into(),
         });
 
         if !winget_exists() {
-            return Err("安装 Codex 桌面版需要 Windows App Installer/winget。".into());
+            return Err("Codex desktop install requires winget / App Installer".into());
         }
 
         run_winget(&[
@@ -98,12 +111,26 @@ impl ToolPlugin for CodexDesktopPlugin {
         _install_root: &Path,
         _progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
-        Err("Codex 桌面版自动安装目前仅支持 Windows".into())
+        Err("Codex desktop auto-install is currently supported only on Windows".into())
     }
 
-    fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+    fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
+            if winget_exists()
+                && run_winget(&[
+                    "uninstall",
+                    "Codex",
+                    "-s",
+                    "msstore",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                ])
+                .is_ok()
+            {
+                return Ok(());
+            }
+
             let status = Command::new("powershell")
                 .args([
                     "-NoProfile",
@@ -111,16 +138,125 @@ impl ToolPlugin for CodexDesktopPlugin {
                     "Get-AppxPackage OpenAI.Codex | Remove-AppxPackage",
                 ])
                 .spawn()
-                .map_err(|e| format!("启动 Codex 卸载失败: {e}"))?
+                .map_err(|e| format!("failed to launch Codex uninstall: {e}"))?
                 .wait()
-                .map_err(|e| format!("等待 Codex 卸载完成失败: {e}"))?;
-            if !status.success() {
-                return Err(format!("Codex 卸载失败，code: {:?}", status.code()));
+                .map_err(|e| format!("failed to wait for Codex uninstall: {e}"))?;
+            if status.success() {
+                return Ok(());
             }
-            return Ok(());
+
+            if let Some(entry) =
+                find_uninstall_entry_ex(&["Codex", "OpenAI Codex"], &["CLI", "npm"])
+            {
+                if let Some(uninstall_string) = entry.uninstall_string {
+                    let status = Command::new("cmd")
+                        .args(["/C", &uninstall_string])
+                        .spawn()
+                        .map_err(|e| format!("failed to launch Codex uninstall command: {e}"))?
+                        .wait()
+                        .map_err(|e| format!("failed to wait for Codex uninstall command: {e}"))?;
+                    if status.success() {
+                        return Ok(());
+                    }
+                }
+            }
+
+            if let Some(uninstaller) = find_local_uninstaller_executable(target_dir) {
+                run_windows_uninstaller_with_common_args(&uninstaller)?;
+                return Ok(());
+            }
+
+            return Err("No Codex desktop uninstall command was found".into());
         }
 
         #[allow(unreachable_code)]
         Ok(())
+    }
+}
+
+fn detect_local_codex_installation(
+    install_root: Option<&Path>,
+) -> Option<(PathBuf, Option<String>)> {
+    let mut candidate_bases = Vec::new();
+
+    if let Some(root) = install_root {
+        candidate_bases.push(root.to_path_buf());
+    }
+
+    if let Some(local_app_data) = dirs::data_local_dir() {
+        candidate_bases.push(local_app_data);
+    }
+
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        candidate_bases.push(PathBuf::from(program_files));
+    }
+
+    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+        candidate_bases.push(PathBuf::from(program_files_x86));
+    }
+
+    let candidate_roots = ["OpenAI\\Codex", "Programs\\Codex", "Codex"];
+
+    for base in candidate_bases {
+        if let Some(found) = candidate_roots
+            .iter()
+            .map(|suffix| base.join(suffix))
+            .find_map(|candidate| find_codex_install_root(&candidate))
+        {
+            return Some(found);
+        }
+
+        if let Some(found) = find_codex_install_root(&base) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn find_codex_install_root(candidate_root: &Path) -> Option<(PathBuf, Option<String>)> {
+    if find_executable_in_dir(
+        candidate_root,
+        &["Codex.exe", "codex.exe", "Codex.cmd", "codex.cmd"],
+    )
+    .is_some()
+    {
+        return Some((candidate_root.to_path_buf(), None));
+    }
+
+    let bin_dir = candidate_root.join("bin");
+    if find_executable_in_dir(
+        &bin_dir,
+        &["Codex.exe", "codex.exe", "Codex.cmd", "codex.cmd"],
+    )
+    .is_some()
+    {
+        return Some((candidate_root.to_path_buf(), None));
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn detect_prefers_local_install_root_layout() {
+        let temp = tempfile::tempdir().unwrap();
+        let install_root = temp.path().join("OpenAI").join("Codex");
+        let bin_dir = install_root.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(bin_dir.join("codex.exe"), b"").unwrap();
+
+        let result = CodexDesktopPlugin.detect(Some(temp.path()));
+        let expected_install_path = install_root.to_string_lossy().to_string();
+
+        assert!(result.installed);
+        assert_eq!(
+            result.install_path.as_deref(),
+            Some(expected_install_path.as_str())
+        );
     }
 }

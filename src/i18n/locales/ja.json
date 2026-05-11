@@ -2613,6 +2613,14 @@
     "uninstalled": "アンインストール完了",
     "uninstallFailed": "失敗: {{error}}",
     "autoDepsNote": "依存関係は自動的に設定されます",
-    "notSet": "未設定"
+    "notSet": "未設定",
+    "installConsole": "インストールコンソール",
+    "installConsoleSummary": "サマリー",
+    "installConsoleRaw": "生出力",
+    "installConsoleEmpty": "サマリー情報がありません",
+    "installConsoleEmptyRaw": "ログ出力がありません",
+    "consoleWaiting": "初期化中...",
+    "installConsoleSession": "セッション",
+    "installConsoleStarted": "開始時刻"
   }
 }

@@ -307,7 +307,7 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 // 伪代码：
 
 // struct PathManager { root_dir: PathBuf }
-//   root_dir 是用户的统一安装根目录（如 D:\AITools）
+//   root_dir 是用户的统一安装根目录（如 D:\AgenticTools）
 
 // fn new(root_dir: &Path) -> Self
 
@@ -1065,13 +1065,13 @@ git commit -m "feat: fork CC Switch v3.14.1 as AgenticBoot base"
 // Props: { onNext: (rootPath: string) => void, onBack: () => void }
 
 // State:
-//   rootPath: string（Windows 默认值 "C:\\AITools"）
+//   rootPath: string（Windows 默认值 "C:\\AgenticTools"）
 
 // UI:
 //   - 输入框，标签"安装根目录"
 //   - 浏览按钮 → 使用 Tauri dialog 插件选择目录
 //   - 预览区域，展示目录树结构：
-//       C:\AITools\
+//       C:\AgenticTools\
 //         bin\           ← shim 脚本目录
 //         claude-code\
 //         codex\

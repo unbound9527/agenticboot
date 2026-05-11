@@ -176,6 +176,7 @@ function App() {
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [toolDetectionRefreshToken, setToolDetectionRefreshToken] = useState(0);
 
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);
@@ -985,6 +986,7 @@ function App() {
         case "wizard":
           return (
             <Wizard
+              forceDetectionRefreshToken={toolDetectionRefreshToken}
               onComplete={() => {
                 setCurrentView("manager");
                 // 标记向导已完成
@@ -996,6 +998,9 @@ function App() {
           return (
             <Manager
               onInstallMore={() => setCurrentView("wizard")}
+              onToolStateChanged={() =>
+                setToolDetectionRefreshToken((current) => current + 1)
+              }
             />
           );
         default:

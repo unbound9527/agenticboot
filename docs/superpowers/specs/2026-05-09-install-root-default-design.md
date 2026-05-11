@@ -4,7 +4,7 @@
 
 ## Goal
 
-Change the default install root shown in the Windows install wizard from `D:\AITools` to `D:\AgenticBoot` for new sessions that do not already have a saved install root.
+Change the default install root shown in the Windows install wizard from `D:\AgenticTools` to `D:\AgenticBoot` for new sessions that do not already have a saved install root.
 
 ## Scope
 
@@ -21,14 +21,14 @@ Change the default install root shown in the Windows install wizard from `D:\AIT
 ## Current State
 
 - The backend fallback in `src-tauri/src/database/dao/tools.rs` already returns `D:\AgenticBoot` when no install root has been saved.
-- The active frontend wizard in `src/pages/Wizard.tsx` still initializes its local default to `D:\AITools`.
-- `src/components/tools/PathConfig.tsx` also still hardcodes `D:\AITools` for both its default value and placeholder text.
+- The active frontend wizard in `src/pages/Wizard.tsx` still initializes its local default to `D:\AgenticTools`.
+- `src/components/tools/PathConfig.tsx` also still hardcodes `D:\AgenticTools` for both its default value and placeholder text.
 
 ## Proposed Change
 
 ### Approach
 
-Use `D:\AgenticBoot` as the frontend default install root everywhere the wizard UI currently hardcodes `D:\AITools`.
+Use `D:\AgenticBoot` as the frontend default install root everywhere the wizard UI currently hardcodes `D:\AgenticTools`.
 
 ### Behavior
 
@@ -40,7 +40,7 @@ Use `D:\AgenticBoot` as the frontend default install root everywhere the wizard 
 
 ## Implementation Notes
 
-- Update `DEFAULT_ROOT` in `src/pages/Wizard.tsx` from `D:\AITools` to `D:\AgenticBoot`.
+- Update `DEFAULT_ROOT` in `src/pages/Wizard.tsx` from `D:\AgenticTools` to `D:\AgenticBoot`.
 - Update the matching default and placeholder in `src/components/tools/PathConfig.tsx`.
 - Do not modify backend persistence or add migration logic because the requested behavior only applies to new wizard sessions without saved configuration.
 

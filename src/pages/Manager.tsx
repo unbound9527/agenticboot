@@ -3,10 +3,12 @@ import { FolderOpen, RefreshCw, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { InstallConsole } from "@/components/tools/InstallConsole";
 import { ToolCard } from "@/components/tools/ToolCard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
+import { useInstallSessions } from "@/hooks/useInstallSessions";
 import {
   useExecuteInstallPlan,
   useInstalledTools,
@@ -86,6 +88,7 @@ const ALL_TOOLS_META: ToolMeta[] = [
 
 interface ManagerProps {
   onInstallMore?: () => void;
+  onToolStateChanged?: () => void;
 }
 
 function toExternalInstalledTool(
@@ -104,15 +107,32 @@ function toExternalInstalledTool(
   };
 }
 
-export function Manager({ onInstallMore }: ManagerProps) {
+function buildPendingInstallProgress(tool: ToolMeta) {
+  return {
+    toolId: tool.id,
+    toolName: tool.name,
+    phase: "starting" as const,
+    percent: 0,
+    message: "Preparing installation...",
+  };
+}
+
+export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("installed");
   const [editRoot, setEditRoot] = useState("");
   const [activeInstallRoot, setActiveInstallRoot] = useState("");
+  const [openConsoleToolId, setOpenConsoleToolId] = useState<
+    string | null
+  >(null);
   const [detectedTools, setDetectedTools] = useState<
     Record<string, DetectResult>
   >({});
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [uninstallingToolId, setUninstallingToolId] = useState<string | null>(null);
+  const [pendingInstallToolId, setPendingInstallToolId] = useState<string | null>(null);
 
   const { data: installedTools = [] } = useInstalledTools();
   const { data: installRoot } = useInstallRoot();
@@ -121,10 +141,14 @@ export function Manager({ onInstallMore }: ManagerProps) {
   const resolvePlan = useResolveInstallPlan();
   const executePlan = useExecuteInstallPlan();
   const { getToolProgress, resetProgress } = useInstallProgress();
+  const installSessions = useInstallSessions();
   const managedInstalledTools = installedTools.filter(
     (tool) => tool.status === "installed",
   );
   const effectiveInstallRoot = activeInstallRoot || installRoot || "";
+  const selectedConsoleSession = openConsoleToolId
+    ? installSessions.get(openConsoleToolId) ?? null
+    : null;
 
   useEffect(() => {
     const nextRoot = installRoot ?? "";
@@ -135,17 +159,24 @@ export function Manager({ onInstallMore }: ManagerProps) {
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
       const ids = ALL_TOOLS_META.map((tool) => tool.id);
-      const detectPromise = forceRefresh
-        ? toolsApi.detectTools(ids, effectiveInstallRoot || undefined, true)
-        : toolsApi.detectTools(ids, effectiveInstallRoot || undefined);
+      setIsDetecting(true);
+      const detectPromise = toolsApi.detectTools(
+        ids,
+        effectiveInstallRoot || undefined,
+        forceRefresh,
+      );
 
-      return detectPromise.then((results) => {
-        const next: Record<string, DetectResult> = {};
-        results.forEach((result, index) => {
-          next[ids[index]] = result;
+      return detectPromise
+        .then((results) => {
+          const next: Record<string, DetectResult> = {};
+          results.forEach((result, index) => {
+            next[ids[index]] = result;
+          });
+          setDetectedTools(next);
+        })
+        .finally(() => {
+          setIsDetecting(false);
         });
-        setDetectedTools(next);
-      });
     },
     [effectiveInstallRoot],
   );
@@ -153,7 +184,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(() => {
-      refreshDetectedTools(false).catch(() => {
+      refreshDetectedTools().catch(() => {
         if (!cancelled) {
           setDetectedTools({});
         }
@@ -194,23 +225,30 @@ export function Manager({ onInstallMore }: ManagerProps) {
 
   const handleUninstall = useCallback(
     (toolId: string, rootPath: string) => {
+      setUninstallingToolId(toolId);
       uninstallTool.mutate(
         { toolId, rootPath },
         {
           onSuccess: () => {
             toast.success(t("tools.uninstalled", "卸载成功"));
+            onToolStateChanged?.();
+            refreshDetectedTools(true).catch(() => {});
           },
           onError: (err) => {
+            setPendingInstallToolId(null);
             toast.error(
               t("tools.uninstallFailed", "卸载失败: {{error}}", {
                 error: String(err),
               }),
             );
           },
+          onSettled: () => {
+            setUninstallingToolId(null);
+          },
         },
       );
     },
-    [uninstallTool, t],
+    [onToolStateChanged, refreshDetectedTools, uninstallTool, t],
   );
 
   const handleSingleInstall = useCallback(
@@ -221,6 +259,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
         return;
       }
 
+      setPendingInstallToolId(toolId);
       resolvePlan.mutate(
         { toolIds: [toolId], installRoot: resolvedRoot },
         {
@@ -233,6 +272,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
                   toast.success(t("tools.installStarted", "已开始安装"));
                 },
                 onError: (err) => {
+                  setPendingInstallToolId(null);
                   toast.error(
                     t("tools.installFailed", "安装失败: {{error}}", {
                       error: String(err),
@@ -303,27 +343,32 @@ export function Manager({ onInstallMore }: ManagerProps) {
               refreshDetectedTools(true).catch(() => {});
             }}
             className="text-[13px]"
+            disabled={isDetecting}
           >
-            <RefreshCw className="mr-1.5 h-3 w-3" />
+            <RefreshCw className={`mr-1.5 h-3 w-3 ${isDetecting ? "animate-spin" : ""}`} />
             {t("tools.refreshDetection", "重新检测")}
           </Button>
           <Button
             variant="secondary"
             size="sm"
             onClick={() => {
-              if (updates.length > 0) {
-                toast.info(
-                  t("tools.updatesAvailable", "{{count}} 个工具可更新", {
-                    count: updates.length,
-                  }),
-                );
-              } else {
-                toast.success(t("tools.allUpToDate", "所有工具均为最新版"));
-              }
+              setIsCheckingUpdates(true);
+              queryClient.invalidateQueries({ queryKey: ["tool-updates"] }).finally(() => {
+                setIsCheckingUpdates(false);
+                if (updates.length > 0) {
+                  toast.info(
+                    t("tools.updatesAvailable", "{{count}} 个工具可更新", {
+                      count: updates.length,
+                    }),
+                  );
+                } else {
+                  toast.success(t("tools.allUpToDate", "所有工具均为最新版本"));
+                }
+              });
             }}
             className="text-[13px]"
           >
-            <RefreshCw className="mr-1.5 h-3 w-3" />
+            <RefreshCw className={`mr-1.5 h-3 w-3 ${isCheckingUpdates ? "animate-spin" : ""}`} />
             {t("tools.checkUpdates", "检查更新")}
           </Button>
         </div>
@@ -355,16 +400,18 @@ export function Manager({ onInstallMore }: ManagerProps) {
             </div>
           )}
           {mergedInstalledTools.map((tool) => {
-            const isManagedRecord = managedInstalledIds.has(tool.id);
+            const canUninstall = Boolean(tool.installPath?.trim());
 
             return (
               <ToolCard
                 key={tool.id}
                 tool={tool}
                 variant="installed"
+                isUninstalling={uninstallingToolId === tool.id}
                 progress={getToolProgress(tool.id)}
+                installSession={installSessions.get(tool.id) ?? null}
                 onUninstall={
-                  isManagedRecord
+                  canUninstall
                     ? () => handleUninstall(tool.id, tool.installRoot)
                     : undefined
                 }
@@ -372,6 +419,11 @@ export function Manager({ onInstallMore }: ManagerProps) {
                   updates.find((update) => update.toolId === tool.id)
                     ? () => handleSingleInstall(tool.id, tool.installRoot)
                     : undefined
+                }
+                onShowConsole={() =>
+                  setOpenConsoleToolId((current) =>
+                    current === tool.id ? null : tool.id,
+                  )
                 }
               />
             );
@@ -384,12 +436,32 @@ export function Manager({ onInstallMore }: ManagerProps) {
               key={tool.id}
               tool={tool}
               variant="available"
-              progress={getToolProgress(tool.id)}
-              onInstall={() => handleSingleInstall(tool.id, effectiveInstallRoot)}
+              progress={
+                getToolProgress(tool.id) ??
+                (pendingInstallToolId === tool.id
+                  ? buildPendingInstallProgress(tool)
+                  : null)
+              }
+              installSession={installSessions.get(tool.id) ?? null}
+              onInstall={() => {
+                handleSingleInstall(tool.id, effectiveInstallRoot);
+                setOpenConsoleToolId(tool.id);
+              }}
+              onShowConsole={() =>
+                setOpenConsoleToolId((current) =>
+                  current === tool.id ? null : tool.id,
+                )
+              }
             />
           ))}
         </TabsContent>
       </Tabs>
+
+      {selectedConsoleSession && (
+        <div className="mt-4">
+          <InstallConsole session={selectedConsoleSession} />
+        </div>
+      )}
 
       <div className="mt-6 border-t border-border/50 pt-5">
         <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
@@ -401,7 +473,7 @@ export function Manager({ onInstallMore }: ManagerProps) {
             type="text"
             value={editRoot}
             onChange={(e) => setEditRoot(e.target.value)}
-            placeholder="D:\\AgenticBoot"
+            placeholder="D:\\AgenticTools"
             className="flex-1 rounded-lg border border-border bg-muted/50 px-3 py-1.5 font-mono text-[13px] transition-colors focus:border-primary focus:outline-none focus:ring-0"
             onBlur={(e) => {
               void persistInstallRoot(e.target.value);

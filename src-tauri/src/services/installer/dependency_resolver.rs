@@ -53,6 +53,70 @@ fn compare_semver(a: &str, b: &str) -> i32 {
     0
 }
 
+fn dependencies_satisfied(tool_id: &str, install_root: Option<&Path>) -> bool {
+    let Some(plugin) = get_plugin_by_id(tool_id) else {
+        return false;
+    };
+
+    for dependency in plugin.dependencies() {
+        let Some(dep_plugin) = get_plugin_by_id(&dependency.tool_id) else {
+            return false;
+        };
+        let dep_detect = dep_plugin.detect(install_root);
+        if !dep_detect.installed {
+            return false;
+        }
+        if let Some(min_version) = dependency.min_version.as_deref() {
+            let Some(dep_version) = dep_detect.version.as_deref() else {
+                return false;
+            };
+            if !satisfies_min_version(dep_version, min_version) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn dependent_requirements_satisfied(
+    tool_id: &str,
+    requested_tool_ids: &HashSet<String>,
+    install_root: Option<&Path>,
+) -> bool {
+    let Some(plugin) = get_plugin_by_id(tool_id) else {
+        return false;
+    };
+
+    let detect = plugin.detect(install_root);
+    if !detect.installed {
+        return false;
+    }
+
+    for requested_tool_id in requested_tool_ids {
+        let Some(requested_plugin) = get_plugin_by_id(requested_tool_id) else {
+            return false;
+        };
+
+        for dependency in requested_plugin.dependencies() {
+            if dependency.tool_id != tool_id {
+                continue;
+            }
+
+            if let Some(min_version) = dependency.min_version.as_deref() {
+                let Some(current_version) = detect.version.as_deref() else {
+                    return false;
+                };
+                if !satisfies_min_version(current_version, min_version) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 /// 解析工具安装计划
 ///
 /// # Arguments
@@ -99,6 +163,7 @@ pub fn resolve_install_plan(
 
     // 第四步：构建安装步骤
     let original_ids: HashSet<&String> = tool_ids.iter().collect();
+    let all_ids_owned: HashSet<String> = all_ids.iter().cloned().collect();
     let mut steps = Vec::new();
 
     for id in &sorted {
@@ -106,20 +171,9 @@ pub fn resolve_install_plan(
         let meta = plugin.metadata();
         let detect = plugin.detect(install_root);
 
-        let mut is_installed = detect.installed;
-        if is_installed {
-            if let Some(ref version) = detect.version {
-                let deps = plugin.dependencies();
-                for dep in &deps {
-                    if let Some(ref min_ver) = dep.min_version {
-                        if !satisfies_min_version(version, min_ver) {
-                            is_installed = false;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        let is_installed = detect.installed
+            && dependencies_satisfied(id, install_root)
+            && dependent_requirements_satisfied(id, &all_ids_owned, install_root);
 
         let reason = if original_ids.contains(id) {
             "selected".to_string()
@@ -196,4 +250,66 @@ fn topological_sort(graph: &HashMap<String, Vec<String>>) -> Result<Vec<String>,
     // 反转结果：拓扑排序得到的是被依赖者在前，我们需要依赖项在前
     sorted.reverse();
     Ok(sorted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compare_semver, resolve_install_plan, satisfies_min_version};
+
+    #[test]
+    fn compare_semver_ignores_v_prefix() {
+        assert_eq!(compare_semver("v20.20.2", "20.20.2"), 0);
+    }
+
+    #[test]
+    fn satisfies_min_version_accepts_newer_patch_versions() {
+        assert!(satisfies_min_version("20.20.2", ">= 18.0.0"));
+    }
+
+    #[test]
+    fn resolve_install_plan_treats_gemini_as_installed_when_node_dependency_is_satisfied() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gemini_dir = tmp.path().join("gemini-cli");
+
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(
+            gemini_dir.join("gemini.cmd"),
+            "@echo off\r\necho 0.41.2\r\n",
+        )
+        .unwrap();
+
+        let plan =
+            resolve_install_plan(&["gemini-cli".to_string()], Some(tmp.path())).expect("plan");
+
+        let gemini_step = plan
+            .steps
+            .iter()
+            .find(|step| step.tool_id == "gemini-cli")
+            .expect("gemini step");
+        assert!(
+            gemini_step.is_installed,
+            "gemini should remain installed when node dependency is already satisfied"
+        );
+    }
+
+    #[test]
+    fn resolve_install_plan_marks_nodejs_for_install_when_dependent_needs_newer_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let node_dir = tmp.path().join("nodejs");
+
+        std::fs::create_dir_all(&node_dir).unwrap();
+        std::fs::write(node_dir.join("node.exe"), "@echo off\r\necho v20.20.2\r\n").unwrap();
+
+        let plan = resolve_install_plan(&["openclaw".to_string()], Some(tmp.path())).expect("plan");
+
+        let node_step = plan
+            .steps
+            .iter()
+            .find(|step| step.tool_id == "nodejs")
+            .expect("node step");
+        assert!(
+            !node_step.is_installed,
+            "nodejs should be scheduled because openclaw requires a newer node version"
+        );
+    }
 }

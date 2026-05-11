@@ -6,6 +6,7 @@ pub mod gemini_cli;
 pub mod git;
 pub mod hermes;
 pub mod nodejs;
+pub mod npm_cli;
 pub mod openclaw;
 pub mod opencode_cli;
 pub mod opencode_desktop;

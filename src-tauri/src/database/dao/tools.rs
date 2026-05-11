@@ -144,10 +144,10 @@ impl Database {
     }
 
     /// 获取安装根目录路径设置
-    /// 默认为 D:\AgenticBoot
+    /// 默认为 D:\AgenticTools
     pub fn get_install_root(&self) -> Result<Option<String>, AppError> {
         let root = self.get_setting("install_root")?;
-        Ok(root.or_else(|| Some(r"D:\AgenticBoot".to_string())))
+        Ok(root.or_else(|| Some(r"D:\AgenticTools".to_string())))
     }
 
     /// 设置安装根目录路径
@@ -168,8 +168,8 @@ mod tests {
             id: "openclaw".into(),
             name: "OpenClaw".into(),
             version: None,
-            install_path: "D:\\AITools\\openclaw".into(),
-            install_root: "D:\\AITools".into(),
+            install_path: "D:\\AgenticTools\\openclaw".into(),
+            install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "error".into(),
             installed_at: None,
@@ -187,8 +187,8 @@ mod tests {
             id: "openclaw".into(),
             name: "OpenClaw".into(),
             version: None,
-            install_path: "D:\\AITools\\openclaw".into(),
-            install_root: "D:\\AITools".into(),
+            install_path: "D:\\AgenticTools\\openclaw".into(),
+            install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "installed".into(),
             installed_at: Some(1),
@@ -207,7 +207,7 @@ mod tests {
             name: "Claude Code (CLI)".into(),
             version: Some("1.2.3".into()),
             install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
-            install_root: "D:\\AITools".into(),
+            install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "detected".into(),
             installed_at: None,

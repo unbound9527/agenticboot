@@ -9,6 +9,14 @@ use tokio::sync::mpsc::Sender;
 
 pub struct NodeJsPlugin;
 
+#[cfg(target_os = "windows")]
+const MANAGED_NODE_VERSION: &str = "24.15.0";
+
+#[cfg(target_os = "windows")]
+fn managed_node_zip_url(version: &str) -> String {
+    format!("https://nodejs.org/dist/v{version}/node-v{version}-win-x64.zip")
+}
+
 impl ToolPlugin for NodeJsPlugin {
     fn metadata(&self) -> ToolMeta {
         ToolMeta {
@@ -69,7 +77,7 @@ impl ToolPlugin for NodeJsPlugin {
         progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
         let zip_path = target_dir.join("nodejs.zip");
-        let url = "https://nodejs.org/dist/v22.15.0/win-x64/node-v22.15.0-win-x64.zip";
+        let url = managed_node_zip_url(MANAGED_NODE_VERSION);
         let _ = progress.blocking_send(InstallProgress {
             tool_id: "nodejs".into(),
             tool_name: "Node.js".into(),
@@ -80,7 +88,7 @@ impl ToolPlugin for NodeJsPlugin {
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
         rt.block_on(async {
-            crate::services::downloader::download_file(url, &zip_path, None).await
+            crate::services::downloader::download_file(&url, &zip_path, None).await
         })?;
 
         let _ = progress.blocking_send(InstallProgress {
@@ -184,6 +192,14 @@ mod tests {
         assert_eq!(
             detect.install_path.as_deref(),
             Some(node_dir.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn windows_paths_nodejs_download_url_uses_dist_root_zip_layout() {
+        assert_eq!(
+            super::managed_node_zip_url(super::MANAGED_NODE_VERSION),
+            "https://nodejs.org/dist/v24.15.0/node-v24.15.0-win-x64.zip"
         );
     }
 }

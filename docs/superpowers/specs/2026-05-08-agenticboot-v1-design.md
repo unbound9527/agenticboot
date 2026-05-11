@@ -191,7 +191,7 @@ type View = "providers" | "settings" | ... | "wizard" | "manager";
 
 ## 安装路径方案
 
-- 用户配置统一根目录（如 `D:\AITools`）
+- 用户配置统一根目录（如 `D:\AgenticTools`）
 - 每个工具装到子目录：`<root>/<tool-id>/`
 - Manager 自动管理 PATH 注册和 shim 创建（`<root>/bin/` 下创建 `.cmd` shim）
 - Windows 注册表 `HKEY_CURRENT_USER\Environment\PATH` 追加 `<root>\bin`

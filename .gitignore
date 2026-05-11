@@ -1,4 +1,5 @@
 node_modules/
+.managed-node/
 dist/
 release/
 .DS_Store
