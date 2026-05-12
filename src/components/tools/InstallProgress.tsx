@@ -13,25 +13,47 @@ interface InstallProgressProps {
   installSession?: ToolInstallSession | null;
 }
 
-function getPhaseLabel(phase: string | undefined): string {
+function getPhaseLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  phase: string | undefined,
+): string {
   switch (phase) {
     case "downloading":
-      return "> Downloading...";
+      return `> ${t("tools.phaseDownloading", "下载中...")}`;
     case "extracting":
-      return "> Extracting...";
+      return `> ${t("tools.phaseExtracting", "解压中...")}`;
     case "installing":
-      return "> Installing...";
+      return `> ${t("tools.phaseInstalling", "安装中...")}`;
     case "configuring":
-      return "> Configuring...";
+      return `> ${t("tools.phaseConfiguring", "配置中...")}`;
     case "complete":
-      return "> [OK] Installation complete";
+      return `> [OK] ${t("tools.installComplete", "安装完成")}`;
     case "error":
-      return "> [ERROR] Installation failed";
+      return `> [ERROR] ${t("tools.phaseError", "失败")}`;
     case "skipped":
-      return "> [SKIP] Already installed, skipped";
+      return `> [SKIP] ${t("tools.phaseSkipped", "已安装，跳过")}`;
     default:
-      return "> Waiting...";
+      return `> ${t("tools.phasePending", "等待中...")}`;
   }
+}
+
+const GENERIC_PROGRESS_MESSAGES = new Set([
+  "working...",
+  "starting...",
+  "downloading...",
+  "extracting...",
+  "installing...",
+  "configuring...",
+  "please wait...",
+]);
+
+function isGenericProgressMessage(message: string | undefined): boolean {
+  if (!message) {
+    return true;
+  }
+
+  const normalized = message.trim().toLowerCase();
+  return GENERIC_PROGRESS_MESSAGES.has(normalized);
 }
 
 export function InstallProgress({
@@ -63,6 +85,20 @@ export function InstallProgress({
     (activeToolId
       ? installSessions.get(activeToolId) ?? null
       : latestPlanSession);
+  const activeProgress = activeToolId ? getToolProgress(activeToolId) : null;
+  const recentActivity = activeSession?.activity.slice(-3) ?? [];
+  const primaryActionText =
+    activeToolId && activeProgress
+      ? !isGenericProgressMessage(activeProgress.message)
+        ? activeProgress.message
+        : recentActivity.at(-1)?.line ??
+          activeSession?.lastSummary ??
+          getPhaseLabel(t, activeProgress.phase).replace(/^>\s*/, "")
+      : null;
+  const visibleRecentActivity = recentActivity.filter(
+    (item, index) =>
+      item.line !== primaryActionText || index !== recentActivity.length - 1,
+  );
   const overallPercent = Math.round(
     installPlan.steps.reduce((sum, step) => {
       const progress = getToolProgress(step.toolId);
@@ -93,6 +129,40 @@ export function InstallProgress({
         </div>
 
         <div className="space-y-4 p-6 font-mono text-sm">
+          {activeToolId && activeProgress && (
+            <section
+              aria-label={t("tools.installProgressCurrentAction", "当前操作")}
+              className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs uppercase tracking-[0.2em] text-blue-600">
+                    {t("tools.installProgressCurrentAction", "当前操作")}
+                  </p>
+                  <p className="text-base font-semibold text-foreground">
+                    {activeProgress.toolName}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {primaryActionText}
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {activeProgress.percent}%
+                </span>
+              </div>
+
+              {visibleRecentActivity.length > 0 && (
+                <div className="mt-3 space-y-1 border-t border-blue-500/10 pt-3 text-xs text-muted-foreground">
+                  {visibleRecentActivity.map((item, index) => (
+                    <p key={`${item.timestamp}-${index}`} className="truncate">
+                      {item.line}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           <div className="space-y-2">
             {installPlan.steps.map((step) => {
               const progress = getToolProgress(step.toolId);
@@ -133,7 +203,7 @@ export function InstallProgress({
                     <p
                       className={`text-xs ${isActive ? "text-muted-foreground" : isError ? "text-red-400" : "text-green-600"}`}
                     >
-                      {getPhaseLabel(progress?.phase)}
+                      {getPhaseLabel(t, progress?.phase)}
                     </p>
                     {progress?.message && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -151,12 +221,15 @@ export function InstallProgress({
 
           <div className="space-y-1 border-t pt-4">
             <div className="flex justify-between text-xs">
-              <span>Total progress</span>
+              <span>{t("tools.installProgressTotal", "总进度")}</span>
               <span>{overallPercent}%</span>
             </div>
             <Progress value={overallPercent} className="h-3" />
             <p className="text-xs text-muted-foreground">
-              {completedToolCount} / {installPlan.steps.length} tools
+              {t("tools.installProgressToolCount", "{{completed}} / {{total}} 个工具", {
+                completed: completedToolCount,
+                total: installPlan.steps.length,
+              })}
             </p>
           </div>
         </div>
@@ -170,10 +243,10 @@ export function InstallProgress({
             <CheckCircle className="h-10 w-10" />
           </div>
           <p className="text-xl font-semibold">
-            {t("tools.installComplete", "Installation complete")}
+            {t("tools.installComplete", "安装完成")}
           </p>
           <Button variant="default" onClick={onComplete}>
-            {t("tools.enterManager", "Enter manager")}
+            {t("tools.enterManager", "进入管理")}
           </Button>
         </div>
       )}
@@ -186,12 +259,12 @@ export function InstallProgress({
           <p className="text-sm text-muted-foreground">
             {t(
               "tools.installPartial",
-              "Some tools failed to install. You can retry later.",
+              "部分工具安装失败，可稍后重试",
             )}
           </p>
           <div className="flex justify-center gap-3">
             <Button variant="outline" onClick={onComplete}>
-              {t("tools.skipForNow", "Skip for now")}
+              {t("tools.skipForNow", "暂时跳过")}
             </Button>
           </div>
         </div>

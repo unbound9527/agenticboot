@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Wizard } from "@/pages/Wizard";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -705,6 +705,110 @@ describe("Wizard install detection", () => {
       await screen.findAllByText("Gemini retained session"),
     ).not.toHaveLength(0);
     expect(screen.queryByText("Codex retained session")).not.toBeInTheDocument();
+  });
+
+  it("shows the active tool message plus recent retained activity in the current action area", async () => {
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockResolvedValue({
+      steps: [
+        {
+          toolId: "codex-cli",
+          toolName: "Codex (CLI)",
+          category: "tool",
+          reason: "selected",
+          isInstalled: false,
+        },
+      ],
+    });
+    toolsApiMock.executeInstallPlan.mockResolvedValue(undefined);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} initialSelectedToolIds={["codex-cli"]} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /开始安装/ }),
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.executeInstallPlan).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      installProgressListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        phase: "installing",
+        percent: 42,
+        message: "Working...",
+      });
+
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-active",
+        timestamp: "2026-05-09T12:00:00.000Z",
+        level: "info",
+        kind: "phase",
+        line: "Preparing managed runtime",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-active",
+        timestamp: "2026-05-09T12:00:05.000Z",
+        level: "info",
+        kind: "command",
+        line: "npm install -g @openai/codex",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-active",
+        timestamp: "2026-05-09T12:00:08.000Z",
+        level: "stdout",
+        kind: "output",
+        line: "Created shim at D:\\AgenticTools\\codex\\codex.cmd",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-active",
+        timestamp: "2026-05-09T12:00:10.000Z",
+        level: "stdout",
+        kind: "output",
+        line: "Finalizing install",
+      });
+    });
+
+    const currentAction = await screen.findByLabelText("当前操作");
+    expect(within(currentAction).getByText("当前操作")).toBeInTheDocument();
+    expect(within(currentAction).getByText("Codex (CLI)")).toBeInTheDocument();
+    expect(
+      within(currentAction).getByText("Finalizing install"),
+    ).toBeInTheDocument();
+    expect(
+      within(currentAction).getByText("npm install -g @openai/codex"),
+    ).toBeInTheDocument();
+    expect(
+      within(currentAction).getByText("Created shim at D:\\AgenticTools\\codex\\codex.cmd"),
+    ).toBeInTheDocument();
+    expect(
+      within(currentAction).queryByText("Preparing managed runtime"),
+    ).not.toBeInTheDocument();
+    expect(within(currentAction).queryByText("Working...")).not.toBeInTheDocument();
+    expect(screen.getByText("总进度")).toBeInTheDocument();
+    expect(screen.getByText("0 / 1 个工具")).toBeInTheDocument();
   });
 
   it("does not show the completion state before any install progress event arrives", async () => {
