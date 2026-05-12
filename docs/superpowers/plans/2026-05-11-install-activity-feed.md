@@ -38,7 +38,7 @@
 - Modify: `src/hooks/useInstallSessions.ts`
 - Modify: `tests/lib/installSessions.test.ts`
 
-- [ ] **Step 1: Write the failing reducer tests**
+- [x] **Step 1: Write the failing reducer tests**
 
 Add focused cases to `tests/lib/installSessions.test.ts` that verify:
 
@@ -108,13 +108,13 @@ it("deduplicates repeated low-value output lines", () => {
 });
 ```
 
-- [ ] **Step 2: Run the reducer tests to verify they fail**
+- [x] **Step 2: Run the reducer tests to verify they fail**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/lib/installSessions.test.ts`
 
 Expected: FAIL because `ToolInstallSession` does not include `activity` and the reducer does not promote or deduplicate events yet.
 
-- [ ] **Step 3: Add the minimal activity types and reducer logic**
+- [x] **Step 3: Add the minimal activity types and reducer logic**
 
 Update `src/types/tools.ts` with:
 
@@ -144,13 +144,13 @@ In `src/hooks/useInstallSessions.ts`, add small pure helpers that:
 - collapse identical consecutive activity lines
 - keep the activity list capped to the latest 3 items
 
-- [ ] **Step 4: Run the reducer tests to verify they pass**
+- [x] **Step 4: Run the reducer tests to verify they pass**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/lib/installSessions.test.ts`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/types/tools.ts src/hooks/useInstallSessions.ts tests/lib/installSessions.test.ts
@@ -163,7 +163,7 @@ git commit -m "feat: derive install activity feed"
 - Modify: `src/components/tools/InstallConsole.tsx`
 - Modify: `tests/components/Manager.installDetection.test.tsx`
 
-- [ ] **Step 1: Write the failing component test for visible recent activity**
+- [x] **Step 1: Write the failing component test for visible recent activity**
 
 Add a test to `tests/components/Manager.installDetection.test.tsx` like:
 
@@ -196,13 +196,13 @@ it("shows recent activity above the raw console output", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the manager test to verify it fails**
+- [x] **Step 2: Run the manager test to verify it fails**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Manager.installDetection.test.tsx`
 
 Expected: FAIL because `InstallConsole` does not render a recent-activity section yet.
 
-- [ ] **Step 3: Implement the minimal console redesign**
+- [x] **Step 3: Implement the minimal console redesign**
 
 In `src/components/tools/InstallConsole.tsx`:
 
@@ -230,13 +230,13 @@ Prefer a simple structure:
 ) : null}
 ```
 
-- [ ] **Step 4: Run the manager test to verify it passes**
+- [x] **Step 4: Run the manager test to verify it passes**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Manager.installDetection.test.tsx`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/tools/InstallConsole.tsx tests/components/Manager.installDetection.test.tsx
@@ -249,7 +249,7 @@ git commit -m "feat: show install activity feed in console"
 - Modify: `src/components/tools/InstallProgress.tsx`
 - Modify: `tests/components/Wizard.installDetection.test.tsx`
 
-- [ ] **Step 1: Write the failing wizard test for active-install feedback**
+- [x] **Step 1: Write the failing wizard test for active-install feedback**
 
 Add a test to `tests/components/Wizard.installDetection.test.tsx` like:
 
@@ -294,13 +294,13 @@ it("shows current action and recent activity while a tool is still installing", 
 });
 ```
 
-- [ ] **Step 2: Run the wizard test to verify it fails**
+- [x] **Step 2: Run the wizard test to verify it fails**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Wizard.installDetection.test.tsx`
 
 Expected: FAIL because `InstallProgress` does not surface a dedicated current-action block with recent activity.
 
-- [ ] **Step 3: Implement the minimal active-install focus area**
+- [x] **Step 3: Implement the minimal active-install focus area**
 
 In `src/components/tools/InstallProgress.tsx`:
 
@@ -311,13 +311,13 @@ In `src/components/tools/InstallProgress.tsx`:
 - show up to 3 recent activity lines for the active session
 - keep overall progress and per-tool statuses unchanged
 
-- [ ] **Step 4: Run the wizard test to verify it passes**
+- [x] **Step 4: Run the wizard test to verify it passes**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Wizard.installDetection.test.tsx`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/tools/InstallProgress.tsx tests/components/Wizard.installDetection.test.tsx
@@ -332,7 +332,7 @@ git commit -m "feat: highlight active install activity"
 - Modify: `tests/components/Manager.installDetection.test.tsx`
 - Modify: `tests/components/Wizard.installDetection.test.tsx`
 
-- [ ] **Step 1: Write the failing integration assertions for retained and live activity**
+- [x] **Step 1: Write the failing integration assertions for retained and live activity**
 
 Add assertions that prove:
 
@@ -341,13 +341,13 @@ Add assertions that prove:
 
 Use the existing mocked listeners and extend one manager test plus one wizard test instead of introducing new broad suites.
 
-- [ ] **Step 2: Run both component test files to verify they fail on the new assertions**
+- [x] **Step 2: Run both component test files to verify they fail on the new assertions**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Manager.installDetection.test.tsx tests/components/Wizard.installDetection.test.tsx`
 
 Expected: FAIL because page wiring does not consistently prefer the richer shared session presentation yet.
 
-- [ ] **Step 3: Make the minimal page-level wiring changes**
+- [x] **Step 3: Make the minimal page-level wiring changes**
 
 In `src/pages/Manager.tsx`:
 
@@ -360,13 +360,13 @@ In `src/pages/Wizard.tsx`:
 - pass the active retained session into `InstallProgress` as it does today
 - avoid any page-local formatting that duplicates the reducer's activity logic
 
-- [ ] **Step 4: Run both component test files to verify they pass**
+- [x] **Step 4: Run both component test files to verify they pass**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/components/Manager.installDetection.test.tsx tests/components/Wizard.installDetection.test.tsx`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/pages/Manager.tsx src/pages/Wizard.tsx tests/components/Manager.installDetection.test.tsx tests/components/Wizard.installDetection.test.tsx
@@ -378,23 +378,23 @@ git commit -m "feat: unify install activity across wizard and manager"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-11-install-activity-feed.md`
 
-- [ ] **Step 1: Run the targeted install-session and component tests**
+- [x] **Step 1: Run the targeted install-session and component tests**
 
 Run: `node node_modules/vitest/vitest.mjs run tests/lib/installSessions.test.ts tests/components/Manager.installDetection.test.tsx tests/components/Wizard.installDetection.test.tsx`
 
 Expected: PASS with all targeted tests green.
 
-- [ ] **Step 2: Run a broader confidence check for the install-related unit suite**
+- [x] **Step 2: Run a broader confidence check for the install-related unit suite**
 
 Run: `pnpm test:unit -- --runInBand tests/lib/installSessions.test.ts tests/components/Manager.installDetection.test.tsx tests/components/Wizard.installDetection.test.tsx`
 
 Expected: PASS, or if the project command shape differs, the nearest equivalent single-run unit test command should pass with exit code 0.
 
-- [ ] **Step 3: Mark the plan complete**
+- [x] **Step 3: Mark the plan complete**
 
 Update this file so each completed checkbox is checked before final handoff.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-05-11-install-activity-feed.md

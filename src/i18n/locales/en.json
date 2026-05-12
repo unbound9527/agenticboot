@@ -2601,6 +2601,11 @@
     "installConsoleEmptyRaw": "No log output yet.",
     "consoleWaiting": "Initializing...",
     "installConsoleSession": "Session",
-    "installConsoleStarted": "Started"
+    "installConsoleStarted": "Started",
+    "installConsoleActivity": "Recent activity",
+    "installConsoleItemsCount": "{{count}} items",
+    "installProgressCurrentAction": "Current action",
+    "installProgressTotal": "Total progress",
+    "installProgressToolCount": "{{completed}} / {{total}} tools"
   }
 }

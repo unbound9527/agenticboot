@@ -2621,6 +2621,11 @@
     "installConsoleEmptyRaw": "ログ出力がありません",
     "consoleWaiting": "初期化中...",
     "installConsoleSession": "セッション",
-    "installConsoleStarted": "開始時刻"
+    "installConsoleStarted": "開始時刻",
+    "installConsoleActivity": "最近のアクティビティ",
+    "installConsoleItemsCount": "{{count}} 件",
+    "installProgressCurrentAction": "現在の操作",
+    "installProgressTotal": "進行状況",
+    "installProgressToolCount": "{{completed}} / {{total}} 個のツール"
   }
 }

@@ -68,6 +68,12 @@ export interface InstallLogEvent {
   exitCode?: number | null;
 }
 
+export interface InstallActivityItem {
+  timestamp: string;
+  kind: Extract<InstallLogKind, "phase" | "command" | "output" | "result">;
+  line: string;
+}
+
 export interface ToolInstallSession {
   toolId: string;
   toolName: string;
@@ -78,6 +84,7 @@ export interface ToolInstallSession {
   lastSummary?: string;
   installPath?: string;
   entries: InstallLogEvent[];
+  activity: InstallActivityItem[];
 }
 
 export interface InstalledTool {

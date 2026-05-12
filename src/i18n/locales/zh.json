@@ -2601,6 +2601,11 @@
     "installConsoleEmptyRaw": "暂无日志输出",
     "consoleWaiting": "初始化中...",
     "installConsoleSession": "会话",
-    "installConsoleStarted": "开始时间"
+    "installConsoleStarted": "开始时间",
+    "installConsoleActivity": "最近活动",
+    "installConsoleItemsCount": "{{count}} 条",
+    "installProgressCurrentAction": "当前操作",
+    "installProgressTotal": "总进度",
+    "installProgressToolCount": "{{completed}} / {{total}} 个工具"
   }
 }

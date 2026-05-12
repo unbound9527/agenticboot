@@ -58,6 +58,20 @@ let installProgressListener:
       message: string;
     }) => void)
   | null = null;
+let installLogListener:
+  | ((event: {
+      toolId: string;
+      toolName: string;
+      sessionId: string;
+      timestamp: string;
+      phase?: string;
+      level: "info" | "stdout" | "stderr" | "success" | "error";
+      kind: "session-started" | "phase" | "command" | "output" | "result";
+      line: string;
+      command?: string;
+      exitCode?: number | null;
+    }) => void)
+  | null = null;
 
 vi.mock("@/lib/api/tools", () => ({
   toolsApi: toolsApiMock,
@@ -102,8 +116,9 @@ describe("Manager install detection", () => {
       };
     });
     toolsApiMock.onInstallLog.mockImplementation(async (_callback) => {
+      installLogListener = _callback;
       return () => {
-        // No-op listener cleanup for tests that do not inspect install logs.
+        installLogListener = null;
       };
     });
   });
@@ -505,5 +520,251 @@ describe("Manager install detection", () => {
         "Waiting for the official OpenClaw installer to finish...",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows recent activity lines in the console without requiring the raw tab", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-1",
+        timestamp: "2026-05-12T09:00:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-1",
+        timestamp: "2026-05-12T09:00:01.000Z",
+        level: "info",
+        kind: "command",
+        line: "Running installer command",
+        command: "installer.exe /S",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-1",
+        timestamp: "2026-05-12T09:00:02.000Z",
+        level: "stdout",
+        kind: "output",
+        line: "Download complete: installer payload ready",
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    );
+
+    expect(await screen.findByText("最近活动")).toBeInTheDocument();
+    expect(screen.getAllByText("Running installer command").length).toBeGreaterThan(1);
+    expect(
+      screen.getByRole("tab", { name: "原始输出" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps retained session review available with summary and raw output after completion", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("Codex (CLI)")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-2",
+        timestamp: "2026-05-12T09:10:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-2",
+        timestamp: "2026-05-12T09:10:01.000Z",
+        level: "stdout",
+        kind: "output",
+        line: "Version 1.2.3 installed successfully",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-2",
+        timestamp: "2026-05-12T09:10:02.000Z",
+        level: "success",
+        kind: "result",
+        line: "Install completed",
+        exitCode: 0,
+      });
+    });
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(".claude-card");
+    expect(codexCard).not.toBeNull();
+
+    await user.click(
+      within(codexCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    );
+
+    expect(await screen.findByText("最近活动")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "原始输出" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Version 1.2.3 installed successfully").length,
+      ).toBeGreaterThan(1);
+    });
+    expect(screen.getAllByText("Install completed").length).toBeGreaterThan(0);
+  });
+
+  it("falls back to retained summary text in the header when activity is empty", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-empty-activity",
+        timestamp: "2026-05-12T09:20:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    );
+
+    const consoleHeader = screen.getByRole("button", {
+      name: /OpenClaw.*Install session started/i,
+    });
+    expect(consoleHeader).toBeInTheDocument();
+    expect(consoleHeader).not.toHaveTextContent("[session-started]");
+    expect(screen.queryByText("最近活动")).not.toBeInTheDocument();
+  });
+  it("resets to the summary view and reopens the console when a new session replaces the current one", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-a",
+        timestamp: "2026-05-12T10:00:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "First session started",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-a",
+        timestamp: "2026-05-12T10:00:01.000Z",
+        level: "info",
+        kind: "command",
+        line: "First session command",
+        command: "installer-a.exe /S",
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    );
+
+    await user.click(screen.getByRole("tab", { name: /Raw Output|原始输出/ }));
+    expect(
+      screen.getByRole("tab", { name: /Raw Output|原始输出/, selected: true }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /OpenClaw.*First session command/i }),
+    );
+    expect(
+      screen.queryByRole("tab", { name: /Summary|摘要/ }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-b",
+        timestamp: "2026-05-12T10:01:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Second session started",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-b",
+        timestamp: "2026-05-12T10:01:01.000Z",
+        level: "info",
+        kind: "command",
+        line: "Second session command",
+        command: "installer-b.exe /S",
+      });
+    });
+
+    expect(
+      await screen.findByRole("tab", { name: /Summary|摘要/, selected: true }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: /Raw Output|原始输出/, selected: false }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Second session command").length).toBeGreaterThan(1);
+    expect(screen.queryByText("First session command")).not.toBeInTheDocument();
   });
 });
