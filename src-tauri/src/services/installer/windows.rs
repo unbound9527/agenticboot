@@ -733,15 +733,25 @@ fn resolve_system_npm_command() -> Option<ManagedNpmCommand> {
     resolve_npm_command_from_node_dir(node_dir)
 }
 
-pub fn run_npm_command_checked(
+fn apply_command_extra_env(command: &mut Command, extra_env: &[(&str, &str)]) {
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+}
+
+/// Same as [`run_npm_command_checked`], but sets extra environment variables on the npm process
+/// (inherited by install scripts). Used for OpenClaw: `SHARP_IGNORE_GLOBAL_LIBVIPS=1` per upstream docs.
+pub fn run_npm_command_checked_with_env(
     install_root: &Path,
     args: &[&str],
     failure_context: &str,
+    extra_env: &[(&str, &str)],
 ) -> Result<(), String> {
     log::info!(
-        "[run_npm_command_checked] install_root={}, args={:?}",
+        "[run_npm_command_checked] install_root={}, args={:?}, extra_env_keys={:?}",
         install_root.display(),
-        args
+        args,
+        extra_env.iter().map(|(k, _)| *k).collect::<Vec<_>>()
     );
     if let Some(managed) = resolve_managed_npm_command(install_root) {
         log::info!(
@@ -750,6 +760,7 @@ pub fn run_npm_command_checked(
         );
         let mut command = Command::new(&managed.program);
         command.args(&managed.prefix_args).args(args);
+        apply_command_extra_env(&mut command, extra_env);
         return run_command_checked_with_command(&mut command, failure_context);
     }
 
@@ -760,22 +771,28 @@ pub fn run_npm_command_checked(
         );
         let mut command = Command::new(&system.program);
         command.args(&system.prefix_args).args(args);
+        apply_command_extra_env(&mut command, extra_env);
         return run_command_checked_with_command(&mut command, failure_context);
     }
 
     log::info!("[run_npm_command_checked] 使用 PATH 中的 npm");
-    run_command_checked("npm", args, failure_context)
+    let mut command = Command::new("npm");
+    command.args(args);
+    apply_command_extra_env(&mut command, extra_env);
+    run_command_checked_with_command(&mut command, failure_context)
 }
 
-pub(crate) fn resolve_npm_command_for_uninstall(
-    install_dir: &Path,
-) -> Option<ManagedNpmCommand> {
+pub fn run_npm_command_checked(
+    install_root: &Path,
+    args: &[&str],
+    failure_context: &str,
+) -> Result<(), String> {
+    run_npm_command_checked_with_env(install_root, args, failure_context, &[])
+}
+
+pub(crate) fn resolve_npm_command_for_uninstall(install_dir: &Path) -> Option<ManagedNpmCommand> {
     resolve_npm_command_from_node_dir(install_dir)
-        .or_else(|| {
-            install_dir
-                .parent()
-                .and_then(resolve_managed_npm_command)
-        })
+        .or_else(|| install_dir.parent().and_then(resolve_managed_npm_command))
         .or_else(resolve_system_npm_command)
 }
 
@@ -977,14 +994,48 @@ pub fn find_local_uninstaller_executable(install_dir: &Path) -> Option<PathBuf> 
         return Some(found);
     }
 
-    for subdir in ["uninstall", "Uninstall", "uninstaller", "Uninstaller", "remove", "Remove"] {
+    if let Some(found) = find_named_uninstall_executable(install_dir) {
+        return Some(found);
+    }
+
+    for subdir in [
+        "uninstall",
+        "Uninstall",
+        "uninstaller",
+        "Uninstaller",
+        "remove",
+        "Remove",
+    ] {
         let candidate_dir = install_dir.join(subdir);
         if let Some(found) = find_executable_in_dir(&candidate_dir, &direct_candidates) {
+            return Some(found);
+        }
+        if let Some(found) = find_named_uninstall_executable(&candidate_dir) {
             return Some(found);
         }
     }
 
     None
+}
+
+fn find_named_uninstall_executable(install_dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(install_dir).ok()?;
+    let mut candidates = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_file() {
+                return None;
+            }
+
+            let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+            (name.starts_with("uninstall") && name.ends_with(".exe")).then_some(path)
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort();
+    candidates.into_iter().next()
 }
 
 pub fn run_windows_uninstaller_with_common_args(uninstaller: &Path) -> Result<(), String> {
@@ -1011,24 +1062,17 @@ pub fn run_windows_uninstaller_with_common_args(uninstaller: &Path) -> Result<()
                     ));
                 }
                 Err(e) => {
-                    last_error = Some(format!(
-                        "failed to wait for {}: {e}",
-                        uninstaller.display()
-                    ));
+                    last_error = Some(format!("failed to wait for {}: {e}", uninstaller.display()));
                 }
             },
             Err(e) => {
-                last_error = Some(format!(
-                    "failed to launch {}: {e}",
-                    uninstaller.display()
-                ));
+                last_error = Some(format!("failed to launch {}: {e}", uninstaller.display()));
             }
         }
     }
 
-    Err(last_error.unwrap_or_else(|| {
-        format!("failed to run uninstaller {}", uninstaller.display())
-    }))
+    Err(last_error
+        .unwrap_or_else(|| format!("failed to run uninstaller {}", uninstaller.display())))
 }
 
 fn search_app_version_dir(app_dir: &Path, exe_name: &str) -> Option<PathBuf> {
@@ -1466,13 +1510,12 @@ fn run_detection_command_output_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::{
-        detect_windows_cli_version_with_shell, find_command_in_directory, find_node_on_system,
-        find_local_uninstaller_executable, list_nvm_version_directories, read_command_version,
-        read_nvm_root_from_settings, resolve_managed_npm_command,
-        resolve_npm_command_for_uninstall, resolve_npm_command_from_node_dir,
-        run_command_checked, run_command_checked_with_logs,
-        run_detection_command_output_with_timeout, run_with_node_env, ManagedNpmCommand,
-        ShellCommandOutput, WindowsShell,
+        detect_windows_cli_version_with_shell, find_command_in_directory,
+        find_local_uninstaller_executable, find_node_on_system, list_nvm_version_directories,
+        read_command_version, read_nvm_root_from_settings, resolve_managed_npm_command,
+        resolve_npm_command_for_uninstall, resolve_npm_command_from_node_dir, run_command_checked,
+        run_command_checked_with_logs, run_detection_command_output_with_timeout,
+        run_with_node_env, ManagedNpmCommand, ShellCommandOutput, WindowsShell,
     };
     use crate::services::installer::logging::InstallLogEmitter;
     use crate::tool_types::{InstallLogEvent, InstallLogKind, InstallLogLevel};
@@ -1896,6 +1939,18 @@ mod tests {
     fn find_local_uninstaller_executable_finds_common_uninstall_names() {
         let tmp = tempfile::tempdir().unwrap();
         let uninstall = tmp.path().join("unins000.exe");
+        std::fs::write(&uninstall, b"").unwrap();
+
+        assert_eq!(
+            find_local_uninstaller_executable(tmp.path()).as_deref(),
+            Some(uninstall.as_path())
+        );
+    }
+
+    #[test]
+    fn find_local_uninstaller_executable_finds_named_uninstall_exe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uninstall = tmp.path().join("Uninstall OpenCode.exe");
         std::fs::write(&uninstall, b"").unwrap();
 
         assert_eq!(

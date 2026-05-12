@@ -103,8 +103,28 @@ function toExternalInstalledTool(
     installPath: detect.installPath ?? "",
     installRoot,
     category: "tool",
-    status: "installed",
+    status: "detected",
   };
+}
+
+function canAutoUninstallTool(tool: InstalledTool) {
+  if (tool.category === "dependency") {
+    return false;
+  }
+
+  if (!tool.installPath?.trim()) {
+    return false;
+  }
+
+  if (tool.status === "installed") {
+    return true;
+  }
+
+  if (tool.status === "detected") {
+    return true;
+  }
+
+  return false;
 }
 
 function buildPendingInstallProgress(tool: ToolMeta) {
@@ -150,6 +170,8 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const selectedConsoleSession = openConsoleToolId
     ? installSessions.get(openConsoleToolId) ?? null
     : null;
+  const visibleConsoleSession =
+    selectedConsoleSession?.status === "running" ? selectedConsoleSession : null;
 
   useEffect(() => {
     const nextRoot = installRoot ?? "";
@@ -270,7 +292,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
               { plan, rootPath: resolvedRoot },
               {
                 onSuccess: () => {
-                  toast.success(t("tools.installStarted", "已开始安装"));
+                  toast.success(t("tools.installStarted", "安装成功"));
                 },
                 onError: (err) => {
                   setPendingInstallToolId(null);
@@ -401,7 +423,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
             </div>
           )}
           {mergedInstalledTools.map((tool) => {
-            const canUninstall = Boolean(tool.installPath?.trim());
+            const canUninstall = canAutoUninstallTool(tool);
             const canLaunch =
               tool.installPath?.trim() &&
               ["claude-code-desktop", "codex-desktop", "opencode-desktop"].includes(
@@ -417,6 +439,15 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 isLaunching={launchingToolId === tool.id}
                 progress={getToolProgress(tool.id)}
                 installSession={installSessions.get(tool.id) ?? null}
+                onOpenFolder={
+                  tool.installPath
+                    ? () => {
+                        if (tool.installPath) {
+                          toolsApi.openFolder(tool.installPath);
+                        }
+                      }
+                    : undefined
+                }
                 onLaunch={
                   canLaunch
                     ? async () => {
@@ -477,9 +508,9 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         </TabsContent>
       </Tabs>
 
-      {selectedConsoleSession && (
+      {visibleConsoleSession && (
         <div className="mt-4">
-          <InstallConsole session={selectedConsoleSession} />
+          <InstallConsole session={visibleConsoleSession} />
         </div>
       )}
 

@@ -454,13 +454,8 @@ impl InstallerService {
     }
 
     /// 卸载工具
-    pub fn uninstall_tool(
-        &self,
-        tool_id: &str,
-        db: &Arc<Database>,
-    ) -> Result<(), String> {
-        let plugin =
-            get_plugin_by_id(tool_id).ok_or_else(|| format!("unknown tool: {tool_id}"))?;
+    pub fn uninstall_tool(&self, tool_id: &str, db: &Arc<Database>) -> Result<(), String> {
+        let plugin = get_plugin_by_id(tool_id).ok_or_else(|| format!("unknown tool: {tool_id}"))?;
         let strategy = plugin.install_strategy();
         let record = db
             .get_installed_tool(tool_id)

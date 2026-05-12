@@ -1,11 +1,12 @@
 use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::services::installer::windows::{
-    find_local_uninstaller_executable, find_uninstall_entry_ex, run_windows_uninstaller_with_common_args,
-    run_winget, run_winget_with_logs, winget_exists, WindowsUninstallEntry,
+    find_local_uninstaller_executable, find_uninstall_entry_ex,
+    run_windows_uninstaller_with_common_args, run_winget, run_winget_with_logs, winget_exists,
+    WindowsUninstallEntry,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -310,17 +311,29 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
             if let Some(entry) =
                 find_uninstall_entry_ex(&["Claude", "AnthropicClaude"], &["CLI", "npm"])
             {
-                log::info!("[Claude Desktop] Found registry entry: {:?}", entry.display_name);
-                log::info!("[Claude Desktop] uninstall_string = {:?}", entry.uninstall_string);
+                log::info!(
+                    "[Claude Desktop] Found registry entry: {:?}",
+                    entry.display_name
+                );
+                log::info!(
+                    "[Claude Desktop] uninstall_string = {:?}",
+                    entry.uninstall_string
+                );
                 if let Some(uninstall_string) = entry.uninstall_string {
-                    log::info!("[Claude Desktop] Executing registry uninstall string: {}", uninstall_string);
+                    log::info!(
+                        "[Claude Desktop] Executing registry uninstall string: {}",
+                        uninstall_string
+                    );
                     let status = Command::new("cmd")
                         .args(["/C", &uninstall_string])
                         .spawn()
                         .map_err(|e| format!("failed to launch Claude uninstall command: {e}"))?
                         .wait()
                         .map_err(|e| format!("failed to wait for Claude uninstall command: {e}"))?;
-                    log::info!("[Claude Desktop] Registry uninstall exit code: {:?}", status.code());
+                    log::info!(
+                        "[Claude Desktop] Registry uninstall exit code: {:?}",
+                        status.code()
+                    );
                     if status.success() {
                         log::info!("[Claude Desktop] Registry uninstall succeeded");
                         return Ok(());
@@ -333,9 +346,15 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
                 log::info!("[Claude Desktop] No registry entry found");
             }
 
-            log::info!("[Claude Desktop] Checking for local uninstaller in target_dir: {:?}", target_dir);
+            log::info!(
+                "[Claude Desktop] Checking for local uninstaller in target_dir: {:?}",
+                target_dir
+            );
             if let Some(uninstaller) = find_local_uninstaller_executable(target_dir) {
-                log::info!("[Claude Desktop] Found local uninstaller: {:?}", uninstaller);
+                log::info!(
+                    "[Claude Desktop] Found local uninstaller: {:?}",
+                    uninstaller
+                );
                 log::info!("[Claude Desktop] Running local uninstaller with common args");
                 run_windows_uninstaller_with_common_args(&uninstaller)?;
                 log::info!("[Claude Desktop] Local uninstaller succeeded");

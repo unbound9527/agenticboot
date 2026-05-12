@@ -1,4 +1,4 @@
-import { Trash2, Download, RefreshCw, Loader2, Zap } from "lucide-react";
+import { Trash2, Download, RefreshCw, Loader2, Zap, FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ interface ToolCardProps {
   onUninstall?: () => void;
   onUpdate?: () => void;
   onLaunch?: () => void;
+  onOpenFolder?: () => void;
   isUninstalling?: boolean;
   isLaunching?: boolean;
   progress?: InstallProgress | null;
@@ -35,6 +36,7 @@ export function ToolCard({
   onUninstall,
   onUpdate,
   onLaunch,
+  onOpenFolder,
   isUninstalling = false,
   isLaunching = false,
   progress,
@@ -78,16 +80,10 @@ export function ToolCard({
             </p>
           </>
         )}
-
-        {!isInstalling && installSession?.lastSummary && (
-          <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
-            {installSession.lastSummary}
-          </p>
-        )}
       </div>
 
       <div className="flex-shrink-0 flex items-center gap-2">
-        {installSession && onShowConsole && (
+        {installSession?.status === "running" && onShowConsole && (
           <Button
             variant="ghost"
             size="sm"
@@ -108,6 +104,17 @@ export function ToolCard({
               {t("tools.installed", "已安装")}
               {formattedVersion ? ` ${formattedVersion}` : ""}
             </Badge>
+            {onOpenFolder && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title={t("tools.openFolder", "打开文件夹")}
+                onClick={onOpenFolder}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            )}
             {onLaunch && (
               <Button
                 variant="ghost"

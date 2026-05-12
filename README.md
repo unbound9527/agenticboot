@@ -44,7 +44,7 @@ Only managed installs are candidates for automatic directory cleanup during unin
 ## Tool notes
 
 - OpenCode CLI on Windows uses the native `opencode-ai` npm package. It does not depend on WSL.
-- Hermes on Windows uses an AgenticBoot-managed official Python ZIP runtime plus a local `venv`. It does not require the user to preinstall Python or rely on `winget`.
+- Hermes on Windows uses an AgenticBoot-managed official Python 3.11 ZIP runtime plus a local `venv`, installing Hermes Agent from the published GitHub source archive (tiered `pip install`, matching upstream Windows guidance). It does not require the user to preinstall Python, Git, or rely on `winget`.
 - OpenClaw on Windows uses the official PowerShell install path.
 
 ## Current platform status

@@ -1641,11 +1641,12 @@ fn find_store_app_shell_path(windowsapps_path: &std::path::Path) -> Result<Strin
             if parts.len() >= 2 {
                 let package_name = parts[0];
                 // 检查是否是已知的发布者前缀
-                if package_name.starts_with("OpenAI.") ||
-                   package_name.starts_with("Anthropic.") ||
-                   package_name.starts_with("Google.") ||
-                   package_name.starts_with("Microsoft.") ||
-                   package_name.starts_with("GitHub.") {
+                if package_name.starts_with("OpenAI.")
+                    || package_name.starts_with("Anthropic.")
+                    || package_name.starts_with("Google.")
+                    || package_name.starts_with("Microsoft.")
+                    || package_name.starts_with("GitHub.")
+                {
                     return Ok(format!("shell:AppsFolder\\{}", package_name));
                 }
             }
@@ -1654,7 +1655,10 @@ fn find_store_app_shell_path(windowsapps_path: &std::path::Path) -> Result<Strin
         }
     }
 
-    Err(format!("无法从路径 {} 解析 Microsoft Store 应用名", path_str))
+    Err(format!(
+        "无法从路径 {} 解析 Microsoft Store 应用名",
+        path_str
+    ))
 }
 
 /// 通过 Shell 启动应用（支持 Microsoft Store 应用）
@@ -1695,10 +1699,12 @@ fn find_executable_in_dir_recursive(base: &std::path::Path) -> Option<std::path:
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension() {
-                        if ext.to_str().map(|s| s.eq_ignore_ascii_case("exe")).unwrap_or(false) {
-                            let name = path.file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("");
+                        if ext
+                            .to_str()
+                            .map(|s| s.eq_ignore_ascii_case("exe"))
+                            .unwrap_or(false)
+                        {
+                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                             // 跳过常见的卸载程序
                             if !name.contains("uninstall") && !name.contains("Uninstall") {
                                 return Some(path);
@@ -1729,6 +1735,26 @@ fn find_executable_in_dir_recursive(base: &std::path::Path) -> Option<std::path:
 #[cfg(not(target_os = "windows"))]
 fn find_executable_in_dir_recursive(_base: &std::path::Path) -> Option<std::path::PathBuf> {
     None
+}
+
+/// 打开文件夹
+#[tauri::command]
+pub async fn open_folder(path: String) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("打开文件夹失败: {e}"))?;
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Err("仅支持 Windows".to_string())
+    }
 }
 
 #[cfg(test)]

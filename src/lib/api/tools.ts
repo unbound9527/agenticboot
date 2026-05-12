@@ -102,6 +102,10 @@ export const toolsApi = {
     return invoke("launch_desktop_tool", { installPath });
   },
 
+  openFolder(path: string): Promise<void> {
+    return invoke("open_folder", { path });
+  },
+
   // ── 事件监听 ──
 
   onInstallProgress(

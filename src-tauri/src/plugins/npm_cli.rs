@@ -122,29 +122,6 @@ pub(crate) fn install_npm_cli_with_registry(
     )
 }
 
-pub(crate) fn install_npm_cli_with_extra_args_and_registry(
-    target_dir: &Path,
-    install_root: &Path,
-    tool_id: &str,
-    tool_name: &str,
-    progress: Sender<InstallProgress>,
-    package_name: &str,
-    extra_args: &[&str],
-    registry_source: NpmRegistrySource,
-) -> Result<(), String> {
-    install_npm_cli_with_extra_args_and_registry_and_runner(
-        target_dir,
-        install_root,
-        tool_id,
-        tool_name,
-        progress,
-        package_name,
-        extra_args,
-        registry_source,
-        run_npm_command_checked,
-    )
-}
-
 fn install_npm_cli_with_extra_args_and_registry_and_runner<F>(
     target_dir: &Path,
     install_root: &Path,
@@ -257,7 +234,8 @@ pub(crate) fn detect_npm_cli(
     #[cfg(target_os = "windows")]
     {
         let mut shell = SystemWindowsShell;
-        if let Some(install_path) = find_windows_cli_install_dir_with_shell(&mut shell, command_name)
+        if let Some(install_path) =
+            find_windows_cli_install_dir_with_shell(&mut shell, command_name)
         {
             log::info!(
                 "[{log_prefix}] *** DETECTED via find_windows_cli_install_dir_with_shell, path={}",
@@ -303,15 +281,18 @@ pub(crate) fn uninstall_npm_cli(target_dir: &Path, package_name: &str) -> Result
     );
 
     // Step 1: npm uninstall -g --prefix <target_dir>
-    let uninstall_result =
-        uninstall_npm_cli_with_runner(target_dir, package_name, |install_dir, args, context| {
+    let uninstall_result = uninstall_npm_cli_with_runner(
+        target_dir,
+        package_name,
+        |install_dir, args, context| {
             log::info!(
                 "[uninstall_npm_cli] calling run_npm_command_checked_for_uninstall: install_dir={}, args={:?}",
                 install_dir.display(),
                 args
             );
             run_npm_command_checked_for_uninstall(install_dir, args, context)
-        });
+        },
+    );
 
     // Step 2: If npm uninstall succeeded, clean up any leftover shim files in target_dir
     if uninstall_result.is_ok() {
@@ -399,7 +380,10 @@ where
     let result = run_command(target_dir, &args, "npm uninstall failed");
     match &result {
         Ok(()) => log::info!("[uninstall_npm_cli_with_runner] npm uninstall succeeded"),
-        Err(e) => log::error!("[uninstall_npm_cli_with_runner] npm uninstall failed: {}", e),
+        Err(e) => log::error!(
+            "[uninstall_npm_cli_with_runner] npm uninstall failed: {}",
+            e
+        ),
     }
     result
 }

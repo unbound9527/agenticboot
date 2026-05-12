@@ -39,6 +39,7 @@ const toolsApiMock = vi.hoisted(() => ({
   onInstallLog: vi.fn(),
   onInstallComplete: vi.fn(),
   onInstallError: vi.fn(),
+  openFolder: vi.fn(),
 }));
 
 let installProgressListener:
@@ -83,6 +84,16 @@ function buildDetectResults(installedIds: string[]) {
     installed: installed.has(id),
     version: installed.has(id) ? "1.0.0" : undefined,
     installPath: installed.has(id) ? `C:\\Tools\\${id}` : undefined,
+  }));
+}
+
+function buildDetectResultsWithInstallPaths(
+  installPaths: Partial<Record<(typeof TOOL_IDS)[number], string>>,
+) {
+  return TOOL_IDS.map((id) => ({
+    installed: Boolean(installPaths[id]),
+    version: installPaths[id] ? "1.0.0" : undefined,
+    installPath: installPaths[id],
   }));
 }
 
@@ -143,7 +154,7 @@ describe("Manager install detection", () => {
       ".claude-card",
     );
     expect(openCodeCard).not.toBeNull();
-    const uninstallButton = within(openCodeCard as HTMLElement).getByRole("button");
+    const uninstallButton = within(openCodeCard as HTMLElement).getByTitle("卸载");
     await user.click(uninstallButton);
 
     await waitFor(() => {
@@ -153,6 +164,77 @@ describe("Manager install detection", () => {
       );
     });
   });
+
+  it("shows an uninstall button for externally detected Hermes", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults(["hermes"]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    const hermesCard = (await screen.findByText("Hermes (Web UI)")).closest(
+      ".claude-card",
+    );
+    expect(hermesCard).not.toBeNull();
+
+    await user.click(within(hermesCard as HTMLElement).getByTitle("卸载"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "hermes",
+        "D:\\AgenticTools",
+      );
+    });
+  });
+
+  it("shows an uninstall button for detected Hermes inside the install root", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(
+      buildDetectResultsWithInstallPaths({
+        hermes: "D:\\AgenticTools\\hermes",
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    const hermesCard = (await screen.findByText("Hermes (Web UI)")).closest(
+      ".claude-card",
+    );
+    expect(hermesCard).not.toBeNull();
+
+    await user.click(within(hermesCard as HTMLElement).getByTitle("卸载"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "hermes",
+        "D:\\AgenticTools",
+      );
+    });
+  });
+
   it("uninstalls managed tools using the tool's recorded install root", async () => {
     const user = userEvent.setup();
     toolsApiMock.getInstalledTools.mockResolvedValue([
@@ -179,7 +261,7 @@ describe("Manager install detection", () => {
       ".claude-card",
     );
     expect(codexCard).not.toBeNull();
-    const uninstallButton = within(codexCard as HTMLElement).getByRole("button");
+    const uninstallButton = within(codexCard as HTMLElement).getByTitle("卸载");
     await user.click(uninstallButton);
 
     await waitFor(() => {
@@ -220,7 +302,7 @@ describe("Manager install detection", () => {
     );
     expect(codexCard).not.toBeNull();
 
-    await user.click(within(codexCard as HTMLElement).getByRole("button"));
+    await user.click(within(codexCard as HTMLElement).getByTitle("卸载"));
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -522,7 +604,7 @@ describe("Manager install detection", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows recent activity lines in the console without requiring the raw tab", async () => {
+  it("shows raw install output directly in the console", async () => {
     const user = userEvent.setup();
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
@@ -573,14 +655,19 @@ describe("Manager install detection", () => {
       within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
     );
 
-    expect(await screen.findByText("最近活动")).toBeInTheDocument();
-    expect(screen.getAllByText("Running installer command").length).toBeGreaterThan(1);
     expect(
-      screen.getByRole("tab", { name: "原始输出" }),
+      screen.queryByRole("tab", { name: /Summary/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /Raw Output/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Running installer command")).toBeInTheDocument();
+    expect(
+      screen.getByText("Download complete: installer payload ready"),
     ).toBeInTheDocument();
   });
 
-  it("keeps retained session review available with summary and raw output after completion", async () => {
+  it("removes the console and button after installation completes", async () => {
     const user = userEvent.setup();
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
@@ -612,6 +699,18 @@ describe("Manager install detection", () => {
         kind: "output",
         line: "Version 1.2.3 installed successfully",
       });
+    });
+
+    let codexCard = (await screen.findByText("Codex (CLI)")).closest(".claude-card");
+    expect(codexCard).not.toBeNull();
+
+    await user.click(
+      within(codexCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    );
+
+    expect(screen.getByText("Version 1.2.3 installed successfully")).toBeInTheDocument();
+
+    await act(async () => {
       installLogListener?.({
         toolId: "codex-cli",
         toolName: "Codex (CLI)",
@@ -624,26 +723,18 @@ describe("Manager install detection", () => {
       });
     });
 
-    const codexCard = (await screen.findByText("Codex (CLI)")).closest(".claude-card");
-    expect(codexCard).not.toBeNull();
-
-    await user.click(
-      within(codexCard as HTMLElement).getByRole("button", { name: /Console/i }),
-    );
-
-    expect(await screen.findByText("最近活动")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: "原始输出" }));
-
     await waitFor(() => {
-      expect(
-        screen.getAllByText("Version 1.2.3 installed successfully").length,
-      ).toBeGreaterThan(1);
+      expect(screen.queryByText("Version 1.2.3 installed successfully")).not.toBeInTheDocument();
     });
-    expect(screen.getAllByText("Install completed").length).toBeGreaterThan(0);
+
+    codexCard = (await screen.findByText("Codex (CLI)")).closest(".claude-card");
+    expect(codexCard).not.toBeNull();
+    expect(
+      within(codexCard as HTMLElement).queryByRole("button", { name: /Console/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("falls back to retained summary text in the header when activity is empty", async () => {
+  it("shows only tool name and status in the console header", async () => {
     const user = userEvent.setup();
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
@@ -675,14 +766,13 @@ describe("Manager install detection", () => {
       within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
     );
 
-    const consoleHeader = screen.getByRole("button", {
-      name: /OpenClaw.*Install session started/i,
-    });
+    const consoleHeader = screen.getByRole("button", { name: /OpenClaw/i });
     expect(consoleHeader).toBeInTheDocument();
-    expect(consoleHeader).not.toHaveTextContent("[session-started]");
-    expect(screen.queryByText("最近活动")).not.toBeInTheDocument();
+    expect(consoleHeader).not.toHaveTextContent("Install session started");
+    expect(consoleHeader).toHaveTextContent("running");
   });
-  it("resets to the summary view and reopens the console when a new session replaces the current one", async () => {
+
+  it("shows the console button again for a new running session after completion", async () => {
     const user = userEvent.setup();
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
 
@@ -717,24 +807,14 @@ describe("Manager install detection", () => {
       });
     });
 
-    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    let openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
     expect(openClawCard).not.toBeNull();
 
     await user.click(
       within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
     );
 
-    await user.click(screen.getByRole("tab", { name: /Raw Output|原始输出/ }));
-    expect(
-      screen.getByRole("tab", { name: /Raw Output|原始输出/, selected: true }),
-    ).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: /OpenClaw.*First session command/i }),
-    );
-    expect(
-      screen.queryByRole("tab", { name: /Summary|摘要/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText("First session command")).toBeInTheDocument();
 
     await act(async () => {
       installLogListener?.({
@@ -758,13 +838,52 @@ describe("Manager install detection", () => {
       });
     });
 
-    expect(
-      await screen.findByRole("tab", { name: /Summary|摘要/, selected: true }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: /Raw Output|原始输出/, selected: false }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("Second session command").length).toBeGreaterThan(1);
+    expect(screen.getByText("Second session command")).toBeInTheDocument();
     expect(screen.queryByText("First session command")).not.toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-b",
+        timestamp: "2026-05-12T10:01:02.000Z",
+        level: "success",
+        kind: "result",
+        line: "Second session finished",
+        exitCode: 0,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Second session command")).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-c",
+        timestamp: "2026-05-12T10:02:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Third session started",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-c",
+        timestamp: "2026-05-12T10:02:01.000Z",
+        level: "info",
+        kind: "command",
+        line: "Third session command",
+        command: "installer-c.exe /S",
+      });
+    });
+
+    openClawCard = screen.getAllByText("OpenClaw")[0]?.closest(".claude-card") ?? null;
+    expect(openClawCard).not.toBeNull();
+    expect(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+    ).toBeInTheDocument();
   });
 });

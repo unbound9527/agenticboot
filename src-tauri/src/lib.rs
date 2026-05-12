@@ -1062,6 +1062,7 @@ pub fn run() {
             commands::pick_directory,
             commands::open_external,
             commands::launch_desktop_tool,
+            commands::open_folder,
             commands::get_init_error,
             commands::get_migration_result,
             commands::get_skills_migration_result,

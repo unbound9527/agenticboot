@@ -46,7 +46,7 @@ AgenticBoot 会区分两类安装来源：
 
 - OpenCode CLI：Windows 下走原生 npm 包 `opencode-ai`，不依赖 WSL。
 - OpenClaw：Windows 下走官方 PowerShell 安装路径。
-- Hermes：Windows 下自动下载官方 Python ZIP 运行时，再在本地 `venv` 中安装 `hermes-agent[web,pty]`，不依赖用户本机已有 Python，也不依赖 `winget`。
+- Hermes：Windows 下自动下载官方 Python 3.11 ZIP 运行时，从 GitHub 拉取 `hermes-agent` 源码包并在本地 `venv` 中按官方安装脚本的分层策略 `pip install`（含 Web 仪表盘依赖），不依赖用户本机已有 Python / `git` / `winget`。
 
 ## 当前平台进度
 
