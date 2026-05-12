@@ -25,7 +25,10 @@ impl ToolPlugin for CodexCliPlugin {
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
-        detect_npm_cli(install_root, "codex-cli", "codex", "Codex CLI")
+        log::info!("[Codex CLI] detect called, install_root={:?}", install_root.map(|p| p.to_string_lossy().to_string()));
+        let result = detect_npm_cli(install_root, "codex-cli", "codex", "Codex CLI");
+        log::info!("[Codex CLI] detect result: installed={}, version={:?}, path={:?}", result.installed, result.version, result.install_path);
+        result
     }
 
     fn dependencies(&self) -> Vec<ToolDependency> {
@@ -82,6 +85,12 @@ impl ToolPlugin for CodexCliPlugin {
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        uninstall_npm_cli(target_dir, "@openai/codex")
+        log::info!("[Codex CLI] uninstall called with target_dir={}", target_dir.display());
+        let result = uninstall_npm_cli(target_dir, "@openai/codex");
+        match &result {
+            Ok(()) => log::info!("[Codex CLI] uninstall completed successfully"),
+            Err(e) => log::error!("[Codex CLI] uninstall failed: {}", e),
+        }
+        result
     }
 }

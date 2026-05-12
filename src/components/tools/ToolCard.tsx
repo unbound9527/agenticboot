@@ -1,4 +1,4 @@
-import { Trash2, Download, RefreshCw, Loader2 } from "lucide-react";
+import { Trash2, Download, RefreshCw, Loader2, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,9 @@ interface ToolCardProps {
   onInstall?: () => void;
   onUninstall?: () => void;
   onUpdate?: () => void;
+  onLaunch?: () => void;
   isUninstalling?: boolean;
+  isLaunching?: boolean;
   progress?: InstallProgress | null;
   installSession?: ToolInstallSession | null;
   onShowConsole?: () => void;
@@ -32,7 +34,9 @@ export function ToolCard({
   onInstall,
   onUninstall,
   onUpdate,
+  onLaunch,
   isUninstalling = false,
+  isLaunching = false,
   progress,
   installSession,
   onShowConsole,
@@ -104,6 +108,22 @@ export function ToolCard({
               {t("tools.installed", "已安装")}
               {formattedVersion ? ` ${formattedVersion}` : ""}
             </Badge>
+            {onLaunch && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title={t("tools.launch", "启动")}
+                onClick={onLaunch}
+                disabled={isLaunching}
+                className="h-8 w-8 text-muted-foreground hover:text-emerald-600 disabled:opacity-50"
+              >
+                {isLaunching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4" />
+                )}
+              </Button>
+            )}
             {onUninstall && (
               <Button
                 variant="ghost"

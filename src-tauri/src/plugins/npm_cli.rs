@@ -54,11 +54,19 @@ where
         "Downloading npm package...",
     );
 
-    let mut args = vec!["install", "-g", package_name];
-    args.extend_from_slice(extra_args);
-    log::info!("[npm_cli] npm 命令参数: {:?}", args);
+    let target_dir_arg = target_dir.to_string_lossy().to_string();
+    let mut args = vec![
+        "install".to_string(),
+        "-g".to_string(),
+        package_name.to_string(),
+        "--prefix".to_string(),
+        target_dir_arg,
+    ];
+    args.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+    log::info!("[npm_cli] npm install args: {:?}", args);
 
-    run_command(install_root, &args, "npm install failed")?;
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    run_command(install_root, &arg_refs, "npm install failed")?;
 
     emit_install_progress(
         &progress,
@@ -201,24 +209,58 @@ pub(crate) fn detect_npm_cli(
         install_root.map(|path| path.to_string_lossy().to_string())
     );
 
+    if let Some(root) = install_root {
+        let candidates = npm_prefix_candidates(command_name);
+        let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+        let detect_paths = find_managed_paths(root, tool_dir, &candidate_refs);
+        if let Some(executable) = detect_paths.executable.as_ref() {
+            log::info!(
+                "[{log_prefix}] *** DETECTED via find_managed_paths, executable={}, install_root={:?}",
+                executable.display(),
+                detect_paths
+                    .install_root
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().to_string())
+            );
+            return DetectResult {
+                installed: true,
+                version: read_command_version(executable, &["--version"]),
+                install_path: detect_paths
+                    .install_root
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string()),
+            };
+        }
+
+        log::info!(
+            "[{log_prefix}] find_managed_paths checked {} but no executable found (root={})",
+            candidate_refs.join(", "),
+            root.display()
+        );
+    }
+
+    // Step 1: Windows PATH / shell fallback
     if let Some(version) = detect_windows_cli_version(command_name) {
-        log::info!("[{log_prefix}] Detected via Windows shell fallback, version={version}");
+        let path = find_command_install_dir(command_name);
+        log::info!(
+            "[{log_prefix}] *** DETECTED via detect_windows_cli_version (PATH fallback), version={}, path={:?}",
+            version,
+            path
+        );
         return DetectResult {
             installed: true,
             version: Some(version),
-            install_path: find_command_install_dir(command_name)
-                .map(|path| path.to_string_lossy().to_string()),
+            install_path: path.map(|p| p.to_string_lossy().to_string()),
         };
     }
 
     #[cfg(target_os = "windows")]
     {
         let mut shell = SystemWindowsShell;
-        if let Some(install_path) =
-            find_windows_cli_install_dir_with_shell(&mut shell, command_name)
+        if let Some(install_path) = find_windows_cli_install_dir_with_shell(&mut shell, command_name)
         {
             log::info!(
-                "[{log_prefix}] Detected Windows CLI path without version, path={}",
+                "[{log_prefix}] *** DETECTED via find_windows_cli_install_dir_with_shell, path={}",
                 install_path.display()
             );
             return DetectResult {
@@ -229,22 +271,7 @@ pub(crate) fn detect_npm_cli(
         }
     }
 
-    if let Some(root) = install_root {
-        let candidates = npm_prefix_candidates(command_name);
-        let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
-        let detect_paths = find_managed_paths(root, tool_dir, &candidate_refs);
-        if let Some(executable) = detect_paths.executable.as_ref() {
-            return DetectResult {
-                installed: true,
-                version: read_command_version(executable, &["--version"]),
-                install_path: detect_paths
-                    .install_root
-                    .as_ref()
-                    .map(|path| path.to_string_lossy().to_string()),
-            };
-        }
-    }
-
+    log::info!("[{log_prefix}] Not detected");
     DetectResult::not_installed()
 }
 
@@ -256,7 +283,7 @@ pub(crate) fn install_npm_cli(
     progress: Sender<InstallProgress>,
     package_name: &str,
 ) -> Result<(), String> {
-    log::info!("[npm_cli] install_npm_cli 调用: package={}", package_name);
+    log::info!("[npm_cli] install_npm_cli package={}", package_name);
     install_npm_cli_with_extra_args(
         target_dir,
         install_root,
@@ -269,9 +296,83 @@ pub(crate) fn install_npm_cli(
 }
 
 pub(crate) fn uninstall_npm_cli(target_dir: &Path, package_name: &str) -> Result<(), String> {
-    uninstall_npm_cli_with_runner(target_dir, package_name, |install_dir, args, context| {
-        run_npm_command_checked_for_uninstall(install_dir, args, context)
-    })
+    log::info!(
+        "[uninstall_npm_cli] called with target_dir={}, package={}",
+        target_dir.display(),
+        package_name
+    );
+
+    // Step 1: npm uninstall -g --prefix <target_dir>
+    let uninstall_result =
+        uninstall_npm_cli_with_runner(target_dir, package_name, |install_dir, args, context| {
+            log::info!(
+                "[uninstall_npm_cli] calling run_npm_command_checked_for_uninstall: install_dir={}, args={:?}",
+                install_dir.display(),
+                args
+            );
+            run_npm_command_checked_for_uninstall(install_dir, args, context)
+        });
+
+    // Step 2: If npm uninstall succeeded, clean up any leftover shim files in target_dir
+    if uninstall_result.is_ok() {
+        log::info!(
+            "[uninstall_npm_cli] npm uninstall succeeded, checking for leftover shim files in target_dir"
+        );
+        if let Err(e) = cleanup_npm_shm_files(target_dir) {
+            log::warn!(
+                "[uninstall_npm_cli] cleanup shim files returned error (non-fatal): {}",
+                e
+            );
+        }
+    } else {
+        log::warn!(
+            "[uninstall_npm_cli] npm uninstall failed, skipping shim cleanup: {:?}",
+            uninstall_result.as_ref().err()
+        );
+    }
+
+    uninstall_result
+}
+
+/// Cleans up npm-generated shim files (/*.cmd,/*.exe,/*.bat) in the target tool directory.
+fn cleanup_npm_shm_files(target_dir: &Path) -> Result<(), String> {
+    if !target_dir.exists() {
+        log::info!("[cleanup_npm_shm_files] target_dir does not exist, nothing to clean");
+        return Ok(());
+    }
+
+    let extensions = ["cmd", "exe", "bat"];
+    let mut removed = 0;
+    let mut errors = Vec::new();
+
+    let entries = std::fs::read_dir(target_dir)
+        .map_err(|e| format!("read_dir failed for {}: {}", target_dir.display(), e))?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if let Some(ext) = path.extension() {
+            if extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
+                log::info!("[cleanup_npm_shm_files] removing shim file: {:?}", path);
+                if let Err(e) = std::fs::remove_file(&path) {
+                    let msg = format!("failed to remove {}: {}", path.display(), e);
+                    log::warn!("[cleanup_npm_shm_files] {}", msg);
+                    errors.push(msg);
+                } else {
+                    removed += 1;
+                }
+            }
+        }
+    }
+
+    log::info!(
+        "[cleanup_npm_shm_files] removed {} shim files, {} errors",
+        removed,
+        errors.len()
+    );
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 fn uninstall_npm_cli_with_runner<F>(
@@ -282,11 +383,25 @@ fn uninstall_npm_cli_with_runner<F>(
 where
     F: FnOnce(&Path, &[&str], &str) -> Result<(), String>,
 {
-    run_command(
-        target_dir.parent().unwrap_or(target_dir),
-        &["uninstall", "-g", package_name],
-        "npm uninstall failed",
-    )
+    log::info!(
+        "[uninstall_npm_cli_with_runner] target_dir={}, package_name={}",
+        target_dir.display(),
+        package_name
+    );
+    let target_dir_arg = target_dir.to_string_lossy().to_string();
+    let args = [
+        "uninstall",
+        "-g",
+        package_name,
+        "--prefix",
+        target_dir_arg.as_str(),
+    ];
+    let result = run_command(target_dir, &args, "npm uninstall failed");
+    match &result {
+        Ok(()) => log::info!("[uninstall_npm_cli_with_runner] npm uninstall succeeded"),
+        Err(e) => log::error!("[uninstall_npm_cli_with_runner] npm uninstall failed: {}", e),
+    }
+    result
 }
 
 #[cfg(test)]
@@ -317,7 +432,8 @@ mod tests {
             |_install_root, args, context| {
                 assert_eq!(context, "npm install failed");
                 assert!(args.starts_with(&["install", "-g", "@google/gemini-cli"]));
-                assert!(!args.contains(&"--prefix"));
+                assert_eq!(args[3], "--prefix");
+                assert_eq!(args[4], target_dir.to_string_lossy());
                 Ok(())
             },
         )
@@ -350,7 +466,8 @@ mod tests {
             |_install_root, args, context| {
                 assert_eq!(context, "npm install failed");
                 assert!(args.starts_with(&["install", "-g", "@google/gemini-cli"]));
-                assert!(!args.contains(&"--prefix"));
+                assert_eq!(args[3], "--prefix");
+                assert_eq!(args[4], target_dir.to_string_lossy());
                 assert!(args.contains(&"--registry"));
                 assert!(args.contains(&"https://registry.npmmirror.com"));
                 Ok(())
@@ -383,7 +500,8 @@ mod tests {
             |_install_root, args, context| {
                 assert_eq!(context, "npm install failed");
                 assert!(args.starts_with(&["install", "-g", "openclaw@latest"]));
-                assert!(!args.contains(&"--prefix"));
+                assert_eq!(args[3], "--prefix");
+                assert_eq!(args[4], target_dir.to_string_lossy());
                 assert!(args.contains(&"--ignore-scripts"));
                 assert!(args.contains(&"--registry"));
                 assert!(args.contains(&"https://registry.npmmirror.com"));
@@ -400,15 +518,28 @@ mod tests {
     }
 
     #[test]
-    fn npm_cli_uninstall_uses_global_uninstall_without_prefix() {
+    fn npm_cli_uninstall_targets_the_managed_prefix_directory() {
         let temp = tempfile::tempdir().unwrap();
         let target_dir = temp.path().join("codex-cli");
 
-        uninstall_npm_cli_with_runner(&target_dir, "@openai/codex", |_install_root, args, context| {
-            assert_eq!(context, "npm uninstall failed");
-            assert_eq!(args, ["uninstall", "-g", "@openai/codex"]);
-            Ok(())
-        })
+        uninstall_npm_cli_with_runner(
+            &target_dir,
+            "@openai/codex",
+            |_install_root, args, context| {
+                assert_eq!(context, "npm uninstall failed");
+                assert_eq!(
+                    args,
+                    [
+                        "uninstall",
+                        "-g",
+                        "@openai/codex",
+                        "--prefix",
+                        target_dir.to_string_lossy().as_ref(),
+                    ]
+                );
+                Ok(())
+            },
+        )
         .unwrap();
     }
 }

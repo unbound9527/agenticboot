@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="512" height="512" rx="96" fill="#0D0D0D"/>
+
+  <!-- 底层 - 青绿色层 (旋转0°) -->
+  <g transform="translate(256,256) rotate(0)">
+    <g filter="url(#shadow-bottom)">
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9"/>
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9" transform="rotate(60)"/>
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9" transform="rotate(120)"/>
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9" transform="rotate(180)"/>
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9" transform="rotate(240)"/>
+      <path d="M0 -180 L24 -60 L0 -50 L-24 -60 Z" fill="#3DD6C4" fill-opacity="0.9" transform="rotate(300)"/>
+    </g>
+  </g>
+
+  <!-- 中层 - 金黄色层 (旋转20°) -->
+  <g transform="translate(256,256) rotate(20)">
+    <g filter="url(#shadow-mid)">
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95"/>
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95" transform="rotate(60)"/>
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95" transform="rotate(120)"/>
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95" transform="rotate(180)"/>
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95" transform="rotate(240)"/>
+      <path d="M0 -148 L20 -52 L0 -44 L-20 -52 Z" fill="#F5C842" fill-opacity="0.95" transform="rotate(300)"/>
+    </g>
+  </g>
+
+  <!-- 顶层 - 橙珊瑚色层 (旋转40°) -->
+  <g transform="translate(256,256) rotate(40)">
+    <g filter="url(#shadow-top)">
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C"/>
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C" transform="rotate(60)"/>
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C" transform="rotate(120)"/>
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C" transform="rotate(180)"/>
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C" transform="rotate(240)"/>
+      <path d="M0 -116 L16 -44 L0 -36 L-16 -44 Z" fill="#F28C6C" transform="rotate(300)"/>
+    </g>
+  </g>
+
+  <!-- 中心光点 -->
+  <circle cx="256" cy="256" r="28" fill="#0D0D0D"/>
+  <circle cx="256" cy="256" r="16" fill="#F5C842" fill-opacity="0.8"/>
+  <circle cx="256" cy="256" r="8" fill="#FFFFFF" fill-opacity="0.9"/>
+
+  <!-- 阴影滤镜 -->
+  <defs>
+    <filter id="shadow-bottom" x="-60" y="-220" width="120" height="300">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1a8a7e" flood-opacity="0.4"/>
+    </filter>
+    <filter id="shadow-mid" x="-50" y="-180" width="100" height="250">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#c9a227" flood-opacity="0.4"/>
+    </filter>
+    <filter id="shadow-top" x="-40" y="-140" width="80" height="200">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#c9694f" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+</svg>

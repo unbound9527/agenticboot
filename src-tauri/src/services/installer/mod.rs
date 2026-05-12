@@ -24,7 +24,11 @@ use tokio::sync::mpsc;
 
 /// npm 包名映射表（tool_id → npm package name）
 fn should_delete_install_dir(strategy: InstallStrategy, owned_by_root: bool) -> bool {
-    owned_by_root && matches!(strategy, InstallStrategy::ManagedPrefix)
+    owned_by_root
+        && matches!(
+            strategy,
+            InstallStrategy::ManagedPrefix | InstallStrategy::GlobalNpm
+        )
 }
 
 fn should_remove_shim(strategy: InstallStrategy, owned_by_root: bool) -> bool {
@@ -107,7 +111,9 @@ fn should_publish_managed_shims(
 ) -> bool {
     matches!(
         strategy,
-        InstallStrategy::ManagedPrefix | InstallStrategy::PythonPackage
+        InstallStrategy::ManagedPrefix
+            | InstallStrategy::GlobalNpm
+            | InstallStrategy::PythonPackage
     ) && detect
         .install_path
         .as_deref()
@@ -348,14 +354,16 @@ impl InstallerService {
                     }
                     // 检测已安装版本（传入安装根目录）
                     let detect = post_plugin.detect(Some(&self.root_path));
+                    let publish_managed_shims = should_publish_managed_shims(
+                        post_plugin.install_strategy(),
+                        &self.root_path,
+                        &detect,
+                    );
                     let (version, install_path) =
                         detect_successful_install(&install_tool_id, &target_dir, detect)?;
 
                     // 创建 shim
-                    if matches!(
-                        post_plugin.install_strategy(),
-                        InstallStrategy::ManagedPrefix | InstallStrategy::PythonPackage
-                    ) {
+                    if publish_managed_shims {
                         let exe_name = get_exe_name(&install_tool_id);
                         let candidates = managed_executable_candidates(&install_tool_id);
                         let candidate_refs =
@@ -610,7 +618,7 @@ mod tests {
             InstallStrategy::ManagedPrefix,
             true
         ));
-        assert!(!should_delete_install_dir(InstallStrategy::GlobalNpm, true));
+        assert!(should_delete_install_dir(InstallStrategy::GlobalNpm, true));
         assert!(!should_delete_install_dir(
             InstallStrategy::DesktopInstaller,
             false
@@ -726,6 +734,11 @@ mod tests {
 
         assert!(should_publish_managed_shims(
             InstallStrategy::ManagedPrefix,
+            tmp.path(),
+            &detect
+        ));
+        assert!(should_publish_managed_shims(
+            InstallStrategy::GlobalNpm,
             tmp.path(),
             &detect
         ));

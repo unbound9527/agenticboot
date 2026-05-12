@@ -132,6 +132,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const [isDetecting, setIsDetecting] = useState(false);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [uninstallingToolId, setUninstallingToolId] = useState<string | null>(null);
+  const [launchingToolId, setLaunchingToolId] = useState<string | null>(null);
   const [pendingInstallToolId, setPendingInstallToolId] = useState<string | null>(null);
 
   const { data: installedTools = [] } = useInstalledTools();
@@ -401,6 +402,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
           )}
           {mergedInstalledTools.map((tool) => {
             const canUninstall = Boolean(tool.installPath?.trim());
+            const canLaunch =
+              tool.installPath?.trim() &&
+              ["claude-code-desktop", "codex-desktop", "opencode-desktop"].includes(
+                tool.id,
+              );
 
             return (
               <ToolCard
@@ -408,8 +414,22 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 tool={tool}
                 variant="installed"
                 isUninstalling={uninstallingToolId === tool.id}
+                isLaunching={launchingToolId === tool.id}
                 progress={getToolProgress(tool.id)}
                 installSession={installSessions.get(tool.id) ?? null}
+                onLaunch={
+                  canLaunch
+                    ? async () => {
+                        if (!tool.installPath) return;
+                        setLaunchingToolId(tool.id);
+                        try {
+                          await toolsApi.launchDesktopTool(tool.installPath);
+                        } finally {
+                          setLaunchingToolId(null);
+                        }
+                      }
+                    : undefined
+                }
                 onUninstall={
                   canUninstall
                     ? () => handleUninstall(tool.id, tool.installRoot)

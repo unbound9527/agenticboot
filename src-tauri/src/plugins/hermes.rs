@@ -53,8 +53,8 @@ impl ToolPlugin for HermesPlugin {
         }
 
         if let Some(executable) = find_command_on_path("hermes") {
-            let install_path = executable
-                .parent()
+            let install_path = detect_install_path_from_executable(&executable)
+                .or_else(|| executable.parent().map(PathBuf::from))
                 .map(|dir| dir.to_string_lossy().to_string());
             let version = read_python_package_version_from_executable(
                 &executable,
@@ -165,9 +165,8 @@ impl ToolPlugin for HermesPlugin {
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        let managed_venv = target_dir.join("venv").join("pyvenv.cfg");
-        if managed_venv.exists() {
-            std::fs::remove_dir_all(target_dir)
+        if let Some(uninstall_root) = resolve_uninstall_root(target_dir) {
+            std::fs::remove_dir_all(&uninstall_root)
                 .map_err(|e| format!("failed to remove Hermes environment: {e}"))?;
             return Ok(());
         }
@@ -186,6 +185,38 @@ fn read_hermes_command_version() -> Option<String> {
 
     extract_hermes_version(&String::from_utf8_lossy(&output.stdout))
         .or_else(|| extract_hermes_version(&String::from_utf8_lossy(&output.stderr)))
+}
+
+fn detect_install_path_from_executable(executable: &Path) -> Option<PathBuf> {
+    let scripts_dir = executable.parent()?;
+    resolve_uninstall_root(scripts_dir).or_else(|| Some(scripts_dir.to_path_buf()))
+}
+
+fn resolve_uninstall_root(target_dir: &Path) -> Option<PathBuf> {
+    let mut candidates = vec![target_dir.to_path_buf()];
+    if let Some(parent) = target_dir.parent() {
+        candidates.push(parent.to_path_buf());
+        if let Some(grandparent) = parent.parent() {
+            candidates.push(grandparent.to_path_buf());
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.join("venv").join("pyvenv.cfg").exists() {
+            return Some(candidate);
+        }
+
+        if candidate.join("pyvenv.cfg").exists() {
+            if let Some(parent) = candidate.parent() {
+                if parent.join("python-runtime").exists() {
+                    return Some(parent.to_path_buf());
+                }
+            }
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 fn extract_hermes_version(output: &str) -> Option<String> {
@@ -507,5 +538,37 @@ mod tests {
         );
 
         assert_eq!(version.as_deref(), Some("0.12.0"));
+    }
+
+    #[test]
+    fn native_windows_hermes_uninstall_accepts_scripts_directory_for_managed_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tool_dir = tmp.path().join("hermes");
+        let scripts_dir = tool_dir.join("venv").join("Scripts");
+        let python_runtime_dir = tool_dir.join("python-runtime");
+
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::create_dir_all(&python_runtime_dir).unwrap();
+        std::fs::write(tool_dir.join("venv").join("pyvenv.cfg"), "home = managed").unwrap();
+        std::fs::write(scripts_dir.join("hermes.exe"), b"").unwrap();
+
+        HermesPlugin.uninstall(&scripts_dir).unwrap();
+
+        assert!(!tool_dir.exists());
+    }
+
+    #[test]
+    fn native_windows_hermes_uninstall_accepts_venv_root_for_external_environment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let venv_dir = tmp.path().join("hermes-venv");
+        let scripts_dir = venv_dir.join("Scripts");
+
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(venv_dir.join("pyvenv.cfg"), "home = external").unwrap();
+        std::fs::write(scripts_dir.join("hermes.exe"), b"").unwrap();
+
+        HermesPlugin.uninstall(&venv_dir).unwrap();
+
+        assert!(!venv_dir.exists());
     }
 }

@@ -98,6 +98,10 @@ export const toolsApi = {
     return invoke("check_tool_updates");
   },
 
+  launchDesktopTool(installPath: string): Promise<void> {
+    return invoke("launch_desktop_tool", { installPath });
+  },
+
   // ── 事件监听 ──
 
   onInstallProgress(

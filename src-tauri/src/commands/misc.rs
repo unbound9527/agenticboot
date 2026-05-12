@@ -1588,6 +1588,149 @@ pub async fn set_window_theme(window: tauri::Window, theme: String) -> Result<()
     window.set_theme(tauri_theme).map_err(|e| e.to_string())
 }
 
+/// 启动桌面版工具（通过 install_path 查找并启动可执行文件）
+#[tauri::command]
+pub async fn launch_desktop_tool(install_path: String) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let install_path_raw = std::path::Path::new(&install_path);
+
+        // 检测是否指向受保护的 WindowsApps 目录（Microsoft Store 应用）
+        if is_windowsapps_path(&install_path_raw) {
+            // 通过 Shell AppsFolder 方式启动 Microsoft Store 应用
+            let app_shell_path = find_store_app_shell_path(&install_path_raw)?;
+            launch_via_shell(&app_shell_path)?;
+        } else if install_path_raw.is_dir() {
+            // 普通目录：查找并启动可执行文件
+            let exe_path = find_executable_in_dir_recursive(&install_path_raw)
+                .ok_or_else(|| "未找到目录中的可执行文件".to_string())?;
+            launch_exe(&exe_path)?;
+        } else {
+            // 直接指定可执行文件
+            launch_exe(&install_path_raw.to_path_buf())?;
+        }
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = install_path;
+        Err("桌面工具启动仅支持 Windows".to_string())
+    }
+}
+
+/// 检测路径是否指向 WindowsApps 目录（Microsoft Store 应用）
+#[cfg(target_os = "windows")]
+fn is_windowsapps_path(path: &std::path::Path) -> bool {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .contains("WindowsApps")
+}
+
+/// 从 WindowsApps 路径解析对应的 Microsoft Store 应用的 Shell 路径
+#[cfg(target_os = "windows")]
+fn find_store_app_shell_path(windowsapps_path: &std::path::Path) -> Result<String, String> {
+    let path_str = windowsapps_path.to_string_lossy().replace('/', "\\");
+
+    // 路径格式: C:\Program Files\WindowsApps\OpenAI.Codex_版本\...
+    // 需要提取类似 "OpenAI.Codex" 的包名
+    for comp in path_str.split('\\') {
+        // 包名格式通常是 Publisher.AppName_Version
+        if comp.contains('_') {
+            let parts: Vec<&str> = comp.split('_').collect();
+            if parts.len() >= 2 {
+                let package_name = parts[0];
+                // 检查是否是已知的发布者前缀
+                if package_name.starts_with("OpenAI.") ||
+                   package_name.starts_with("Anthropic.") ||
+                   package_name.starts_with("Google.") ||
+                   package_name.starts_with("Microsoft.") ||
+                   package_name.starts_with("GitHub.") {
+                    return Ok(format!("shell:AppsFolder\\{}", package_name));
+                }
+            }
+            // 尝试直接使用整个 comp 作为 shell 路径
+            return Ok(format!("shell:AppsFolder\\{}", comp));
+        }
+    }
+
+    Err(format!("无法从路径 {} 解析 Microsoft Store 应用名", path_str))
+}
+
+/// 通过 Shell 启动应用（支持 Microsoft Store 应用）
+#[cfg(target_os = "windows")]
+fn launch_via_shell(shell_path: &str) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", shell_path])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("启动桌面工具失败: {e}"))?;
+    Ok(())
+}
+
+/// 启动可执行文件
+#[cfg(target_os = "windows")]
+fn launch_exe(exe_path: &std::path::Path) -> Result<(), String> {
+    let exe_path_str = exe_path.to_string_lossy();
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &exe_path_str])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("启动桌面工具失败: {e}"))?;
+    Ok(())
+}
+
+/// 在目录中递归查找可执行文件
+#[cfg(target_os = "windows")]
+fn find_executable_in_dir_recursive(base: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::collections::VecDeque;
+
+    let mut queue = VecDeque::new();
+    queue.push_back(base.to_path_buf());
+
+    while let Some(dir) = queue.pop_front() {
+        // 检查当前目录中的 exe 文件
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.to_str().map(|s| s.eq_ignore_ascii_case("exe")).unwrap_or(false) {
+                            let name = path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("");
+                            // 跳过常见的卸载程序
+                            if !name.contains("uninstall") && !name.contains("Uninstall") {
+                                return Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 遍历子目录（限制深度避免搜索过深）
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // 限制搜索深度
+                    if dir.components().count() < base.components().count() + 4 {
+                        queue.push_back(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn find_executable_in_dir_recursive(_base: &std::path::Path) -> Option<std::path::PathBuf> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
