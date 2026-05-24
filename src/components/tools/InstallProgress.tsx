@@ -63,7 +63,7 @@ export function InstallProgress({
 }: InstallProgressProps) {
   const { t } = useTranslation();
   const { getToolProgress, allComplete, hasErrors } = useInstallProgress();
-  const installSessions = useInstallSessions();
+  const { sessions: installSessions } = useInstallSessions();
   const activeToolId =
     installPlan.steps.find((step) => {
       const progress = getToolProgress(step.toolId);

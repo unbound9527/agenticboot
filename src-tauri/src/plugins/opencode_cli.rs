@@ -151,8 +151,18 @@ impl ToolPlugin for OpenCodeCliPlugin {
 
     #[cfg(not(target_os = "windows"))]
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
+        let package_name = "opencode-ai";
+        let target_dir_arg = target_dir.to_string_lossy();
+        let output = std::process::Command::new("npm")
+            .args(["uninstall", "-g", package_name, "--prefix", &target_dir_arg])
+            .output()
+            .map_err(|e| format!("npm uninstall failed: {e}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!("[OpenCode CLI] npm uninstall warning: {}", stderr);
+        }
         if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir).map_err(|e| format!("鍒犻櫎澶辫触: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除失败: {e}"))?;
         }
         Ok(())
     }
@@ -162,7 +172,7 @@ impl ToolPlugin for OpenCodeCliPlugin {
         uninstall_npm_cli(target_dir, "opencode-ai")?;
 
         if target_dir.exists() {
-            std::fs::remove_dir_all(target_dir).map_err(|e| format!("鍒犻櫎澶辫触: {e}"))?;
+            std::fs::remove_dir_all(target_dir).map_err(|e| format!("删除失败: {e}"))?;
         }
         Ok(())
     }

@@ -2,6 +2,7 @@
 
 use crate::database::{Database, InstalledToolRecord};
 use crate::services::installer::dependency_resolver::resolve_install_plan as resolve_plan;
+use crate::services::installer::is_install_owned_by_root;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
 use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
@@ -17,6 +18,23 @@ fn cache_matches_install_root(record: &InstalledToolRecord, install_root: Option
     match install_root {
         Some(root) => record.install_root == root,
         None => true,
+    }
+}
+
+fn can_reuse_detect_cache(record: &InstalledToolRecord, install_root: Option<&str>) -> bool {
+    match record.status.as_str() {
+        "installed" | "not_installed" => true,
+        "detected" => {
+            let Some(root) = install_root else {
+                return false;
+            };
+            let install_path = record.install_path.trim();
+            if install_path.is_empty() {
+                return false;
+            }
+            is_install_owned_by_root(Path::new(root), Path::new(install_path))
+        }
+        _ => false,
     }
 }
 
@@ -54,6 +72,21 @@ fn persist_detect_result_cache(
     previous: Option<&InstalledToolRecord>,
     result: &DetectResult,
 ) {
+    let next_status = cache_status_for_detect_result(previous, result);
+    if next_status == "detected" {
+        let Some(root) = install_root else {
+            return;
+        };
+        let Some(path) = result.install_path.as_deref() else {
+            let _ = db.delete_installed_tool(tool_id);
+            return;
+        };
+        if !is_install_owned_by_root(Path::new(root), Path::new(path)) {
+            let _ = db.delete_installed_tool(tool_id);
+            return;
+        }
+    }
+
     let record = InstalledToolRecord {
         id: tool_id.to_string(),
         name: previous
@@ -68,7 +101,7 @@ fn persist_detect_result_cache(
         category: previous
             .map(|record| record.category.clone())
             .unwrap_or_else(|| "tool".to_string()),
-        status: cache_status_for_detect_result(previous, result).to_string(),
+        status: next_status.to_string(),
         installed_at: previous.and_then(|record| record.installed_at),
         updated_at: Some(chrono::Utc::now().timestamp()),
     };
@@ -215,9 +248,11 @@ fn detect_tools_sync(
         if !force_refresh {
             if let Some(record) = cached_record.as_ref() {
                 if cache_matches_install_root(record, install_root.as_deref()) {
-                    if let Some(cached) = detect_result_from_cache_record(record) {
-                        results[index] = cached;
-                        continue;
+                    if can_reuse_detect_cache(record, install_root.as_deref()) {
+                        if let Some(cached) = detect_result_from_cache_record(record) {
+                            results[index] = cached;
+                            continue;
+                        }
                     }
                 }
             }
@@ -304,9 +339,11 @@ pub async fn check_tool_updates(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<ToolUpdateInfo>, String> {
     let db = state.db.clone();
-    tokio::task::spawn_blocking(move || InstallerService::check_tool_updates(&db))
-        .await
-        .map_err(|e| format!("检测工具更新任务执行失败: {e}"))?
+    tokio::task::spawn_blocking(move || {
+        tokio::runtime::Handle::current().block_on(InstallerService::check_tool_updates(&db))
+    })
+    .await
+    .map_err(|e| format!("检测工具更新任务执行失败: {e}"))?
 }
 
 #[cfg(test)]
@@ -414,5 +451,35 @@ mod tests {
             results[0].install_path.as_deref(),
             Some("C:\\Users\\me\\AppData\\Roaming\\npm")
         );
+    }
+
+    #[test]
+    fn detect_tools_sync_does_not_reuse_external_detected_cache_for_matching_install_root() {
+        let db = Arc::new(Database::memory().expect("create db"));
+        db.upsert_installed_tool(&InstalledToolRecord {
+            id: "unknown-tool".into(),
+            name: "Unknown Tool".into(),
+            version: Some("9.9.9".into()),
+            install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
+            install_root: "D:\\AgenticTools".into(),
+            category: "tool".into(),
+            status: "detected".into(),
+            installed_at: None,
+            updated_at: Some(1),
+        })
+        .expect("seed detected cache");
+
+        let results = detect_tools_sync(
+            vec!["unknown-tool".into()],
+            Some("D:\\AgenticTools".into()),
+            false,
+            &db,
+        )
+        .expect("detect tools");
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].installed);
+        assert_eq!(results[0].version, None);
+        assert_eq!(results[0].install_path, None);
     }
 }

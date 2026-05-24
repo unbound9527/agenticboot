@@ -330,7 +330,7 @@ fn is_hermes_launcher_name(file_name: &str) -> bool {
         .any(|launcher| launcher.eq_ignore_ascii_case(file_name))
 }
 
-const HERMES_LAUNCHERS: &[&str] = &["hermes.exe", "hermes.cmd", "hermes.bat"];
+const HERMES_LAUNCHERS: &[&str] = &["hermes", "hermes.exe", "hermes.cmd", "hermes.bat"];
 
 fn extract_hermes_version(output: &str) -> Option<String> {
     let first_line = output
@@ -882,6 +882,22 @@ mod tests {
 
         assert!(!hermes_exe.exists());
         assert!(!scripts_dir.join("hermes.cmd").exists());
+        assert!(scripts_dir.join("other.exe").exists());
+        assert!(scripts_dir.exists());
+    }
+
+    #[test]
+    fn native_windows_hermes_uninstall_removes_extensionless_launcher() {
+        let tmp = tempfile::tempdir().unwrap();
+        let scripts_dir = tmp.path().join("Python313").join("Scripts");
+
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::write(scripts_dir.join("hermes"), b"").unwrap();
+        std::fs::write(scripts_dir.join("other.exe"), b"").unwrap();
+
+        HermesPlugin.uninstall(&scripts_dir).unwrap();
+
+        assert!(!scripts_dir.join("hermes").exists());
         assert!(scripts_dir.join("other.exe").exists());
         assert!(scripts_dir.exists());
     }

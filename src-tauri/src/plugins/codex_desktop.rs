@@ -1,7 +1,8 @@
 use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
     find_appx_install_location, find_executable_in_dir, find_local_uninstaller_executable,
-    find_uninstall_entry_ex, run_windows_uninstaller_with_common_args, run_winget, winget_exists,
+    find_uninstall_entry_ex, read_command_version, run_windows_uninstaller_with_common_args,
+    run_winget, winget_exists,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
@@ -26,8 +27,8 @@ impl ToolPlugin for CodexDesktopPlugin {
         InstallStrategy::DesktopInstaller
     }
 
-    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
-        if let Some((install_path, version)) = detect_local_codex_installation(install_root) {
+    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+        if let Some((install_path, version)) = detect_local_codex_installation() {
             debug!(
                 "detected Codex via local installation: version={:?}, path={:?}",
                 version, install_path
@@ -44,13 +45,22 @@ impl ToolPlugin for CodexDesktopPlugin {
                 .display_icon
                 .and_then(|path| path.parent().map(|p| p.to_path_buf())));
 
+            // If registry has version, use it directly
+            let version = entry.display_version.or_else(|| {
+                // Try to get version from executable in install location
+                install_path.as_ref().and_then(|dir| {
+                    find_executable_in_dir(dir, &["Codex.exe", "codex.exe"])
+                        .and_then(|exe| read_command_version(&exe, &["--version"]))
+                })
+            });
+
             debug!(
                 "detected Codex via registry: version={:?}, path={:?}",
-                entry.display_version, install_path
+                version, install_path
             );
             return DetectResult {
                 installed: true,
-                version: entry.display_version,
+                version,
                 install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
             };
         }
@@ -174,14 +184,8 @@ impl ToolPlugin for CodexDesktopPlugin {
     }
 }
 
-fn detect_local_codex_installation(
-    install_root: Option<&Path>,
-) -> Option<(PathBuf, Option<String>)> {
+fn local_codex_candidate_bases() -> Vec<PathBuf> {
     let mut candidate_bases = Vec::new();
-
-    if let Some(root) = install_root {
-        candidate_bases.push(root.to_path_buf());
-    }
 
     if let Some(local_app_data) = dirs::data_local_dir() {
         candidate_bases.push(local_app_data);
@@ -195,6 +199,11 @@ fn detect_local_codex_installation(
         candidate_bases.push(PathBuf::from(program_files_x86));
     }
 
+    candidate_bases
+}
+
+fn detect_local_codex_installation() -> Option<(PathBuf, Option<String>)> {
+    let candidate_bases = local_codex_candidate_bases();
     let candidate_roots = ["OpenAI\\Codex", "Programs\\Codex", "Codex"];
 
     for base in candidate_bases {
@@ -215,23 +224,23 @@ fn detect_local_codex_installation(
 }
 
 fn find_codex_install_root(candidate_root: &Path) -> Option<(PathBuf, Option<String>)> {
-    if find_executable_in_dir(
-        candidate_root,
-        &["Codex.exe", "codex.exe", "Codex.cmd", "codex.cmd"],
-    )
-    .is_some()
-    {
-        return Some((candidate_root.to_path_buf(), None));
-    }
-
+    // Try bin directory first (common for installed apps)
     let bin_dir = candidate_root.join("bin");
-    if find_executable_in_dir(
+    if let Some(exe) = find_executable_in_dir(
         &bin_dir,
         &["Codex.exe", "codex.exe", "Codex.cmd", "codex.cmd"],
-    )
-    .is_some()
-    {
-        return Some((candidate_root.to_path_buf(), None));
+    ) {
+        let version = read_command_version(&exe, &["--version"]);
+        return Some((candidate_root.to_path_buf(), version));
+    }
+
+    // Try root directory
+    if let Some(exe) = find_executable_in_dir(
+        candidate_root,
+        &["Codex.exe", "codex.exe", "Codex.cmd", "codex.cmd"],
+    ) {
+        let version = read_command_version(&exe, &["--version"]);
+        return Some((candidate_root.to_path_buf(), version));
     }
 
     None
@@ -243,20 +252,27 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn detect_prefers_local_install_root_layout() {
+    fn find_codex_install_root_accepts_local_install_layout() {
         let temp = tempfile::tempdir().unwrap();
         let install_root = temp.path().join("OpenAI").join("Codex");
         let bin_dir = install_root.join("bin");
         fs::create_dir_all(&bin_dir).unwrap();
         fs::write(bin_dir.join("codex.exe"), b"").unwrap();
 
-        let result = CodexDesktopPlugin.detect(Some(temp.path()));
+        let result = find_codex_install_root(&install_root);
         let expected_install_path = install_root.to_string_lossy().to_string();
 
-        assert!(result.installed);
         assert_eq!(
-            result.install_path.as_deref(),
-            Some(expected_install_path.as_str())
+            result.map(|(path, _)| path.to_string_lossy().to_string()),
+            Some(expected_install_path)
         );
+    }
+
+    #[test]
+    fn detect_does_not_treat_managed_install_root_as_desktop_install_location() {
+        let temp = tempfile::tempdir().unwrap();
+        let candidate_bases = local_codex_candidate_bases();
+
+        assert!(!candidate_bases.iter().any(|path| path == temp.path()));
     }
 }

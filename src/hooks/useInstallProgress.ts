@@ -154,6 +154,13 @@ export function useInstallProgress() {
     [displayedProgressMap]
   );
 
+  const getToolTargetProgress = useCallback(
+    (toolId: string): InstallProgress | null => {
+      return targetProgressMap.get(toolId) ?? null;
+    },
+    [targetProgressMap]
+  );
+
   const hasAnyProgress = displayedProgressMap.size > 0;
 
   const allComplete = hasAnyProgress && [...displayedProgressMap.values()].every(
@@ -173,6 +180,7 @@ export function useInstallProgress() {
   return {
     progressMap: displayedProgressMap,
     getToolProgress,
+    getToolTargetProgress,
     hasAnyProgress,
     allComplete,
     hasErrors,

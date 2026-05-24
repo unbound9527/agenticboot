@@ -8,6 +8,10 @@ use crate::tool_types::{DetectResult, InstallProgress};
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
+fn is_managed_bin_dir(install_root: &Path, install_path: &Path) -> bool {
+    install_path == install_root.join("bin")
+}
+
 fn emit_install_progress(
     progress: &Sender<InstallProgress>,
     tool_id: &str,
@@ -237,6 +241,13 @@ pub(crate) fn detect_npm_cli(
         if let Some(install_path) =
             find_windows_cli_install_dir_with_shell(&mut shell, command_name)
         {
+            if install_root.is_some_and(|root| is_managed_bin_dir(root, &install_path)) {
+                log::info!(
+                    "[{log_prefix}] ignoring stale managed bin shim path {}",
+                    install_path.display()
+                );
+                return DetectResult::not_installed();
+            }
             log::info!(
                 "[{log_prefix}] *** DETECTED via find_windows_cli_install_dir_with_shell, path={}",
                 install_path.display()
@@ -315,34 +326,18 @@ pub(crate) fn uninstall_npm_cli(target_dir: &Path, package_name: &str) -> Result
     uninstall_result
 }
 
-/// Cleans up npm-generated shim files (/*.cmd,/*.exe,/*.bat) in the target tool directory.
+/// Cleans up npm-generated shim files (/*.cmd,/*.exe,/*.bat,/*.ps1) in the target tool directory.
 fn cleanup_npm_shm_files(target_dir: &Path) -> Result<(), String> {
     if !target_dir.exists() {
         log::info!("[cleanup_npm_shm_files] target_dir does not exist, nothing to clean");
         return Ok(());
     }
 
-    let extensions = ["cmd", "exe", "bat"];
+    let extensions = ["cmd", "exe", "bat", "ps1"];
     let mut removed = 0;
     let mut errors = Vec::new();
 
-    let entries = std::fs::read_dir(target_dir)
-        .map_err(|e| format!("read_dir failed for {}: {}", target_dir.display(), e))?;
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if let Some(ext) = path.extension() {
-            if extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
-                log::info!("[cleanup_npm_shm_files] removing shim file: {:?}", path);
-                if let Err(e) = std::fs::remove_file(&path) {
-                    let msg = format!("failed to remove {}: {}", path.display(), e);
-                    log::warn!("[cleanup_npm_shm_files] {}", msg);
-                    errors.push(msg);
-                } else {
-                    removed += 1;
-                }
-            }
-        }
-    }
+    cleanup_dir_recursive(target_dir, &extensions, &mut removed, &mut errors);
 
     log::info!(
         "[cleanup_npm_shm_files] removed {} shim files, {} errors",
@@ -353,6 +348,44 @@ fn cleanup_npm_shm_files(target_dir: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(errors.join("; "))
+    }
+}
+
+fn cleanup_dir_recursive(
+    dir: &Path,
+    extensions: &[&str],
+    removed: &mut usize,
+    errors: &mut Vec<String>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log::warn!(
+                "[cleanup_dir_recursive] failed to read dir {}: {}",
+                dir.display(),
+                e
+            );
+            errors.push(format!("failed to read {}: {}", dir.display(), e));
+            return;
+        }
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            cleanup_dir_recursive(&path, extensions, removed, errors);
+        } else if let Some(ext) = path.extension() {
+            if extensions.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
+                log::info!("[cleanup_dir_recursive] removing shim file: {:?}", path);
+                if let Err(e) = std::fs::remove_file(&path) {
+                    let msg = format!("failed to remove {}: {}", path.display(), e);
+                    log::warn!("[cleanup_dir_recursive] {}", msg);
+                    errors.push(msg);
+                } else {
+                    *removed += 1;
+                }
+            }
+        }
     }
 }
 
@@ -393,7 +426,7 @@ mod tests {
     use super::{
         install_npm_cli_with_extra_args_and_registry_and_runner,
         install_npm_cli_with_extra_args_and_runner, install_npm_cli_with_registry_and_runner,
-        uninstall_npm_cli_with_runner,
+        is_managed_bin_dir, uninstall_npm_cli_with_runner,
     };
     use crate::plugin::NpmRegistrySource;
     use crate::tool_types::InstallProgress;
@@ -525,5 +558,18 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn npm_cli_detect_ignores_agenticboot_bin_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let install_root = temp.path().join("AgenticTools");
+        let managed_bin = install_root.join("bin");
+
+        assert!(is_managed_bin_dir(&install_root, &managed_bin));
+        assert!(!is_managed_bin_dir(
+            &install_root,
+            &install_root.join("openclaw")
+        ));
     }
 }

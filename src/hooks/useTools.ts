@@ -66,6 +66,7 @@ export function useExecuteInstallPlan() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
       queryClient.invalidateQueries({ queryKey: ['has-installed-tools'] });
+      queryClient.invalidateQueries({ queryKey: UPDATES_KEY });
     },
   });
 }
@@ -79,6 +80,7 @@ export function useUninstallTool() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
       queryClient.invalidateQueries({ queryKey: ['has-installed-tools'] });
+      queryClient.invalidateQueries({ queryKey: UPDATES_KEY });
     },
   });
 }

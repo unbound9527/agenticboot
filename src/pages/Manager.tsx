@@ -94,17 +94,23 @@ interface ManagerProps {
 function toExternalInstalledTool(
   meta: ToolMeta,
   detect: DetectResult,
-  installRoot: string,
+  fallbackRoot: string,
 ): InstalledTool {
   return {
     id: meta.id,
     name: meta.name,
     version: detect.version,
     installPath: detect.installPath ?? "",
-    installRoot,
+    installRoot: detect.installPath ?? fallbackRoot,
     category: "tool",
     status: "detected",
   };
+}
+
+function supportsPathlessDetectedUninstall(toolId: string) {
+  return ["claude-code-desktop", "codex-desktop", "opencode-desktop"].includes(
+    toolId,
+  );
 }
 
 function canAutoUninstallTool(tool: InstalledTool) {
@@ -112,7 +118,10 @@ function canAutoUninstallTool(tool: InstalledTool) {
     return false;
   }
 
-  if (!tool.installPath?.trim()) {
+  if (
+    !tool.installPath?.trim() &&
+    !(tool.status === "detected" && supportsPathlessDetectedUninstall(tool.id))
+  ) {
     return false;
   }
 
@@ -137,6 +146,18 @@ function buildPendingInstallProgress(tool: ToolMeta) {
   };
 }
 
+function addToolId(previous: Set<string>, toolId: string) {
+  const next = new Set(previous);
+  next.add(toolId);
+  return next;
+}
+
+function removeToolId(previous: Set<string>, toolId: string) {
+  const next = new Set(previous);
+  next.delete(toolId);
+  return next;
+}
+
 export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -151,21 +172,33 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   >({});
   const [isDetecting, setIsDetecting] = useState(false);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const [uninstallingToolId, setUninstallingToolId] = useState<string | null>(null);
+  const [uninstallingToolIds, setUninstallingToolIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [launchingToolId, setLaunchingToolId] = useState<string | null>(null);
-  const [pendingInstallToolId, setPendingInstallToolId] = useState<string | null>(null);
+  const [pendingActionToolIds, setPendingActionToolIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const { data: installedTools = [] } = useInstalledTools();
   const { data: installRoot } = useInstallRoot();
-  const { data: updates = [] } = useToolUpdates();
+  const { data: updates = [], refetch: refetchToolUpdates } = useToolUpdates();
   const uninstallTool = useUninstallTool();
   const resolvePlan = useResolveInstallPlan();
   const executePlan = useExecuteInstallPlan();
-  const { getToolProgress, resetProgress } = useInstallProgress();
-  const installSessions = useInstallSessions();
+  const { getToolProgress, getToolTargetProgress, resetProgress } =
+    useInstallProgress();
+  const {
+    sessions: installSessions,
+    startOptimisticSession,
+    appendOptimisticEntry,
+    markSessionError,
+  } = useInstallSessions();
   const managedInstalledTools = installedTools.filter(
     (tool) => tool.status === "installed",
   );
+  const allToolMetaById = new Map(ALL_TOOLS_META.map((tool) => [tool.id, tool]));
+  const updatesByToolId = new Map(updates.map((update) => [update.toolId, update]));
   const effectiveInstallRoot = activeInstallRoot || installRoot || "";
   const selectedConsoleSession = openConsoleToolId
     ? installSessions.get(openConsoleToolId) ?? null
@@ -247,75 +280,92 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   );
 
   const handleUninstall = useCallback(
-    (toolId: string, rootPath: string) => {
-      setUninstallingToolId(toolId);
-      uninstallTool.mutate(
-        { toolId, rootPath },
-        {
-          onSuccess: () => {
-            toast.success(t("tools.uninstalled", "卸载成功"));
-            onToolStateChanged?.();
-            refreshDetectedTools(true).catch(() => {});
-          },
-          onError: (err) => {
-            setPendingInstallToolId(null);
-            toast.error(
-              t("tools.uninstallFailed", "卸载失败: {{error}}", {
-                error: String(err),
-              }),
-            );
-          },
-          onSettled: () => {
-            setUninstallingToolId(null);
-          },
-        },
-      );
+    async (toolId: string, rootPath: string) => {
+      const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+      setUninstallingToolIds((previous) => addToolId(previous, toolId));
+      try {
+        await uninstallTool.mutateAsync({ toolId, rootPath });
+        toast.success(t("tools.uninstalled", "卸载成功"));
+        onToolStateChanged?.();
+        await refreshDetectedTools(true).catch(() => {});
+      } catch (err) {
+        markSessionError(
+          toolId,
+          toolName,
+          `System: Install request failed before completion: ${String(err)}`,
+        );
+        toast.error(
+          t("tools.uninstallFailed", "卸载失败: {{error}}", {
+            error: String(err),
+          }),
+        );
+      } finally {
+        setUninstallingToolIds((previous) => removeToolId(previous, toolId));
+      }
     },
-    [onToolStateChanged, refreshDetectedTools, uninstallTool, t],
+    [allToolMetaById, markSessionError, onToolStateChanged, refreshDetectedTools, uninstallTool, t],
   );
 
   const handleSingleInstall = useCallback(
-    (toolId: string, rootPath?: string) => {
+    async (
+      toolId: string,
+      rootPath?: string,
+      options?: { openConsole?: boolean },
+    ) => {
       const resolvedRoot = (rootPath ?? effectiveInstallRoot).trim();
       if (!resolvedRoot) {
         toast.error(t("tools.installRootRequired", "请先设置安装根目录"));
         return;
       }
 
-      setPendingInstallToolId(toolId);
-      resolvePlan.mutate(
-        { toolIds: [toolId], installRoot: resolvedRoot },
-        {
-          onSuccess: (plan) => {
-            resetProgress();
-            executePlan.mutate(
-              { plan, rootPath: resolvedRoot },
-              {
-                onSuccess: () => {
-                  toast.success(t("tools.installStarted", "安装成功"));
-                },
-                onError: (err) => {
-                  setPendingInstallToolId(null);
-                  toast.error(
-                    t("tools.installFailed", "安装失败: {{error}}", {
-                      error: String(err),
-                    }),
-                  );
-                },
-              },
-            );
-          },
-          onError: (err) => {
-            toast.error(
-              t("tools.resolvePlanFailed", "解析安装计划失败: {{error}}", {
-                error: String(err),
-              }),
-            );
-          },
-        },
-      );
+      if (options?.openConsole) {
+        setOpenConsoleToolId(toolId);
+      }
+      const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+      setPendingActionToolIds((previous) => addToolId(previous, toolId));
+      startOptimisticSession(toolId, toolName, [
+        "System: Install requested.",
+        "System: Resolving install plan...",
+      ]);
+      try {
+        const plan = await resolvePlan.mutateAsync({
+          toolIds: [toolId],
+          installRoot: resolvedRoot,
+        });
+        appendOptimisticEntry(
+          toolId,
+          toolName,
+          "System: Install plan resolved. Starting installer...",
+        );
+        resetProgress();
+        appendOptimisticEntry(
+          toolId,
+          toolName,
+          "System: Waiting for installer process to start...",
+        );
+        await executePlan.mutateAsync({ plan, rootPath: resolvedRoot });
+        toast.success(t("tools.installStarted", "安装成功"));
+      } catch (err) {
+        toast.error(
+          t("tools.installFailed", "安装失败: {{error}}", {
+            error: String(err),
+          }),
+        );
+      } finally {
+        setPendingActionToolIds((previous) => removeToolId(previous, toolId));
+      }
     },
-    [effectiveInstallRoot, executePlan, resetProgress, resolvePlan, t],
+    [
+      allToolMetaById,
+      appendOptimisticEntry,
+      effectiveInstallRoot,
+      executePlan,
+      markSessionError,
+      resetProgress,
+      resolvePlan,
+      startOptimisticSession,
+      t,
+    ],
   );
 
   const persistInstallRoot = useCallback(
@@ -352,6 +402,25 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     [effectiveInstallRoot, queryClient, t],
   );
 
+  const getDisplayProgress = useCallback(
+    (toolId: string) => {
+      const progress = getToolProgress(toolId);
+      if (progress) {
+        return progress;
+      }
+
+      if (pendingActionToolIds.has(toolId)) {
+        const tool = allToolMetaById.get(toolId);
+        if (tool) {
+          return buildPendingInstallProgress(tool);
+        }
+      }
+
+      return null;
+    },
+    [allToolMetaById, getToolProgress, pendingActionToolIds],
+  );
+
   return (
     <div className="px-5 py-5">
       <div className="mb-5 flex items-center justify-between">
@@ -376,17 +445,25 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
             size="sm"
             onClick={() => {
               setIsCheckingUpdates(true);
-              queryClient.invalidateQueries({ queryKey: ["tool-updates"] }).finally(() => {
-                setIsCheckingUpdates(false);
-                if (updates.length > 0) {
+              refetchToolUpdates().then(({ data }) => {
+                const nextUpdates = data ?? [];
+                if (nextUpdates.length > 0) {
                   toast.info(
                     t("tools.updatesAvailable", "{{count}} 个工具可更新", {
-                      count: updates.length,
+                      count: nextUpdates.length,
                     }),
                   );
                 } else {
                   toast.success(t("tools.allUpToDate", "所有工具均为最新版本"));
                 }
+              }).catch((error) => {
+                toast.error(
+                  t("tools.checkUpdatesFailed", "妫€鏌ユ洿鏂板け璐? {{error}}", {
+                    error: String(error),
+                  }),
+                );
+              }).finally(() => {
+                setIsCheckingUpdates(false);
               });
             }}
             className="text-[13px]"
@@ -435,9 +512,10 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 key={tool.id}
                 tool={tool}
                 variant="installed"
-                isUninstalling={uninstallingToolId === tool.id}
+                isUninstalling={uninstallingToolIds.has(tool.id)}
                 isLaunching={launchingToolId === tool.id}
-                progress={getToolProgress(tool.id)}
+                isUpdating={pendingActionToolIds.has(tool.id)}
+                progress={getDisplayProgress(tool.id)}
                 installSession={installSessions.get(tool.id) ?? null}
                 onOpenFolder={
                   tool.installPath
@@ -467,8 +545,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                     : undefined
                 }
                 onUpdate={
-                  updates.find((update) => update.toolId === tool.id)
-                    ? () => handleSingleInstall(tool.id, tool.installRoot)
+                  updatesByToolId.has(tool.id)
+                    ? () =>
+                        handleSingleInstall(tool.id, tool.installRoot, {
+                          openConsole: true,
+                        })
                     : undefined
                 }
                 onShowConsole={() =>
@@ -487,16 +568,12 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
               key={tool.id}
               tool={tool}
               variant="available"
-              progress={
-                getToolProgress(tool.id) ??
-                (pendingInstallToolId === tool.id
-                  ? buildPendingInstallProgress(tool)
-                  : null)
-              }
+              progress={getDisplayProgress(tool.id)}
               installSession={installSessions.get(tool.id) ?? null}
               onInstall={() => {
-                handleSingleInstall(tool.id, effectiveInstallRoot);
-                setOpenConsoleToolId(tool.id);
+                handleSingleInstall(tool.id, effectiveInstallRoot, {
+                  openConsole: true,
+                });
               }}
               onShowConsole={() =>
                 setOpenConsoleToolId((current) =>
@@ -510,7 +587,15 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
 
       {visibleConsoleSession && (
         <div className="mt-4">
-          <InstallConsole session={visibleConsoleSession} />
+          <InstallConsole
+            session={visibleConsoleSession}
+            progress={
+              openConsoleToolId
+                ? getToolTargetProgress(openConsoleToolId) ??
+                  getDisplayProgress(openConsoleToolId)
+                : null
+            }
+          />
         </div>
       )}
 

@@ -66,6 +66,7 @@ export interface InstallLogEvent {
   line: string;
   command?: string;
   exitCode?: number | null;
+  source?: "native" | "optimistic";
 }
 
 export interface InstallActivityItem {
@@ -79,6 +80,7 @@ export interface ToolInstallSession {
   toolName: string;
   sessionId: string;
   status: "running" | "complete" | "error";
+  source?: "native" | "optimistic";
   startedAt: string;
   endedAt?: string;
   lastSummary?: string;

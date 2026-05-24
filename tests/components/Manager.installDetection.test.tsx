@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Manager } from "@/pages/Manager";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
@@ -134,6 +134,10 @@ describe("Manager install detection", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("shows externally detected tools as installed with an uninstall button", async () => {
     const user = userEvent.setup();
     render(
@@ -160,7 +164,7 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
         "opencode-cli",
-        "D:\\AgenticTools",
+        "C:\\Tools\\opencode-cli",
       );
     });
   });
@@ -193,7 +197,7 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
         "hermes",
-        "D:\\AgenticTools",
+        "C:\\Tools\\hermes",
       );
     });
   });
@@ -230,6 +234,91 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
         "hermes",
+        "D:\\AgenticTools\\hermes",
+      );
+    });
+  });
+
+  it("uninstalls externally detected CLI tools using the detected install path", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(
+      buildDetectResultsWithInstallPaths({
+        "opencode-cli": "C:\\Users\\me\\AppData\\Roaming\\npm",
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    const openCodeCard = (await screen.findByText("OpenCode (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(openCodeCard).not.toBeNull();
+
+    await user.click(within(openCodeCard as HTMLElement).getByTitle("卸载"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "opencode-cli",
+        "C:\\Users\\me\\AppData\\Roaming\\npm",
+      );
+    });
+  });
+
+  it("shows uninstall for detected desktop tools even when no install path is available", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(
+      TOOL_IDS.map((id) =>
+        id === "codex-desktop"
+          ? {
+              installed: true,
+              version: "1.0.0",
+              installPath: undefined,
+            }
+          : {
+              installed: false,
+              version: undefined,
+              installPath: undefined,
+            },
+      ),
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    const codexDesktopCard = (
+      await screen.findAllByText("Codex (桌面版)")
+    )[0].closest(".claude-card");
+    expect(codexDesktopCard).not.toBeNull();
+
+    const uninstallButton = within(codexDesktopCard as HTMLElement).getByTitle("卸载");
+    await user.click(uninstallButton);
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
+        "codex-desktop",
         "D:\\AgenticTools",
       );
     });
@@ -320,6 +409,74 @@ describe("Manager install detection", () => {
     await waitFor(() => {
       expect(screen.getAllByRole("tab")[0]).toHaveTextContent("(0)");
       expect(screen.getAllByRole("tab")[1]).toHaveTextContent("(9)");
+    });
+  });
+
+  it("keeps independent uninstall loading states for parallel uninstalls", async () => {
+    const user = userEvent.setup();
+    const firstUninstall = createDeferred<void>();
+    const secondUninstall = createDeferred<void>();
+
+    toolsApiMock.detectTools.mockResolvedValue(
+      buildDetectResults(["codex-cli", "gemini-cli"]),
+    );
+    toolsApiMock.uninstallTool
+      .mockReturnValueOnce(firstUninstall.promise)
+      .mockReturnValueOnce(secondUninstall.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    const geminiCard = (await screen.findByText("Gemini CLI")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+    expect(geminiCard).not.toBeNull();
+
+    await user.click(within(codexCard as HTMLElement).getByTitle("卸载"));
+    await user.click(within(geminiCard as HTMLElement).getByTitle("卸载"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.uninstallTool).toHaveBeenNthCalledWith(
+        1,
+        "codex-cli",
+        "C:\\Tools\\codex-cli",
+      );
+      expect(toolsApiMock.uninstallTool).toHaveBeenNthCalledWith(
+        2,
+        "gemini-cli",
+        "C:\\Tools\\gemini-cli",
+      );
+    });
+
+    expect(
+      within(codexCard as HTMLElement).getByTitle("卸载"),
+    ).toBeDisabled();
+    expect(
+      within(geminiCard as HTMLElement).getByTitle("卸载"),
+    ).toBeDisabled();
+
+    firstUninstall.resolve();
+    await waitFor(() => {
+      expect(
+        within(codexCard as HTMLElement).getByTitle("卸载"),
+      ).not.toBeDisabled();
+    });
+    expect(
+      within(geminiCard as HTMLElement).getByTitle("卸载"),
+    ).toBeDisabled();
+
+    secondUninstall.resolve();
+    await waitFor(() => {
+      expect(
+        within(geminiCard as HTMLElement).getByTitle("卸载"),
+      ).not.toBeDisabled();
     });
   });
 
@@ -460,6 +617,226 @@ describe("Manager install detection", () => {
     ).not.toBeInTheDocument();
     expect(
       within(codexCard as HTMLElement).getByText(/Preparing installation|准备安装/),
+    ).toBeInTheDocument();
+    expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it("opens the console immediately after clicking install, even before plan resolution", async () => {
+    const user = userEvent.setup();
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(
+      within(codexCard as HTMLElement).getByTitle("安装"),
+    );
+
+    expect(
+      await screen.findByText("System: Install requested."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("System: Resolving install plan..."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Codex \(CLI\)/i }),
+    ).toBeInTheDocument();
+    expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps console content when reopening and appends new output incrementally", async () => {
+    const user = userEvent.setup();
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(
+      within(codexCard as HTMLElement).getByTitle("安装"),
+    );
+
+    expect(
+      await screen.findByText("System: Resolving install plan..."),
+    ).toBeInTheDocument();
+
+    await user.click(within(codexCard as HTMLElement).getByTitle("控制台"));
+    expect(
+      screen.queryByText("System: Resolving install plan..."),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-reopen",
+        timestamp: "2026-05-12T08:00:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+      installLogListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        sessionId: "session-reopen",
+        timestamp: "2026-05-12T08:00:01.000Z",
+        level: "info",
+        kind: "command",
+        line: "Running installer command",
+        command: "installer.exe /S",
+      });
+    });
+
+    await user.click(within(codexCard as HTMLElement).getByTitle("控制台"));
+    expect(
+      await screen.findByText("System: Resolving install plan..."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Running installer command")).toBeInTheDocument();
+  });
+
+  it("loads older console output when scrolling to the top", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-scroll",
+        timestamp: "2026-05-12T11:00:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+
+      for (let index = 1; index <= 120; index += 1) {
+        installLogListener?.({
+          toolId: "openclaw",
+          toolName: "OpenClaw",
+          sessionId: "session-scroll",
+          timestamp: `2026-05-12T11:00:${String(index).padStart(2, "0")}.000Z`,
+          level: "stdout",
+          kind: "output",
+          line: `Output line ${index}`,
+        });
+      }
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(within(openClawCard as HTMLElement).getByTitle("控制台"));
+
+    expect(screen.getByText("Output line 120")).toBeInTheDocument();
+    expect(screen.queryByText("Output line 1")).not.toBeInTheDocument();
+
+    fireEvent.scroll(screen.getByTestId("install-console-viewport"), {
+      target: { scrollTop: 0 },
+    });
+
+    expect(await screen.findByText("Output line 1")).toBeInTheDocument();
+  });
+
+  it("shows immediate update feedback for installed tools before the update plan finishes resolving", async () => {
+    const user = userEvent.setup();
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+
+    toolsApiMock.getInstalledTools.mockResolvedValue([
+      {
+        id: "codex-cli",
+        name: "Codex (CLI)",
+        version: "codex 0.24.0",
+        installPath: "D:\\AgenticTools\\codex-cli",
+        installRoot: "D:\\AgenticTools",
+        category: "tool",
+        status: "installed",
+      },
+    ]);
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.checkToolUpdates.mockResolvedValue([
+      {
+        toolId: "codex-cli",
+        currentVersion: "codex 0.24.0",
+        latestVersion: "0.25.0",
+      },
+    ]);
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(within(codexCard as HTMLElement).getByTitle("更新"));
+
+    await waitFor(() => {
+      expect(toolsApiMock.resolveInstallPlan).toHaveBeenCalledWith(
+        ["codex-cli"],
+        "D:\\AgenticTools",
+      );
+    });
+    expect(
+      within(codexCard as HTMLElement).getByText(/Preparing installation|鍑嗗瀹夎/),
     ).toBeInTheDocument();
     expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
   });
@@ -652,7 +1029,7 @@ describe("Manager install detection", () => {
     expect(openClawCard).not.toBeNull();
 
     await user.click(
-      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     );
 
     expect(
@@ -664,6 +1041,106 @@ describe("Manager install detection", () => {
     expect(screen.getByText("Running installer command")).toBeInTheDocument();
     expect(
       screen.getByText("Download complete: installer payload ready"),
+    ).toBeInTheDocument();
+  });
+
+  it("adds heartbeat-style system updates while a session is still running", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-heartbeat",
+        timestamp: "2026-05-12T09:30:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
+    );
+
+    expect(screen.getByText("System: Creating install session...")).toBeInTheDocument();
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 2600));
+    });
+
+    expect(
+      screen.getByText("System: Verifying installer is still running..."),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 2600));
+    });
+
+    expect(
+      screen.getByText("System: Waiting for next installer output..."),
+    ).toBeInTheDocument();
+  }, 10000);
+
+  it("shows denser system summaries from progress updates inside the console", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-progress-density",
+        timestamp: "2026-05-12T09:40:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+      installProgressListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        phase: "configuring",
+        percent: 65,
+        message: "Waiting for the official OpenClaw installer to finish...",
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
+    );
+
+    expect(
+      screen.getByText("System: configuring 65% complete."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "System: Waiting for the official OpenClaw installer to finish...",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -705,7 +1182,7 @@ describe("Manager install detection", () => {
     expect(codexCard).not.toBeNull();
 
     await user.click(
-      within(codexCard as HTMLElement).getByRole("button", { name: /Console/i }),
+      within(codexCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     );
 
     expect(screen.getByText("Version 1.2.3 installed successfully")).toBeInTheDocument();
@@ -730,7 +1207,7 @@ describe("Manager install detection", () => {
     codexCard = (await screen.findByText("Codex (CLI)")).closest(".claude-card");
     expect(codexCard).not.toBeNull();
     expect(
-      within(codexCard as HTMLElement).queryByRole("button", { name: /Console/i }),
+      within(codexCard as HTMLElement).queryByRole("button", { name: /控制台/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -763,7 +1240,7 @@ describe("Manager install detection", () => {
     expect(openClawCard).not.toBeNull();
 
     await user.click(
-      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     );
 
     const consoleHeader = screen.getByRole("button", { name: /OpenClaw/i });
@@ -811,7 +1288,7 @@ describe("Manager install detection", () => {
     expect(openClawCard).not.toBeNull();
 
     await user.click(
-      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     );
 
     expect(screen.getByText("First session command")).toBeInTheDocument();
@@ -883,7 +1360,7 @@ describe("Manager install detection", () => {
     openClawCard = screen.getAllByText("OpenClaw")[0]?.closest(".claude-card") ?? null;
     expect(openClawCard).not.toBeNull();
     expect(
-      within(openClawCard as HTMLElement).getByRole("button", { name: /Console/i }),
+      within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     ).toBeInTheDocument();
   });
 });

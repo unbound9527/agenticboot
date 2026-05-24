@@ -312,4 +312,15 @@ mod tests {
             "nodejs should be scheduled because openclaw requires a newer node version"
         );
     }
+
+    #[test]
+    fn resolve_install_plan_does_not_require_git_for_openclaw() {
+        let plan = resolve_install_plan(&["openclaw".to_string()], None).expect("plan");
+
+        assert!(plan.steps.iter().any(|step| step.tool_id == "openclaw"));
+        assert!(
+            !plan.steps.iter().any(|step| step.tool_id == "git"),
+            "openclaw should no longer pull git in as a direct dependency"
+        );
+    }
 }

@@ -1,19 +1,19 @@
-use crate::plugin::ToolPlugin;
+use crate::plugin::{NpmRegistrySource, ToolInstallContext, ToolPlugin};
 use crate::plugins::npm_cli::{detect_npm_cli, uninstall_npm_cli};
+use crate::services::installer::logging::InstallLogEmitter;
+use crate::services::installer::windows::{
+    run_npm_command_checked_with_env, run_npm_command_checked_with_env_and_logs,
+};
 use crate::tool_types::{
     DetectResult, InstallLogLevel, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
 };
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
 pub struct OpenClawPlugin;
 
-const OPENCLAW_SOURCE_ZIP_URL: &str =
-    "https://github.com/openclaw/openclaw/archive/refs/heads/main.zip";
-const OPENCLAW_SOURCE_ZIP_NAME: &str = "openclaw-source.zip";
-const OPENCLAW_SOURCE_DIR_NAME: &str = "openclaw-source";
+const OPENCLAW_PACKAGE: &str = "openclaw@latest";
+const OPENCLAW_EXTRA_ENV: [(&str, &str); 1] = [("SHARP_IGNORE_GLOBAL_LIBVIPS", "1")];
 
 fn emit_openclaw_progress(
     progress: &Sender<InstallProgress>,
@@ -30,313 +30,133 @@ fn emit_openclaw_progress(
     });
 }
 
-fn managed_node_dir(install_root: &Path) -> Option<PathBuf> {
-    let node_dir = install_root.join("nodejs");
-    (node_dir.join("node.exe").exists() && node_dir.join("corepack.cmd").exists())
-        .then_some(node_dir)
-}
-
-fn build_path_with_managed_node(install_root: &Path) -> Option<OsString> {
-    let managed_node = managed_node_dir(install_root)?;
-    let current_path = std::env::var_os("PATH").unwrap_or_default();
-    let mut combined = Vec::with_capacity(1 + std::env::split_paths(&current_path).count());
-    combined.push(managed_node);
-    combined.extend(std::env::split_paths(&current_path));
-    std::env::join_paths(combined).ok()
-}
-
-fn emit_openclaw_output(phase: &str, level: InstallLogLevel, text: &[u8]) {
-    let _ = (phase, level, text);
-}
-
-fn emit_openclaw_output_with_log(
-    install_log: Option<&crate::services::installer::logging::InstallLogEmitter>,
-    phase: &str,
-    level: InstallLogLevel,
-    text: &[u8],
-) {
-    if let Some(install_log) = install_log {
-        for line in String::from_utf8_lossy(text)
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-        {
-            install_log.emit_output(phase, level, line.to_string());
-        }
-    } else {
-        emit_openclaw_output(phase, level, text);
-    }
-}
-
-fn format_command_for_log(program: &Path, args: &[String]) -> String {
-    let mut parts = vec![quote_for_cmd(program.to_string_lossy().as_ref())];
-    parts.extend(args.iter().map(|arg| quote_for_cmd(arg)));
-    parts.join(" ")
-}
-
-fn quote_for_cmd(text: &str) -> String {
-    if text.contains(' ') || text.contains('\t') || text.contains('"') {
-        format!("\"{}\"", text.replace('"', "\\\""))
-    } else {
-        text.to_string()
-    }
-}
-
-fn run_openclaw_command(
-    install_root: &Path,
-    program: &Path,
-    args: &[String],
-    current_dir: &Path,
-    phase: &str,
-    context: &str,
-    install_log: Option<&crate::services::installer::logging::InstallLogEmitter>,
-) -> Result<(), String> {
-    let mut command = Command::new(program);
-    command.args(args);
-    command.current_dir(current_dir);
-    command.env("NPM_CONFIG_SCRIPT_SHELL", "cmd.exe");
-
-    if let Some(path_with_managed_node) = build_path_with_managed_node(install_root) {
-        command.env("PATH", path_with_managed_node);
-    }
-
-    if let Some(install_log) = install_log {
-        install_log.emit_command(phase, format_command_for_log(program, args));
-    }
-
-    let output = command
-        .output()
-        .map_err(|e| format!("{context} failed: {e}"))?;
-    emit_openclaw_output_with_log(install_log, phase, InstallLogLevel::Stdout, &output.stdout);
-    emit_openclaw_output_with_log(install_log, phase, InstallLogLevel::Stderr, &output.stderr);
-
-    if output.status.success() {
-        if let Some(install_log) = install_log {
-            install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
-        }
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
-        Err(format!(
-            "{context} failed: exit code {:?}",
-            output.status.code()
-        ))
-    } else {
-        Err(format!("{context} failed: {stderr}"))
-    }
-}
-
-fn find_openclaw_source_root(checkout_dir: &Path) -> Result<PathBuf, String> {
-    let mut roots: Vec<PathBuf> = std::fs::read_dir(checkout_dir)
-        .map_err(|e| format!("failed to read OpenClaw checkout: {e}"))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .filter(|path| path.join("package.json").is_file() && path.join("openclaw.mjs").is_file())
-        .collect();
-
-    match roots.len() {
-        0 => Err(
-            "OpenClaw source archive did not contain a project root with package.json and openclaw.mjs"
-                .into(),
-        ),
-        1 => Ok(roots.remove(0)),
-        _ => Err("OpenClaw source archive contained multiple candidate project roots".into()),
-    }
-}
-
-fn write_managed_openclaw_wrapper(
-    target_dir: &Path,
-    install_root: &Path,
-    source_root: &Path,
-) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(target_dir)
-        .map_err(|e| format!("failed to create OpenClaw target dir: {e}"))?;
-
-    let node_dir = managed_node_dir(install_root)
-        .ok_or_else(|| "managed Node.js runtime is missing node.exe/corepack.cmd".to_string())?;
-    let node_exe = node_dir.join("node.exe");
-    let launcher = source_root.join("openclaw.mjs");
-    if !launcher.exists() {
-        return Err(format!(
-            "OpenClaw source build is missing launcher {}",
-            launcher.display()
-        ));
-    }
-
-    let wrapper = target_dir.join("openclaw.cmd");
-    let contents = format!(
-        "@echo off\r\n\"{}\" \"{}\" %*\r\n",
-        node_exe.display(),
-        launcher.display()
+fn openclaw_install_args(target_dir: &Path, registry_source: NpmRegistrySource) -> Vec<String> {
+    let mut args = vec![
+        "install".to_string(),
+        "-g".to_string(),
+        OPENCLAW_PACKAGE.to_string(),
+        "--prefix".to_string(),
+        target_dir.to_string_lossy().to_string(),
+    ];
+    args.extend(
+        registry_source
+            .install_args()
+            .iter()
+            .map(|arg| (*arg).to_string()),
     );
-    std::fs::write(&wrapper, contents)
-        .map_err(|e| format!("failed to write managed OpenClaw wrapper: {e}"))?;
-    Ok(wrapper)
+    args
 }
 
-fn install_openclaw_from_source_archive(
-    target_dir: &Path,
-    install_root: &Path,
-    progress: &Sender<InstallProgress>,
-    install_log: Option<&crate::services::installer::logging::InstallLogEmitter>,
-) -> Result<(), String> {
-    let node_dir = managed_node_dir(install_root).ok_or_else(|| {
-        "managed Node.js runtime is required before installing OpenClaw".to_string()
-    })?;
-    let corepack = node_dir.join("corepack.cmd");
-    if !corepack.exists() {
-        return Err(format!(
-            "managed Node.js runtime is missing {}",
-            corepack.display()
-        ));
-    }
-
-    emit_openclaw_progress(
-        progress,
-        "downloading",
-        18,
-        "Downloading OpenClaw source archive...",
-    );
-    if let Some(install_log) = install_log {
-        install_log.emit_phase(
-            "downloading",
-            "Downloading OpenClaw source archive from GitHub",
-        );
-        install_log.emit_output(
-            "downloading",
-            InstallLogLevel::Info,
-            format!("Using managed Node.js from {}", node_dir.display()),
-        );
-    }
-
+fn clear_openclaw_target_dir(target_dir: &Path) -> Result<(), String> {
     if target_dir.exists() {
         std::fs::remove_dir_all(target_dir)
             .map_err(|e| format!("failed to clear managed OpenClaw directory: {e}"))?;
     }
-    std::fs::create_dir_all(target_dir)
-        .map_err(|e| format!("failed to create managed OpenClaw directory: {e}"))?;
+    Ok(())
+}
 
-    let source_checkout_dir = target_dir.join(OPENCLAW_SOURCE_DIR_NAME);
-    let zip_path = target_dir.join(OPENCLAW_SOURCE_ZIP_NAME);
-
-    let runtime =
-        tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
-    runtime.block_on(async {
-        crate::services::downloader::download_file(OPENCLAW_SOURCE_ZIP_URL, &zip_path, None).await
-    })?;
+fn install_openclaw_with_retry<F>(
+    target_dir: &Path,
+    registry_source: NpmRegistrySource,
+    progress: &Sender<InstallProgress>,
+    install_log: Option<&InstallLogEmitter>,
+    mut run_install: F,
+) -> Result<(), String>
+where
+    F: FnMut(&[String], Option<&InstallLogEmitter>) -> Result<(), String>,
+{
+    let args = openclaw_install_args(target_dir, registry_source);
 
     emit_openclaw_progress(
         progress,
-        "extracting",
-        30,
-        "Extracting OpenClaw source archive...",
+        "downloading",
+        25,
+        "Installing OpenClaw from npm...",
     );
     if let Some(install_log) = install_log {
-        install_log.emit_phase("extracting", "Extracting OpenClaw source archive");
+        install_log.emit_phase("downloading", "Installing OpenClaw with managed npm prefix");
+        install_log.emit_output(
+            "downloading",
+            InstallLogLevel::Info,
+            format!(
+                "Cleaning managed install directory: {}",
+                target_dir.display()
+            ),
+        );
     }
+    clear_openclaw_target_dir(target_dir)?;
 
-    std::fs::create_dir_all(&source_checkout_dir)
-        .map_err(|e| format!("failed to create OpenClaw source dir: {e}"))?;
-    crate::services::downloader::extract_zip(&zip_path, &source_checkout_dir)?;
-    std::fs::remove_file(&zip_path).ok();
-
-    let source_root = find_openclaw_source_root(&source_checkout_dir)?;
-
-    emit_openclaw_progress(progress, "installing", 45, "Preparing pnpm via corepack...");
-    run_openclaw_command(
-        install_root,
-        &corepack,
-        &["pnpm".to_string(), "--version".to_string()],
-        &source_root,
-        "installing",
-        "prepare pnpm",
-        install_log,
-    )?;
-
-    emit_openclaw_progress(
-        progress,
-        "installing",
-        55,
-        "Installing OpenClaw source dependencies...",
-    );
-    run_openclaw_command(
-        install_root,
-        &corepack,
-        &[
-            "pnpm".to_string(),
-            "-C".to_string(),
-            source_root.to_string_lossy().to_string(),
-            "install".to_string(),
-        ],
-        &source_root,
-        "installing",
-        "install OpenClaw source dependencies",
-        install_log,
-    )?;
-
-    emit_openclaw_progress(progress, "installing", 72, "Building OpenClaw UI...");
-    let ui_build_result = run_openclaw_command(
-        install_root,
-        &corepack,
-        &[
-            "pnpm".to_string(),
-            "-C".to_string(),
-            source_root.to_string_lossy().to_string(),
-            "ui:build".to_string(),
-        ],
-        &source_root,
-        "installing",
-        "build OpenClaw UI",
-        install_log,
-    );
-    if let Err(error) = ui_build_result {
-        if let Some(install_log) = install_log {
-            install_log.emit_output(
+    match run_install(&args, install_log) {
+        Ok(()) => {}
+        Err(first_error) => {
+            emit_openclaw_progress(
+                progress,
                 "installing",
-                InstallLogLevel::Info,
-                format!("{error}; continuing because CLI may still work"),
+                55,
+                "Retrying OpenClaw after clearing stale install files...",
             );
+            if let Some(install_log) = install_log {
+                install_log.emit_output(
+                    "installing",
+                    InstallLogLevel::Info,
+                    format!("First npm install failed: {first_error}"),
+                );
+                install_log.emit_output(
+                    "installing",
+                    InstallLogLevel::Info,
+                    format!(
+                        "Retrying OpenClaw after clearing managed install directory: {}",
+                        target_dir.display()
+                    ),
+                );
+            }
+            clear_openclaw_target_dir(target_dir)?;
+            run_install(&args, install_log)
+                .map_err(|retry_error| format!("{retry_error} (first attempt: {first_error})"))?;
         }
     }
 
-    emit_openclaw_progress(progress, "installing", 82, "Building OpenClaw CLI...");
-    run_openclaw_command(
-        install_root,
-        &corepack,
-        &[
-            "pnpm".to_string(),
-            "-C".to_string(),
-            source_root.to_string_lossy().to_string(),
-            "build".to_string(),
-        ],
-        &source_root,
-        "installing",
-        "build OpenClaw CLI",
-        install_log,
-    )?;
-
     emit_openclaw_progress(
         progress,
-        "configuring",
-        92,
-        "Writing managed OpenClaw launcher...",
+        "installing",
+        90,
+        "Finalizing OpenClaw installation...",
     );
-    let wrapper = write_managed_openclaw_wrapper(target_dir, install_root, &source_root)?;
-    run_openclaw_command(
-        install_root,
-        &wrapper,
-        &["--version".to_string()],
-        target_dir,
-        "configuring",
-        "verify managed OpenClaw launcher",
-        install_log,
-    )?;
-
-    emit_openclaw_progress(progress, "complete", 100, "OpenClaw install complete");
     Ok(())
+}
+
+fn install_openclaw_managed(
+    target_dir: &Path,
+    install_root: &Path,
+    progress: &Sender<InstallProgress>,
+    registry_source: NpmRegistrySource,
+    install_log: Option<&InstallLogEmitter>,
+) -> Result<(), String> {
+    install_openclaw_with_retry(
+        target_dir,
+        registry_source,
+        progress,
+        install_log,
+        |args, install_log| {
+            let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+            match install_log {
+                Some(install_log) => run_npm_command_checked_with_env_and_logs(
+                    install_root,
+                    install_log,
+                    "downloading",
+                    &arg_refs,
+                    "npm install failed",
+                    &OPENCLAW_EXTRA_ENV,
+                ),
+                None => run_npm_command_checked_with_env(
+                    install_root,
+                    &arg_refs,
+                    "npm install failed",
+                    &OPENCLAW_EXTRA_ENV,
+                ),
+            }
+        },
+    )
 }
 
 impl ToolPlugin for OpenClawPlugin {
@@ -359,16 +179,10 @@ impl ToolPlugin for OpenClawPlugin {
     }
 
     fn dependencies(&self) -> Vec<ToolDependency> {
-        vec![
-            ToolDependency {
-                tool_id: "nodejs".into(),
-                min_version: Some(">= 22.16.0".into()),
-            },
-            ToolDependency {
-                tool_id: "git".into(),
-                min_version: None,
-            },
-        ]
+        vec![ToolDependency {
+            tool_id: "nodejs".into(),
+            min_version: Some(">= 22.16.0".into()),
+        }]
     }
 
     #[cfg(target_os = "windows")]
@@ -378,7 +192,13 @@ impl ToolPlugin for OpenClawPlugin {
         install_root: &Path,
         progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
-        install_openclaw_from_source_archive(target_dir, install_root, &progress, None)
+        install_openclaw_managed(
+            target_dir,
+            install_root,
+            &progress,
+            NpmRegistrySource::Official,
+            None,
+        )
     }
 
     #[cfg(target_os = "windows")]
@@ -387,12 +207,13 @@ impl ToolPlugin for OpenClawPlugin {
         target_dir: &Path,
         install_root: &Path,
         progress: Sender<InstallProgress>,
-        context: crate::plugin::ToolInstallContext,
+        context: ToolInstallContext,
     ) -> Result<(), String> {
-        install_openclaw_from_source_archive(
+        install_openclaw_managed(
             target_dir,
             install_root,
             &progress,
+            context.npm_registry_source(),
             Some(context.install_log()),
         )
     }
@@ -408,23 +229,23 @@ impl ToolPlugin for OpenClawPlugin {
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
-        if target_dir.join("openclaw.cmd").exists()
-            && target_dir.join(OPENCLAW_SOURCE_DIR_NAME).exists()
-        {
-            return Ok(());
+        uninstall_npm_cli(target_dir, "openclaw")?;
+
+        if target_dir.exists() {
+            std::fs::remove_dir_all(target_dir)
+                .map_err(|e| format!("删除 OpenClaw 安装目录失败: {e}"))?;
         }
-        uninstall_npm_cli(target_dir, "openclaw")
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_path_with_managed_node, find_openclaw_source_root, managed_node_dir,
-        write_managed_openclaw_wrapper, OpenClawPlugin, OPENCLAW_SOURCE_DIR_NAME,
-    };
-    use crate::plugin::ToolPlugin;
-    use crate::tool_types::InstallStrategy;
+    use super::{install_openclaw_with_retry, openclaw_install_args, OpenClawPlugin};
+    use crate::plugin::{NpmRegistrySource, ToolPlugin};
+    use crate::tool_types::{InstallProgress, InstallStrategy};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
 
     #[test]
     fn native_windows_openclaw_uses_managed_prefix_strategy() {
@@ -435,57 +256,58 @@ mod tests {
     }
 
     #[test]
-    fn openclaw_uses_managed_node_when_available() {
+    fn openclaw_install_args_add_mirror_registry_when_requested() {
         let tmp = tempfile::tempdir().unwrap();
-        let node_dir = tmp.path().join("nodejs");
-        std::fs::create_dir_all(&node_dir).unwrap();
-        std::fs::write(node_dir.join("node.exe"), b"").unwrap();
-        std::fs::write(node_dir.join("corepack.cmd"), b"").unwrap();
+        let target_dir = tmp.path().join("openclaw");
+        let args = openclaw_install_args(&target_dir, NpmRegistrySource::Mirror);
 
-        let managed_dir = managed_node_dir(tmp.path()).expect("managed node dir");
-        let path = build_path_with_managed_node(tmp.path()).expect("path");
-        let first_entry = std::env::split_paths(&path)
-            .next()
-            .expect("first path entry");
-
-        assert_eq!(managed_dir, node_dir);
-        assert_eq!(first_entry, node_dir);
+        assert_eq!(args[0], "install");
+        assert_eq!(args[1], "-g");
+        assert_eq!(args[2], "openclaw@latest");
+        assert!(args.contains(&"--registry".to_string()));
+        assert!(args.contains(&"https://registry.npmmirror.com".to_string()));
     }
 
     #[test]
-    fn openclaw_source_root_finds_github_archive_layout() {
+    fn openclaw_install_retries_once_after_clearing_stale_directory() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().join("openclaw-main");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("package.json"), "{}").unwrap();
-        std::fs::write(root.join("openclaw.mjs"), "").unwrap();
+        let target_dir = tmp.path().join("openclaw");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("stale.txt"), "stale").unwrap();
 
-        let resolved = find_openclaw_source_root(tmp.path()).unwrap();
-        assert_eq!(resolved, root);
-    }
+        let attempts = Arc::new(Mutex::new(Vec::new()));
+        let attempt_log = Arc::clone(&attempts);
+        let (tx, mut rx) = mpsc::channel::<InstallProgress>(8);
 
-    #[test]
-    fn openclaw_wrapper_uses_managed_node_and_source_launcher() {
-        let tmp = tempfile::tempdir().unwrap();
-        let install_root = tmp.path().join("root");
-        let target_dir = install_root.join("openclaw");
-        let source_root = target_dir
-            .join(OPENCLAW_SOURCE_DIR_NAME)
-            .join("openclaw-main");
-        let node_dir = install_root.join("nodejs");
+        let result = install_openclaw_with_retry(
+            &target_dir,
+            NpmRegistrySource::Official,
+            &tx,
+            None,
+            |args, _install_log| {
+                let mut attempts = attempt_log.lock().unwrap();
+                attempts.push(args.to_vec());
+                if attempts.len() == 1 {
+                    assert!(
+                        !target_dir.exists(),
+                        "target dir should be cleared before install"
+                    );
+                    return Err("npm install failed".into());
+                }
+                Ok(())
+            },
+        );
 
-        std::fs::create_dir_all(&source_root).unwrap();
-        std::fs::create_dir_all(&node_dir).unwrap();
-        std::fs::write(node_dir.join("node.exe"), b"").unwrap();
-        std::fs::write(node_dir.join("corepack.cmd"), b"").unwrap();
-        std::fs::write(source_root.join("openclaw.mjs"), "").unwrap();
+        assert!(result.is_ok());
+        assert_eq!(attempts.lock().unwrap().len(), 2);
+        assert!(!target_dir.exists());
 
-        let wrapper =
-            write_managed_openclaw_wrapper(&target_dir, &install_root, &source_root).unwrap();
-        let contents = std::fs::read_to_string(wrapper).unwrap();
-
-        assert!(contents.contains("node.exe"));
-        assert!(contents.contains("openclaw.mjs"));
+        let first = rx.try_recv().unwrap();
+        let second = rx.try_recv().unwrap();
+        let third = rx.try_recv().unwrap();
+        assert_eq!(first.phase, "downloading");
+        assert_eq!(second.phase, "installing");
+        assert_eq!(third.phase, "installing");
     }
 
     #[test]
@@ -509,12 +331,10 @@ mod tests {
     }
 
     #[test]
-    fn native_windows_openclaw_declares_node_and_git_dependencies() {
+    fn native_windows_openclaw_declares_node_dependency_only() {
         let deps = OpenClawPlugin.dependencies();
-        assert_eq!(deps.len(), 2);
+        assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].tool_id, "nodejs");
         assert_eq!(deps[0].min_version.as_deref(), Some(">= 22.16.0"));
-        assert_eq!(deps[1].tool_id, "git");
-        assert_eq!(deps[1].min_version, None);
     }
 }

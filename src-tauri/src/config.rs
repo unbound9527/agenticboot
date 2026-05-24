@@ -96,8 +96,7 @@ pub fn get_app_config_dir() -> PathBuf {
 
     // 兼容 v3.10.3：当用户环境存在 `HOME` 且与真实用户目录不同，
     // v3.10.3 可能在 `HOME/.cc-switch/` 下创建/使用了数据库。
-    // 这里仅在"默认位置没有数据库"时回退到旧位置，避免再次出现"供应商消失"问题，
-    // 同时也避免新安装因为 `HOME` 被设置而写入非预期路径。
+    // 若默认位置没有数据库，则复制旧数据库到新位置，避免数据丢失。
     #[cfg(windows)]
     {
         let default_db = default_dir.join("agenticboot.db");
@@ -106,13 +105,18 @@ pub fn get_app_config_dir() -> PathBuf {
                 let trimmed = home_env.trim();
                 if !trimmed.is_empty() {
                     let legacy_dir = PathBuf::from(trimmed).join(".cc-switch");
-                    if legacy_dir.join("cc-switch.db").exists() {
+                    let legacy_db = legacy_dir.join("cc-switch.db");
+                    if legacy_db.exists() {
                         log::info!(
-                            "Detected v3.10.3 legacy database at {}, using it instead of {}",
-                            legacy_dir.display(),
-                            default_dir.display()
+                            "Detected v3.10.3 legacy database at {}, copying to {}",
+                            legacy_db.display(),
+                            default_db.display()
                         );
-                        return legacy_dir;
+                        if let Err(e) = crate::config::copy_file(&legacy_db, &default_db) {
+                            log::warn!(
+                                "Failed to copy legacy database: {e}, using default location"
+                            );
+                        }
                     }
                 }
             }

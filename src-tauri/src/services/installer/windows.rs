@@ -618,23 +618,7 @@ pub fn run_command_checked_with_logs(
 
     let mut command = Command::new(program);
     command.args(args);
-    let output = match run_command_output(&mut command, failure_context) {
-        Ok(output) => output,
-        Err(error) => {
-            install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
-            return Err(error);
-        }
-    };
-    emit_output_lines(install_log, phase, &output);
-
-    if output.status.success() {
-        install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
-        return Ok(());
-    }
-
-    let details = command_failure_details(&output);
-    install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
-    Err(format!("{failure_context}: {details}"))
+    run_command_checked_with_logs_for_command(install_log, phase, &mut command, failure_context)
 }
 
 fn run_command_checked_with_command(
@@ -671,6 +655,31 @@ fn run_command_output(command: &mut Command, failure_context: &str) -> Result<Ou
     command
         .output()
         .map_err(|e| format!("{failure_context}: {e}"))
+}
+
+fn run_command_checked_with_logs_for_command(
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    command: &mut Command,
+    failure_context: &str,
+) -> Result<(), String> {
+    let output = match run_command_output(command, failure_context) {
+        Ok(output) => output,
+        Err(error) => {
+            install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+            return Err(error);
+        }
+    };
+    emit_output_lines(install_log, phase, &output);
+
+    if output.status.success() {
+        install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+        return Ok(());
+    }
+
+    let details = command_failure_details(&output);
+    install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+    Err(format!("{failure_context}: {details}"))
 }
 
 fn command_failure_details(output: &Output) -> String {
@@ -827,9 +836,29 @@ pub fn run_npm_command_checked_with_logs(
     args: &[&str],
     failure_context: &str,
 ) -> Result<(), String> {
+    run_npm_command_checked_with_env_and_logs(
+        install_root,
+        install_log,
+        phase,
+        args,
+        failure_context,
+        &[],
+    )
+}
+
+#[allow(dead_code)]
+pub fn run_npm_command_checked_with_env_and_logs(
+    install_root: &Path,
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    args: &[&str],
+    failure_context: &str,
+    extra_env: &[(&str, &str)],
+) -> Result<(), String> {
     if let Some(managed) = resolve_managed_npm_command(install_root) {
         let mut command = Command::new(&managed.program);
         command.args(&managed.prefix_args).args(args);
+        apply_command_extra_env(&mut command, extra_env);
 
         let all_args = managed
             .prefix_args
@@ -863,6 +892,7 @@ pub fn run_npm_command_checked_with_logs(
     if let Some(system) = resolve_system_npm_command() {
         let mut command = Command::new(&system.program);
         command.args(&system.prefix_args).args(args);
+        apply_command_extra_env(&mut command, extra_env);
 
         let all_args = system
             .prefix_args
@@ -893,7 +923,12 @@ pub fn run_npm_command_checked_with_logs(
         return Err(format!("{failure_context}: {details}"));
     }
 
-    run_command_checked_with_logs(install_log, phase, "npm", args, failure_context)
+    let mut command = Command::new("npm");
+    command.args(args);
+    apply_command_extra_env(&mut command, extra_env);
+    let command_line = format_command_for_log("npm", args);
+    install_log.emit_command(phase, command_line);
+    run_command_checked_with_logs_for_command(install_log, phase, &mut command, failure_context)
 }
 
 #[allow(dead_code)]

@@ -1,7 +1,7 @@
 use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::services::installer::windows::{
-    find_local_uninstaller_executable, find_uninstall_entry_ex,
+    find_local_uninstaller_executable, find_uninstall_entry_ex, read_command_version,
     run_windows_uninstaller_with_common_args, run_winget, run_winget_with_logs, winget_exists,
     WindowsUninstallEntry,
 };
@@ -235,14 +235,48 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         InstallStrategy::DesktopInstaller
     }
 
-    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
         info!("[Claude Desktop] detect called, searching registry for entries matching Claude/AnthropicClaude excluding CLI/npm");
         if let Some(entry) =
             find_uninstall_entry_ex(&["Claude", "AnthropicClaude"], &["CLI", "npm"])
         {
             info!("[Claude Desktop] detect found registry entry: name={:?}, version={:?}, install_location={:?}, uninstall_string={:?}",
                 entry.display_name, entry.display_version, entry.install_location, entry.uninstall_string);
-            return detect_claude_desktop_from_entry(entry);
+
+            // If registry has version, use it directly
+            if entry.display_version.is_some() {
+                return detect_claude_desktop_from_entry(entry);
+            }
+
+            // Registry has no DisplayVersion - try to get version from executable
+            let install_path = entry.install_location.or(entry
+                .display_icon
+                .and_then(|path| path.parent().map(PathBuf::from)));
+
+            if let Some(ref dir) = install_path {
+                // Try common executable names
+                let exe_names = ["Claude.exe", "Claude Desktop.exe", "claude.exe"];
+                for exe_name in &exe_names {
+                    let exe_path = dir.join(exe_name);
+                    if exe_path.exists() {
+                        if let Some(version) = read_command_version(&exe_path, &["--version"]) {
+                            debug!("[Claude Desktop] got version from executable: {}", version);
+                            return DetectResult {
+                                installed: true,
+                                version: Some(version),
+                                install_path: Some(dir.to_string_lossy().to_string()),
+                            };
+                        }
+                    }
+                }
+            }
+
+            // Fallback: return with no version (update detection won't work but detect succeeds)
+            return DetectResult {
+                installed: true,
+                version: None,
+                install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
+            };
         }
 
         debug!("Claude desktop not found in registry");

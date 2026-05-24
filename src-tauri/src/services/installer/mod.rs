@@ -17,10 +17,47 @@ use crate::tool_types::{
     InstallPlan, InstallProgress, InstallStrategy, NetworkStatus, ToolUpdateInfo,
 };
 use path_manager::PathManager;
+use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
+
+fn normalized_version_for_update(value: &str) -> Option<Vec<u64>> {
+    static VERSION_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let regex = VERSION_RE.get_or_init(|| {
+        Regex::new(r"(?i)\bv?(\d+\.\d+\.\d+(?:\.\d+)*)\b").expect("valid version regex")
+    });
+    let captures = regex.captures(value.trim())?;
+    captures
+        .get(1)?
+        .as_str()
+        .split('.')
+        .map(|part| part.parse::<u64>().ok())
+        .collect()
+}
+
+fn is_update_available(current_version: &str, latest_version: &str) -> bool {
+    match (
+        normalized_version_for_update(current_version),
+        normalized_version_for_update(latest_version),
+    ) {
+        (Some(current), Some(latest)) => {
+            let max_len = current.len().max(latest.len());
+            for index in 0..max_len {
+                let current_part = current.get(index).copied().unwrap_or(0);
+                let latest_part = latest.get(index).copied().unwrap_or(0);
+                match latest_part.cmp(&current_part) {
+                    std::cmp::Ordering::Greater => return true,
+                    std::cmp::Ordering::Less => return false,
+                    std::cmp::Ordering::Equal => {}
+                }
+            }
+            false
+        }
+        _ => latest_version.trim() != current_version.trim(),
+    }
+}
 
 /// npm 包名映射表（tool_id → npm package name）
 fn should_delete_install_dir(strategy: InstallStrategy, owned_by_root: bool) -> bool {
@@ -32,12 +69,13 @@ fn should_delete_install_dir(strategy: InstallStrategy, owned_by_root: bool) -> 
 }
 
 fn should_remove_shim(strategy: InstallStrategy, owned_by_root: bool) -> bool {
-    matches!(strategy, InstallStrategy::GlobalNpm)
-        || (owned_by_root
-            && matches!(
-                strategy,
-                InstallStrategy::ManagedPrefix | InstallStrategy::PythonPackage
-            ))
+    let _ = owned_by_root;
+    matches!(
+        strategy,
+        InstallStrategy::ManagedPrefix
+            | InstallStrategy::GlobalNpm
+            | InstallStrategy::PythonPackage
+    )
 }
 
 fn should_ignore_uninstall_error(strategy: InstallStrategy, owned_by_root: bool) -> bool {
@@ -48,6 +86,10 @@ fn allows_uninstall_outside_managed_root(_strategy: InstallStrategy) -> bool {
     true
 }
 
+fn is_user_facing_tool_category(category: &str) -> bool {
+    category == "tool" || category == "ai-cli"
+}
+
 fn normalize_for_ownership_check(path: &Path) -> Option<PathBuf> {
     if path.exists() {
         std::fs::canonicalize(path).ok()
@@ -56,7 +98,7 @@ fn normalize_for_ownership_check(path: &Path) -> Option<PathBuf> {
     }
 }
 
-fn is_install_owned_by_root(install_root: &Path, install_path: &Path) -> bool {
+pub(crate) fn is_install_owned_by_root(install_root: &Path, install_path: &Path) -> bool {
     let Some(normalized_root) = normalize_for_ownership_check(install_root) else {
         return false;
     };
@@ -135,6 +177,55 @@ fn choose_npm_registry_source(network: &NetworkStatus) -> NpmRegistrySource {
         NpmRegistrySource::Official
     } else {
         NpmRegistrySource::Mirror
+    }
+}
+
+fn get_tool_update_source(tool_id: &str) -> Option<(&'static str, &'static str)> {
+    match tool_id {
+        "claude-code-cli" => Some(("npm", "@anthropic-ai/claude-code")),
+        "codex-cli" => Some(("npm", "@openai/codex")),
+        "gemini-cli" => Some(("npm", "@google/gemini-cli")),
+        "opencode-cli" => Some(("npm", "opencode-ai")),
+        "openclaw" => Some(("npm", "openclaw")),
+        "opencode-desktop" => Some(("github", "opencode-ai/opencode")),
+        _ => None,
+    }
+}
+
+async fn fetch_latest_npm_version(client: &reqwest::Client, package_name: &str) -> Option<String> {
+    let url = format!("https://registry.npmjs.org/{package_name}");
+    let response = client.get(url).send().await.ok()?;
+    let json = response.json::<serde_json::Value>().await.ok()?;
+    json.get("dist-tags")
+        .and_then(|tags| tags.get("latest"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+async fn fetch_latest_github_release_version(
+    client: &reqwest::Client,
+    repo: &str,
+) -> Option<String> {
+    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let response = client
+        .get(url)
+        .header("User-Agent", "AgenticBoot")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .ok()?;
+    let json = response.json::<serde_json::Value>().await.ok()?;
+    json.get("tag_name")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim_start_matches('v').to_string())
+}
+
+async fn fetch_latest_tool_version(client: &reqwest::Client, tool_id: &str) -> Option<String> {
+    let (source, id) = get_tool_update_source(tool_id)?;
+    match source {
+        "npm" => fetch_latest_npm_version(client, id).await,
+        "github" => fetch_latest_github_release_version(client, id).await,
+        _ => None,
     }
 }
 
@@ -464,7 +555,7 @@ impl InstallerService {
         let target_dir = record
             .as_ref()
             .map(|record| PathBuf::from(&record.install_path))
-            .unwrap_or_else(|| self.path_manager.get_tool_install_dir(tool_id));
+            .unwrap_or_else(|| self.root_path.clone());
         let owned_by_root = record.as_ref().is_some_and(|record| {
             is_install_owned_by_root(
                 Path::new(&record.install_root),
@@ -502,16 +593,14 @@ impl InstallerService {
     }
 
     pub fn uninstall_tool_legacy(&self, tool_id: &str, db: &Arc<Database>) -> Result<(), String> {
-        let plugin = get_plugin_by_id(tool_id).ok_or_else(|| format!("鏈煡宸ュ叿: {tool_id}"))?;
-        let _strategy = plugin.install_strategy();
+        let plugin = get_plugin_by_id(tool_id).ok_or_else(|| format!("unknown tool: {tool_id}"))?;
+        let strategy = plugin.install_strategy();
         let record = db
             .get_installed_tool(tool_id)
-            .map_err(|e| format!("查询工具记录失败: {e}"))?
-            .ok_or_else(|| format!("未找到已安装工具: {tool_id}"))?;
-        let plugin = get_plugin_by_id(tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+            .map_err(|e| format!("failed to load tool record: {e}"))?
+            .ok_or_else(|| format!("tool not found: {tool_id}"))?;
 
         let target_dir = Path::new(&record.install_path);
-        let strategy = plugin.install_strategy();
         let owned_by_root = is_install_owned_by_root(Path::new(&record.install_root), target_dir);
 
         // 不允许卸载用户自行安装的工具（不在 AgenticBoot 管理目录下）
@@ -545,32 +634,37 @@ impl InstallerService {
     }
 
     /// 检查工具更新
-    pub fn check_tool_updates(db: &Arc<Database>) -> Result<Vec<ToolUpdateInfo>, String> {
+    pub async fn check_tool_updates(db: &Arc<Database>) -> Result<Vec<ToolUpdateInfo>, String> {
         let tools = db
             .get_installed_tools()
             .map_err(|e| format!("查询已安装工具失败: {e}"))?;
 
         let mut updates = Vec::new();
+        let client = reqwest::Client::builder()
+            .user_agent("AgenticBoot/0.1")
+            .build()
+            .map_err(|e| format!("failed to create update-check client: {e}"))?;
 
         for tool in tools {
             // 只检查用户工具（非依赖项）
-            if tool.category != "tool" {
+            if !is_user_facing_tool_category(&tool.category) {
                 continue;
             }
 
-            if let Some(plugin) = get_plugin_by_id(&tool.id) {
-                let detect = plugin.detect(Some(Path::new(&tool.install_root)));
-                if detect.installed {
-                    if let (Some(current), Some(new)) = (&tool.version, &detect.version) {
-                        if current != new {
-                            updates.push(ToolUpdateInfo {
-                                tool_id: tool.id,
-                                current_version: current.clone(),
-                                latest_version: new.clone(),
-                            });
-                        }
-                    }
-                }
+            let Some(current_version) = tool.version.as_ref() else {
+                continue;
+            };
+
+            let Some(latest_version) = fetch_latest_tool_version(&client, &tool.id).await else {
+                continue;
+            };
+
+            if is_update_available(current_version, &latest_version) {
+                updates.push(ToolUpdateInfo {
+                    tool_id: tool.id,
+                    current_version: current_version.clone(),
+                    latest_version,
+                });
             }
         }
 
@@ -597,8 +691,9 @@ mod tests {
     use super::{
         allows_uninstall_outside_managed_root, choose_npm_registry_source,
         detect_successful_install, forward_install_progress_with, get_exe_name,
-        is_install_owned_by_root, should_delete_install_dir, should_ignore_uninstall_error,
-        should_publish_managed_shims, should_remove_shim,
+        get_tool_update_source, is_install_owned_by_root, is_update_available,
+        is_user_facing_tool_category, normalized_version_for_update, should_delete_install_dir,
+        should_ignore_uninstall_error, should_publish_managed_shims, should_remove_shim,
     };
     use crate::plugin::NpmRegistrySource;
     use crate::tool_types::InstallProgress;
@@ -647,7 +742,8 @@ mod tests {
         assert!(should_remove_shim(InstallStrategy::PythonPackage, true));
         assert!(should_remove_shim(InstallStrategy::GlobalNpm, true));
         assert!(should_remove_shim(InstallStrategy::GlobalNpm, false));
-        assert!(!should_remove_shim(InstallStrategy::ManagedPrefix, false));
+        assert!(should_remove_shim(InstallStrategy::ManagedPrefix, false));
+        assert!(should_remove_shim(InstallStrategy::PythonPackage, false));
         assert!(!should_remove_shim(InstallStrategy::DesktopInstaller, true));
     }
 
@@ -794,6 +890,44 @@ mod tests {
             choose_npm_registry_source(&network),
             NpmRegistrySource::Mirror
         );
+    }
+
+    #[test]
+    fn update_check_treats_ai_cli_records_as_user_tools() {
+        assert!(is_user_facing_tool_category("ai-cli"));
+        assert!(is_user_facing_tool_category("tool"));
+        assert!(!is_user_facing_tool_category("dependency"));
+    }
+
+    #[test]
+    fn update_check_uses_real_upstream_sources_for_supported_tools() {
+        assert_eq!(
+            get_tool_update_source("codex-cli"),
+            Some(("npm", "@openai/codex"))
+        );
+        assert_eq!(
+            get_tool_update_source("openclaw"),
+            Some(("npm", "openclaw"))
+        );
+        assert_eq!(
+            get_tool_update_source("opencode-cli"),
+            Some(("npm", "opencode-ai"))
+        );
+        assert_eq!(
+            get_tool_update_source("opencode-desktop"),
+            Some(("github", "opencode-ai/opencode"))
+        );
+        assert_eq!(get_tool_update_source("hermes"), None);
+    }
+
+    #[test]
+    fn update_check_normalizes_verbose_cli_version_output() {
+        assert_eq!(
+            normalized_version_for_update("codex 0.24.0"),
+            Some(vec![0, 24, 0])
+        );
+        assert!(!is_update_available("codex 0.24.0", "0.24.0"));
+        assert!(is_update_available("codex 0.24.0", "0.24.1"));
     }
 
     #[tokio::test]

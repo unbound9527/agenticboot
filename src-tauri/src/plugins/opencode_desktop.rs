@@ -1,7 +1,7 @@
-﻿use crate::plugin::ToolPlugin;
+use crate::plugin::ToolPlugin;
 use crate::services::installer::windows::{
-    find_local_uninstaller_executable, find_uninstall_entry_ex,
-    run_windows_uninstaller_with_common_args, WindowsUninstallEntry,
+    find_executable_in_dir, find_local_uninstaller_executable, find_uninstall_entry_ex,
+    read_command_version, run_windows_uninstaller_with_common_args, WindowsUninstallEntry,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use log::debug;
@@ -10,6 +10,11 @@ use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct OpenCodeDesktopPlugin;
+
+const OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL: &str =
+    "https://opencode.ai/download/stable/windows-x64-nsis";
+const OPENCODE_WINDOWS_FALLBACK_INSTALLER_URL: &str =
+    "https://github.com/anomalyco/opencode/releases/latest/download/opencode-desktop-windows-x64.exe";
 
 #[cfg(target_os = "windows")]
 fn run_open_code_registry_uninstall(uninstall_string: &str) -> Result<(), String> {
@@ -110,6 +115,36 @@ fn extract_uninstall_exe_path(command: &str) -> Option<PathBuf> {
     (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
+#[cfg(target_os = "windows")]
+fn opencode_windows_installer_urls() -> [&'static str; 2] {
+    [
+        OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL,
+        OPENCODE_WINDOWS_FALLBACK_INSTALLER_URL,
+    ]
+}
+
+#[cfg(target_os = "windows")]
+fn download_windows_opencode_installer_with<F>(
+    installer: &Path,
+    mut download: F,
+) -> Result<(), String>
+where
+    F: FnMut(&str, &Path) -> Result<(), String>,
+{
+    let mut last_error = None;
+    for url in opencode_windows_installer_urls() {
+        match download(url, installer) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                log::warn!("[OpenCode Desktop] download failed for {}: {}", url, error);
+                last_error = Some(format!("{url}: {error}"));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "failed to download OpenCode desktop installer".into()))
+}
+
 impl ToolPlugin for OpenCodeDesktopPlugin {
     fn metadata(&self) -> ToolMeta {
         ToolMeta {
@@ -131,13 +166,22 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
                 .display_icon
                 .and_then(|path| path.parent().map(PathBuf::from)));
 
+            // If registry has version, use it directly
+            let version = entry.display_version.or_else(|| {
+                // Try to get version from executable in install location
+                install_path.as_ref().and_then(|dir| {
+                    find_executable_in_dir(dir, &["OpenCode.exe", "opencode.exe"])
+                        .and_then(|exe| read_command_version(&exe, &["--version"]))
+                })
+            });
+
             debug!(
                 "detected OpenCode desktop: version={:?}, path={:?}",
-                entry.display_version, install_path
+                version, install_path
             );
             return DetectResult {
                 installed: true,
-                version: entry.display_version,
+                version,
                 install_path: install_path.map(|dir| dir.to_string_lossy().to_string()),
             };
         }
@@ -167,13 +211,11 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
 
         let installer = crate::services::downloader::temp_path("opencode-desktop-setup.exe");
         let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建 runtime 失败: {e}"))?;
-        rt.block_on(async {
-            crate::services::downloader::download_file(
-                "https://opencode.ai/download/stable/windows-x64-nsis",
-                &installer,
-                None,
-            )
-            .await
+        download_windows_opencode_installer_with(&installer, |url, installer_path| {
+            rt.block_on(async {
+                crate::services::downloader::download_file(url, installer_path, None).await
+            })
+            .map(|_| ())
         })?;
 
         let status = Command::new(&installer)
@@ -323,19 +365,24 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
             );
         }
 
-        #[allow(unreachable_code)]
-        Ok(())
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("OpenCode desktop uninstall is only supported on Windows".into())
+        }
     }
 }
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::{
-        extract_uninstall_exe_path, opencode_uninstall_candidate_dirs,
-        uninstall_opencode_desktop_with,
+        download_windows_opencode_installer_with, extract_uninstall_exe_path,
+        opencode_uninstall_candidate_dirs, opencode_windows_installer_urls,
+        uninstall_opencode_desktop_with, OPENCODE_WINDOWS_FALLBACK_INSTALLER_URL,
+        OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL,
     };
     use crate::services::installer::windows::WindowsUninstallEntry;
     use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn uninstall_falls_back_to_local_uninstaller_when_registry_command_exits_non_zero() {
@@ -395,6 +442,55 @@ mod tests {
             extract_uninstall_exe_path("\"D:\\opencode\\Uninstall OpenCode.exe\" /allusers")
                 .as_deref(),
             Some(Path::new("D:\\opencode\\Uninstall OpenCode.exe"))
+        );
+    }
+
+    #[test]
+    fn windows_installer_urls_try_primary_then_github_fallback() {
+        assert_eq!(
+            opencode_windows_installer_urls(),
+            [
+                OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL,
+                OPENCODE_WINDOWS_FALLBACK_INSTALLER_URL,
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_installer_download_falls_back_after_primary_failure() {
+        let installer = Path::new("C:\\Temp\\opencode-desktop-setup.exe");
+        let attempts = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let result = download_windows_opencode_installer_with(installer, {
+            let attempts = Arc::clone(&attempts);
+            move |url, target| {
+                attempts
+                    .lock()
+                    .unwrap()
+                    .push(format!("{} -> {}", url, target.display()));
+                if url == OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL {
+                    Err("502 Bad Gateway".into())
+                } else {
+                    Ok(())
+                }
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(
+            attempts.lock().unwrap().clone(),
+            vec![
+                format!(
+                    "{} -> {}",
+                    OPENCODE_WINDOWS_PRIMARY_INSTALLER_URL,
+                    installer.display()
+                ),
+                format!(
+                    "{} -> {}",
+                    OPENCODE_WINDOWS_FALLBACK_INSTALLER_URL,
+                    installer.display()
+                ),
+            ]
         );
     }
 }

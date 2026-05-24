@@ -1,6 +1,6 @@
 # AgenticBoot
 
-AgenticBoot is a Windows-first bootstrapper for AI coding tools. It detects what is already installed, skips redundant work, installs the tools you select, and keeps uninstall behavior safe for anything it does not own.
+AgenticBoot is a Windows-first bootstrapper for AI coding tools. It detects what is already installed, skips redundant work, installs the tools you select, and unifies install and uninstall management for both AgenticBoot-managed and externally detected tools.
 
 This branch currently focuses on real Windows install flows. macOS and Linux scaffolding exists, but those install paths are not fully implemented yet.
 
@@ -20,7 +20,7 @@ This branch currently focuses on real Windows install flows. macOS and Linux sca
   - OpenClaw
   - Hermes
 - Install Hermes without requiring preinstalled Python by downloading a managed Python runtime into the Hermes tool directory.
-- Only remove AgenticBoot-managed files automatically during uninstall.
+- Uninstall both AgenticBoot-managed and externally detected tools through a unified manager flow.
 
 ## Key behavior
 
@@ -30,7 +30,7 @@ AgenticBoot checks whether a tool is already usable on the machine before instal
 
 - If `Node.js` or `Git` already works, AgenticBoot reuses it.
 - If a CLI tool is already available, AgenticBoot skips reinstalling it.
-- If a desktop app is already installed outside the managed root, AgenticBoot treats it as installed and does not pretend it can safely uninstall it.
+- If a supported tool is already installed outside the managed root, AgenticBoot treats it as installed and can route uninstall through the tool's original uninstall mechanism or package manager.
 
 ### Managed vs external installs
 
@@ -39,7 +39,7 @@ AgenticBoot distinguishes between:
 - Managed installs: files created under the selected install root.
 - External installs: tools already installed elsewhere on the system.
 
-Only managed installs are candidates for automatic directory cleanup during uninstall.
+Managed installs remain the only candidates for automatic directory cleanup under the selected install root. External installs can still be uninstalled, but AgenticBoot avoids claiming ownership of files outside the managed root.
 
 ## Tool notes
 
