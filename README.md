@@ -6,18 +6,24 @@
 
 ### AgenticBoot 是什么
 
-AgenticBoot 是一个面向 Windows 的 AI 编码工具装机与管理器。
+AgenticBoot 是一个 AI 工具装机与管理器，目前优先实现 Windows。
 
-它的目标不是再做一个“工具列表”，而是把 AI 编码环境最麻烦的一段先解决掉：先检测你机器上已经能用的东西，避免重复安装；再把你真正需要的工具补齐；最后把安装、卸载、状态查看和后续管理统一到一个入口里。
+它的目标不是再做一个“工具列表”，而是把人们真正开始使用 AI 工具之前最麻烦的一段先解决掉：先检测你机器上已经能用的东西，避免重复安装；再把你真正需要的工具补齐；最后把安装、卸载、状态查看和后续管理统一到一个入口里。
 
 ### 愿景
 
-我们希望 AgenticBoot 最终能成为一个更省心的 AI coding bootstrapper：
+我们希望 AgenticBoot 最终实现的是：
 
-- 新机器装环境时，不需要手动拼命查文档、装依赖、踩 Windows 坑
-- 老机器补工具时，不需要因为“已经装过一部分”就把环境越搞越乱
-- 多个 AI CLI、桌面端和依赖工具可以在一个地方被发现、安装、管理和清理
-- 安装过程不是黑箱，用户能看见检测结果、安装进度、关键日志和最终状态
+**让所有人类，不管懂不懂 AI、会不会编程，都能够便捷地使用各种 AI 工具。**
+
+这意味着它不应该只服务已经熟悉命令行、环境变量和安装细节的人，也不应该默认用户知道每个工具背后的依赖关系、平台差异和配置方式。
+
+围绕这个目标，AgenticBoot 会持续朝这些方向推进：
+
+- 降低第一次接触 AI 工具时的理解和安装门槛
+- 让已经会用一部分工具的人也能更顺手地扩展和管理自己的工具箱
+- 尽量把检测、安装、卸载、状态查看和后续管理收束到一个一致入口
+- 让安装过程尽可能透明，不把关键状态和失败原因藏在黑箱里
 
 ### 它想解决的核心问题
 
@@ -44,13 +50,13 @@ AgenticBoot 想把这些碎片化步骤收束成一个更统一的体验：
 
 ### 当前现状
 
-AgenticBoot 目前是 **Windows-first** 项目。
+AgenticBoot 目前是 **Windows-first** 项目，但这不是平台取舍的终点，而是实现顺序上的优先级。
 
-- Windows：核心装机、检测、安装管理链路已在持续实现中，也是当前主战场
-- macOS：已有框架和占位，但还不是完整可用的安装实现
-- Linux：已有框架和占位，但还不是完整可用的安装实现
+- Windows：核心装机、检测、安装管理链路已在持续实现中，也是当前最优先落地的平台
+- macOS：不是不做，当前已有框架基础，后续会继续补齐真实安装能力
+- Linux：不是不做，当前已有框架基础，后续会继续补齐真实安装能力
 
-这意味着如果你今天来体验 AgenticBoot，最值得关注的是它在 Windows 上对真实安装流程的处理，而不是跨平台完整度。
+这意味着如果你今天来体验 AgenticBoot，最值得关注的是它在 Windows 上对真实安装流程的处理；macOS 和 Linux 则属于明确在路线图中、但还未完成同等实现深度的部分。
 
 ### 当前已支持的 Windows 能力
 
@@ -147,18 +153,24 @@ pnpm dev
 
 ### What AgenticBoot Is
 
-AgenticBoot is a Windows-first bootstrapper and manager for AI coding tools.
+AgenticBoot is an installer and manager for AI tools, with Windows implemented first.
 
-It is not just a catalog of apps. The current goal is to make the hardest part of setting up an AI coding environment much less painful: detect what is already usable on the machine, avoid redundant installs, install only what is still missing, and keep installation, uninstall, status visibility, and follow-up management in one place.
+It is not just a catalog of apps. The goal is to make the hardest part before people can actually use AI tools much less painful: detect what is already usable on the machine, avoid redundant installs, install only what is still missing, and keep installation, uninstall, status visibility, and follow-up management in one place.
 
 ### Vision
 
-AgenticBoot aims to become a more reliable AI coding bootstrapper for real-world machines:
+AgenticBoot is built around a broader goal:
 
-- setting up a fresh machine should not require stitching together scattered docs and Windows-specific workarounds
-- adding one more tool to an existing machine should not turn into duplicate installs and path conflicts
-- AI CLIs, desktop apps, and their dependencies should be discoverable and manageable from one entry point
-- installation should not feel like a black box; users should be able to see detection results, progress, meaningful logs, and the final state
+**help every human use a wide range of AI tools conveniently, whether they understand AI or know how to code.**
+
+That means it should not only work for people who are already comfortable with terminals, environment variables, package managers, and platform-specific setup details. It should also lower the barrier for people who simply want AI tools to work.
+
+To move toward that goal, AgenticBoot keeps pushing in these directions:
+
+- reduce the learning and setup barrier for first-time AI tool users
+- make it easier for more advanced users to expand and manage their toolset without friction
+- bring detection, installation, uninstall, status visibility, and follow-up management into one consistent entry point
+- keep installation transparent instead of hiding important state and failure reasons inside a black box
 
 ### The Problem It Tries To Solve
 
@@ -185,13 +197,13 @@ What is already valuable today:
 
 ### Current Status
 
-AgenticBoot is currently a **Windows-first** project.
+AgenticBoot is currently a **Windows-first** project, but that reflects implementation priority, not a decision to ignore macOS or Linux.
 
-- Windows: the core detection, install, and management flows are actively implemented and are the main focus
-- macOS: framework and scaffolding exist, but the install path is not fully implemented yet
-- Linux: framework and scaffolding exist, but the install path is not fully implemented yet
+- Windows: the core detection, install, and management flows are actively implemented and are the main delivery focus today
+- macOS: not abandoned; the project already has scaffolding and is expected to gain fuller install support later
+- Linux: not abandoned; the project already has scaffolding and is expected to gain fuller install support later
 
-If you are evaluating the project today, the most accurate way to read it is as a Windows-focused product in active build-out, not as a fully finished cross-platform installer.
+If you are evaluating the project today, the most accurate reading is that Windows is the first deeply implemented platform, while macOS and Linux remain part of the intended product direction and will be expanded after the Windows path is stronger.
 
 ### Current Windows Support
 
