@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Loader2,
   CheckCircle,
@@ -20,56 +20,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import {
   useCheckNetwork,
+  useToolCatalog,
   useResolveInstallPlan,
   useExecuteInstallPlan,
 } from "@/hooks/useTools";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
 import { toolsApi } from "@/lib/api/tools";
-import type { DetectResult, InstallPlan } from "@/types/tools";
-
-const AVAILABLE_TOOLS: { id: string; name: string; description: string }[] = [
-  {
-    id: "claude-code-cli",
-    name: "Claude Code (CLI)",
-    description: "Anthropic 官方 CLI AI 编程助手",
-  },
-  {
-    id: "claude-code-desktop",
-    name: "Claude Code (桌面版)",
-    description: "Claude Code 桌面应用",
-  },
-  {
-    id: "codex-cli",
-    name: "Codex (CLI)",
-    description: "OpenAI 官方 CLI 编程助手",
-  },
-  {
-    id: "codex-desktop",
-    name: "Codex (桌面版)",
-    description: "Codex 桌面应用",
-  },
-  {
-    id: "gemini-cli",
-    name: "Gemini CLI",
-    description: "Google Gemini CLI 编程助手",
-  },
-  {
-    id: "opencode-cli",
-    name: "OpenCode (CLI)",
-    description: "开源 AI 编程工具",
-  },
-  {
-    id: "opencode-desktop",
-    name: "OpenCode (桌面版)",
-    description: "OpenCode 桌面应用",
-  },
-  { id: "openclaw", name: "OpenClaw", description: "可编程 AI 编码引擎" },
-  {
-    id: "hermes",
-    name: "Hermes (Web UI)",
-    description: "多提供商 AI 编程助手，Web UI 交互",
-  },
-];
+import type { DetectResult, InstallPlan, ToolCatalogItem } from "@/types/tools";
 
 const DEFAULT_ROOT = "D:\\AgenticTools";
 const INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS = 500;
@@ -102,15 +59,22 @@ function buildSelectionFromDetection(
   };
 }
 
-function buildPendingInstallPlan(toolIds: string[]): InstallPlan {
+function isSelectableTool(tool: ToolCatalogItem) {
+  return tool.category !== "dependency" && tool.capabilities.canInstall;
+}
+
+function buildPendingInstallPlan(
+  tools: ToolCatalogItem[],
+  toolIds: string[],
+): InstallPlan {
   const selectedIds = new Set(toolIds);
 
   return {
-    steps: AVAILABLE_TOOLS.filter((tool) => selectedIds.has(tool.id)).map(
+    steps: tools.filter((tool) => selectedIds.has(tool.id)).map(
       (tool) => ({
         toolId: tool.id,
         toolName: tool.name,
-        category: "tool",
+        category: tool.category,
         reason: "selected",
         isInstalled: false,
       }),
@@ -124,6 +88,12 @@ export function Wizard({
   forceDetectionRefreshToken = 0,
 }: WizardProps) {
   const { t } = useTranslation();
+  const { data: toolCatalog = [], isLoading: isToolCatalogLoading } =
+    useToolCatalog();
+  const selectableTools = useMemo(
+    () => toolCatalog.filter(isSelectableTool),
+    [toolCatalog],
+  );
   const [rootPath, setRootPath] = useState(DEFAULT_ROOT);
   const [isInstallRootReady, setIsInstallRootReady] = useState(false);
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
@@ -175,7 +145,13 @@ export function Wizard({
 
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
-      const ids = AVAILABLE_TOOLS.map((tool) => tool.id);
+      const ids = selectableTools.map((tool) => tool.id);
+      if (ids.length === 0) {
+        setInstalledIds(new Set());
+        setSelectedTools(new Set());
+        setIsDetectingTools(false);
+        return Promise.resolve();
+      }
       const requestId = ++detectionRequestIdRef.current;
       setIsDetectingTools(true);
       const detectPromise = toolsApi.detectTools(ids, rootPath, forceRefresh);
@@ -207,7 +183,7 @@ export function Wizard({
           }
         });
     },
-    [initialSelectedToolIds, rootPath],
+    [initialSelectedToolIds, rootPath, selectableTools],
   );
 
   useEffect(() => {
@@ -275,7 +251,7 @@ export function Wizard({
       return;
     }
 
-    setInstallPlan(buildPendingInstallPlan(toolIds));
+    setInstallPlan(buildPendingInstallPlan(selectableTools, toolIds));
     resetProgress();
     setStarted(true);
 
@@ -308,7 +284,15 @@ export function Wizard({
         },
       },
     );
-  }, [executePlan, resetProgress, resolvePlan, rootPath, selectedTools, t]);
+  }, [
+    executePlan,
+    resetProgress,
+    resolvePlan,
+    rootPath,
+    selectableTools,
+    selectedTools,
+    t,
+  ]);
 
   const toggleTool = useCallback(
     (id: string) => {
@@ -326,7 +310,7 @@ export function Wizard({
     [installedIds, isDetectingTools],
   );
 
-  const availableIds = AVAILABLE_TOOLS.map((tool) => tool.id).filter(
+  const availableIds = selectableTools.map((tool) => tool.id).filter(
     (id) => !installedIds.has(id),
   );
 
@@ -377,7 +361,7 @@ export function Wizard({
                   refreshDetectedTools(true).catch(() => {});
                 }}
                 className="text-xs"
-                disabled={isDetectingTools}
+                disabled={isToolCatalogLoading || isDetectingTools}
               >
                 <RefreshCw className="mr-1 h-3 w-3" />
                 {t("tools.refreshDetection", "重新检测")}
@@ -387,7 +371,7 @@ export function Wizard({
                 size="sm"
                 onClick={toggleAll}
                 className="text-xs"
-                disabled={isDetectingTools}
+                disabled={isToolCatalogLoading || isDetectingTools}
               >
                 {selectedTools.size === availableIds.length
                   ? t("tools.none", "全部取消")
@@ -396,14 +380,14 @@ export function Wizard({
             </div>
           </div>
 
-          {isDetectingTools && (
+          {(isToolCatalogLoading || isDetectingTools) && (
             <p className="text-xs text-muted-foreground">
               {t("tools.detectingInstalled", "正在识别已安装工具...")}
             </p>
           )}
 
           <div className="space-y-1">
-            {AVAILABLE_TOOLS.map((tool) => {
+            {selectableTools.map((tool) => {
               const isInstalled = installedIds.has(tool.id);
               const isDisabled = isInstalled || isDetectingTools;
 
@@ -591,7 +575,10 @@ export function Wizard({
             size="lg"
             onClick={handleStartInstall}
             disabled={
-              isDetectingTools || resolvePlan.isPending || !rootPath.trim()
+              isToolCatalogLoading ||
+              isDetectingTools ||
+              resolvePlan.isPending ||
+              !rootPath.trim()
             }
             className="px-12"
           >

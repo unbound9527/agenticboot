@@ -49,6 +49,19 @@ impl ToolPlugin for HermesPlugin {
         InstallStrategy::PythonPackage
     }
 
+    fn command_name(&self) -> Option<&'static str> {
+        Some("hermes")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        vec![
+            "venv\\Scripts\\hermes.exe".to_string(),
+            "venv\\Scripts\\hermes.cmd".to_string(),
+            "Scripts\\hermes.exe".to_string(),
+            "Scripts\\hermes.cmd".to_string(),
+        ]
+    }
+
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
         if let Some(root) = install_root {
             let detect_paths = find_managed_paths(

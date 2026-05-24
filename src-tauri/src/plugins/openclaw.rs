@@ -2,10 +2,12 @@ use crate::plugin::{NpmRegistrySource, ToolInstallContext, ToolPlugin};
 use crate::plugins::npm_cli::{detect_npm_cli, uninstall_npm_cli};
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::services::installer::windows::{
-    run_npm_command_checked_with_env, run_npm_command_checked_with_env_and_logs,
+    npm_prefix_candidates, run_npm_command_checked_with_env,
+    run_npm_command_checked_with_env_and_logs,
 };
 use crate::tool_types::{
     DetectResult, InstallLogLevel, InstallProgress, InstallStrategy, ToolDependency, ToolMeta,
+    ToolUpdateSource,
 };
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
@@ -172,6 +174,21 @@ impl ToolPlugin for OpenClawPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::ManagedPrefix
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("openclaw")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        npm_prefix_candidates("openclaw")
+    }
+
+    fn update_source(&self) -> Option<ToolUpdateSource> {
+        Some(ToolUpdateSource {
+            kind: "npm".into(),
+            id: "openclaw".into(),
+        })
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {

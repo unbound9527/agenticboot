@@ -235,6 +235,14 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         InstallStrategy::DesktopInstaller
     }
 
+    fn command_name(&self) -> Option<&'static str> {
+        Some("claude")
+    }
+
+    fn supports_pathless_uninstall(&self) -> bool {
+        true
+    }
+
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
         info!("[Claude Desktop] detect called, searching registry for entries matching Claude/AnthropicClaude excluding CLI/npm");
         if let Some(entry) =

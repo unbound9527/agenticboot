@@ -12,7 +12,7 @@ use crate::database::Database;
 use crate::database::InstalledToolRecord;
 use crate::plugin::{get_plugin_by_id, NpmRegistrySource, ToolInstallContext};
 use crate::services::installer::logging::InstallLogEmitter;
-use crate::services::installer::windows::{find_managed_executable, npm_prefix_candidates};
+use crate::services::installer::windows::find_managed_executable;
 use crate::tool_types::{
     InstallPlan, InstallProgress, InstallStrategy, NetworkStatus, ToolUpdateInfo,
 };
@@ -94,7 +94,19 @@ fn normalize_for_ownership_check(path: &Path) -> Option<PathBuf> {
     if path.exists() {
         std::fs::canonicalize(path).ok()
     } else {
-        Some(path.to_path_buf())
+        let mut missing_components = Vec::new();
+        let mut ancestor = path;
+
+        while !ancestor.exists() {
+            missing_components.push(ancestor.file_name()?.to_os_string());
+            ancestor = ancestor.parent()?;
+        }
+
+        let mut normalized = std::fs::canonicalize(ancestor).ok()?;
+        for component in missing_components.into_iter().rev() {
+            normalized.push(component);
+        }
+        Some(normalized)
     }
 }
 
@@ -107,25 +119,6 @@ pub(crate) fn is_install_owned_by_root(install_root: &Path, install_path: &Path)
     };
 
     normalized_path.starts_with(normalized_root)
-}
-
-fn managed_executable_candidates(tool_id: &str) -> Vec<String> {
-    match tool_id {
-        "nodejs" => vec!["node.exe".to_string(), "bin\\node.exe".to_string()],
-        "git" => vec!["cmd\\git.exe".to_string(), "bin\\git.exe".to_string()],
-        "claude-code-cli" => npm_prefix_candidates("claude"),
-        "codex-cli" => npm_prefix_candidates("codex"),
-        "gemini-cli" => npm_prefix_candidates("gemini"),
-        "opencode-cli" => npm_prefix_candidates("opencode"),
-        "openclaw" => npm_prefix_candidates("openclaw"),
-        "hermes" => vec![
-            "venv\\Scripts\\hermes.exe".to_string(),
-            "venv\\Scripts\\hermes.cmd".to_string(),
-            "Scripts\\hermes.exe".to_string(),
-            "Scripts\\hermes.cmd".to_string(),
-        ],
-        _ => vec![],
-    }
 }
 
 fn detect_successful_install(
@@ -180,18 +173,6 @@ fn choose_npm_registry_source(network: &NetworkStatus) -> NpmRegistrySource {
     }
 }
 
-fn get_tool_update_source(tool_id: &str) -> Option<(&'static str, &'static str)> {
-    match tool_id {
-        "claude-code-cli" => Some(("npm", "@anthropic-ai/claude-code")),
-        "codex-cli" => Some(("npm", "@openai/codex")),
-        "gemini-cli" => Some(("npm", "@google/gemini-cli")),
-        "opencode-cli" => Some(("npm", "opencode-ai")),
-        "openclaw" => Some(("npm", "openclaw")),
-        "opencode-desktop" => Some(("github", "opencode-ai/opencode")),
-        _ => None,
-    }
-}
-
 async fn fetch_latest_npm_version(client: &reqwest::Client, package_name: &str) -> Option<String> {
     let url = format!("https://registry.npmjs.org/{package_name}");
     let response = client.get(url).send().await.ok()?;
@@ -221,10 +202,11 @@ async fn fetch_latest_github_release_version(
 }
 
 async fn fetch_latest_tool_version(client: &reqwest::Client, tool_id: &str) -> Option<String> {
-    let (source, id) = get_tool_update_source(tool_id)?;
-    match source {
-        "npm" => fetch_latest_npm_version(client, id).await,
-        "github" => fetch_latest_github_release_version(client, id).await,
+    let plugin = get_plugin_by_id(tool_id)?;
+    let source = plugin.update_source()?;
+    match source.kind.as_str() {
+        "npm" => fetch_latest_npm_version(client, &source.id).await,
+        "github" => fetch_latest_github_release_version(client, &source.id).await,
         _ => None,
     }
 }
@@ -329,14 +311,17 @@ impl InstallerService {
                 let plugin = get_plugin_by_id(&step.tool_id)
                     .ok_or_else(|| format!("未知工具: {}", step.tool_id))?;
                 if matches!(plugin.install_strategy(), InstallStrategy::GlobalNpm) {
-                    self.path_manager
-                        .remove_windows_cli_shims(&get_exe_name(&step.tool_id))?;
+                    if let Some(shim_name) = plugin.managed_shim_name() {
+                        self.path_manager.remove_windows_cli_shims(shim_name)?;
+                    }
                 }
                 let detect = plugin.detect(Some(&self.root_path));
                 if should_publish_managed_shims(plugin.install_strategy(), &self.root_path, &detect)
                 {
-                    let exe_name = get_exe_name(&step.tool_id);
-                    let candidates = managed_executable_candidates(&step.tool_id);
+                    let exe_name = plugin
+                        .managed_shim_name()
+                        .ok_or_else(|| format!("{} does not declare a managed shim", step.tool_id))?;
+                    let candidates = plugin.managed_executable_candidates();
                     let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
                     let exe_path =
                         find_managed_executable(&self.root_path, &step.tool_id, &candidate_refs)
@@ -440,8 +425,9 @@ impl InstallerService {
             match install_result {
                 Ok(()) => {
                     if matches!(post_plugin.install_strategy(), InstallStrategy::GlobalNpm) {
-                        self.path_manager
-                            .remove_windows_cli_shims(&get_exe_name(&install_tool_id))?;
+                        if let Some(shim_name) = post_plugin.managed_shim_name() {
+                            self.path_manager.remove_windows_cli_shims(shim_name)?;
+                        }
                     }
                     // 检测已安装版本（传入安装根目录）
                     let detect = post_plugin.detect(Some(&self.root_path));
@@ -455,8 +441,10 @@ impl InstallerService {
 
                     // 创建 shim
                     if publish_managed_shims {
-                        let exe_name = get_exe_name(&install_tool_id);
-                        let candidates = managed_executable_candidates(&install_tool_id);
+                        let exe_name = post_plugin.managed_shim_name().ok_or_else(|| {
+                            format!("{install_tool_id} does not declare a managed shim")
+                        })?;
+                        let candidates = post_plugin.managed_executable_candidates();
                         let candidate_refs =
                             candidates.iter().map(String::as_str).collect::<Vec<_>>();
                         let exe_path = find_managed_executable(
@@ -577,8 +565,9 @@ impl InstallerService {
         }
 
         if should_remove_shim(strategy, owned_by_root) {
-            self.path_manager
-                .remove_windows_cli_shims(&get_exe_name(tool_id))?;
+            if let Some(shim_name) = plugin.managed_shim_name() {
+                self.path_manager.remove_windows_cli_shims(shim_name)?;
+            }
         }
 
         if should_delete_install_dir(strategy, owned_by_root) && target_dir.exists() {
@@ -619,8 +608,9 @@ impl InstallerService {
         }
 
         if should_remove_shim(strategy, owned_by_root) {
-            self.path_manager
-                .remove_windows_cli_shims(&get_exe_name(tool_id))?;
+            if let Some(shim_name) = plugin.managed_shim_name() {
+                self.path_manager.remove_windows_cli_shims(shim_name)?;
+            }
         }
 
         if should_delete_install_dir(strategy, owned_by_root) && target_dir.exists() {
@@ -673,29 +663,16 @@ impl InstallerService {
 }
 
 /// 根据工具 ID 推断可执行文件名
-fn get_exe_name(tool_id: &str) -> String {
-    match tool_id {
-        "nodejs" => "node".to_string(),
-        "claude-code-cli" | "claude-code-desktop" => "claude".to_string(),
-        "codex-cli" | "codex-desktop" => "codex".to_string(),
-        "gemini-cli" => "gemini".to_string(),
-        "opencode-cli" | "opencode-desktop" => "opencode".to_string(),
-        "openclaw" => "openclaw".to_string(),
-        "hermes" => "hermes".to_string(),
-        _ => tool_id.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         allows_uninstall_outside_managed_root, choose_npm_registry_source,
-        detect_successful_install, forward_install_progress_with, get_exe_name,
-        get_tool_update_source, is_install_owned_by_root, is_update_available,
+        detect_successful_install, forward_install_progress_with, is_install_owned_by_root,
+        is_update_available,
         is_user_facing_tool_category, normalized_version_for_update, should_delete_install_dir,
         should_ignore_uninstall_error, should_publish_managed_shims, should_remove_shim,
     };
-    use crate::plugin::NpmRegistrySource;
+    use crate::plugin::{get_plugin_by_id, NpmRegistrySource};
     use crate::tool_types::InstallProgress;
     use crate::tool_types::{DetectResult, InstallStrategy, NetworkStatus};
     use std::sync::{Arc, Mutex};
@@ -859,7 +836,8 @@ mod tests {
 
     #[test]
     fn nodejs_shim_uses_node_command_name() {
-        assert_eq!(get_exe_name("nodejs"), "node");
+        let plugin = get_plugin_by_id("nodejs").expect("node plugin");
+        assert_eq!(plugin.managed_shim_name(), Some("node"));
     }
 
     #[test]
@@ -901,23 +879,33 @@ mod tests {
 
     #[test]
     fn update_check_uses_real_upstream_sources_for_supported_tools() {
-        assert_eq!(
-            get_tool_update_source("codex-cli"),
-            Some(("npm", "@openai/codex"))
-        );
-        assert_eq!(
-            get_tool_update_source("openclaw"),
-            Some(("npm", "openclaw"))
-        );
-        assert_eq!(
-            get_tool_update_source("opencode-cli"),
-            Some(("npm", "opencode-ai"))
-        );
-        assert_eq!(
-            get_tool_update_source("opencode-desktop"),
-            Some(("github", "opencode-ai/opencode"))
-        );
-        assert_eq!(get_tool_update_source("hermes"), None);
+        let codex = get_plugin_by_id("codex-cli")
+            .and_then(|plugin| plugin.update_source())
+            .expect("codex update source");
+        assert_eq!(codex.kind, "npm");
+        assert_eq!(codex.id, "@openai/codex");
+
+        let openclaw = get_plugin_by_id("openclaw")
+            .and_then(|plugin| plugin.update_source())
+            .expect("openclaw update source");
+        assert_eq!(openclaw.kind, "npm");
+        assert_eq!(openclaw.id, "openclaw");
+
+        let opencode_cli = get_plugin_by_id("opencode-cli")
+            .and_then(|plugin| plugin.update_source())
+            .expect("opencode cli update source");
+        assert_eq!(opencode_cli.kind, "npm");
+        assert_eq!(opencode_cli.id, "opencode-ai");
+
+        let opencode_desktop = get_plugin_by_id("opencode-desktop")
+            .and_then(|plugin| plugin.update_source())
+            .expect("opencode desktop update source");
+        assert_eq!(opencode_desktop.kind, "github");
+        assert_eq!(opencode_desktop.id, "opencode-ai/opencode");
+
+        assert!(get_plugin_by_id("hermes")
+            .and_then(|plugin| plugin.update_source())
+            .is_none());
     }
 
     #[test]

@@ -16,8 +16,49 @@ const TOOL_IDS = [
   "hermes",
 ] as const;
 
+const TOOL_NAMES: Record<(typeof TOOL_IDS)[number], string> = {
+  "claude-code-cli": "Claude Code (CLI)",
+  "claude-code-desktop": "Claude Code (桌面版)",
+  "codex-cli": "Codex (CLI)",
+  "codex-desktop": "Codex (桌面版)",
+  "gemini-cli": "Gemini CLI",
+  "opencode-cli": "OpenCode (CLI)",
+  "opencode-desktop": "OpenCode (桌面版)",
+  openclaw: "OpenClaw",
+  hermes: "Hermes (Web UI)",
+};
+
+function buildToolCatalog() {
+  return TOOL_IDS.map((id) => ({
+    id,
+    name: TOOL_NAMES[id],
+    description: `${TOOL_NAMES[id]} description`,
+    icon: id,
+    category: "ai-cli",
+    installStrategy: id.includes("desktop") ? "desktop-installer" : "global-npm",
+    dependencies: [],
+    updateSource: undefined,
+    platformSupport: {
+      windows: "implemented",
+      macos: "planned",
+      linux: "planned",
+    },
+    capabilities: {
+      canInstall: true,
+      canUninstall: true,
+      canLaunch: id.includes("desktop"),
+      canUpdate: false,
+      supportsPathlessUninstall: id.includes("desktop"),
+      commandName: id,
+      managedShimName: id,
+      managedExecutableCandidates: [],
+    },
+  }));
+}
+
 const toolsApiMock = vi.hoisted(() => ({
   checkNetwork: vi.fn(),
+  getToolCatalog: vi.fn(),
   detectTools: vi.fn(),
   resolveInstallPlan: vi.fn(),
   executeInstallPlan: vi.fn(),
@@ -91,6 +132,7 @@ function createDeferred<T>() {
 
 describe("Wizard install detection", () => {
   beforeEach(() => {
+    toolsApiMock.getToolCatalog.mockResolvedValue(buildToolCatalog());
     toolsApiMock.checkNetwork.mockResolvedValue({
       githubReachable: true,
       npmReachable: true,

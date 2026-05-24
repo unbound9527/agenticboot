@@ -3,7 +3,10 @@ use crate::plugin::ToolPlugin;
 use crate::plugins::npm_cli::{
     detect_npm_cli, install_npm_cli, install_npm_cli_with_registry, uninstall_npm_cli,
 };
-use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
+use crate::services::installer::windows::npm_prefix_candidates;
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta, ToolUpdateSource,
+};
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
@@ -22,6 +25,21 @@ impl ToolPlugin for CodexCliPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::GlobalNpm
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("codex")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        npm_prefix_candidates("codex")
+    }
+
+    fn update_source(&self) -> Option<ToolUpdateSource> {
+        Some(ToolUpdateSource {
+            kind: "npm".into(),
+            id: "@openai/codex".into(),
+        })
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {

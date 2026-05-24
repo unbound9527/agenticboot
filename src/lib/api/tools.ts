@@ -9,6 +9,7 @@ import type {
   InstallLogEvent,
   InstallProgress,
   InstalledTool,
+  ToolCatalogItem,
   ToolUpdateInfo,
 } from "@/types/tools";
 
@@ -42,6 +43,10 @@ export const toolsApi = {
 
   checkNetwork(): Promise<NetworkStatus> {
     return invoke("check_network");
+  },
+
+  getToolCatalog(): Promise<ToolCatalogItem[]> {
+    return invoke("get_tool_catalog");
   },
 
   detectTools(

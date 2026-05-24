@@ -32,6 +32,14 @@ impl ToolPlugin for NodeJsPlugin {
         InstallStrategy::ManagedPrefix
     }
 
+    fn command_name(&self) -> Option<&'static str> {
+        Some("node")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        vec!["node.exe".to_string(), "bin\\node.exe".to_string()]
+    }
+
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
         if let Some(root) = install_root {
             let detect_paths = find_managed_paths(root, "nodejs", &["node.exe", "bin\\node.exe"]);

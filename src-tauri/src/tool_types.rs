@@ -14,6 +14,18 @@ pub enum InstallStrategy {
     DesktopInstaller,
 }
 
+impl InstallStrategy {
+    pub fn as_kebab_case(self) -> &'static str {
+        match self {
+            InstallStrategy::ManagedPrefix => "managed-prefix",
+            InstallStrategy::GlobalNpm => "global-npm",
+            InstallStrategy::OfficialScript => "official-script",
+            InstallStrategy::PythonPackage => "python-package",
+            InstallStrategy::DesktopInstaller => "desktop-installer",
+        }
+    }
+}
+
 /// 网络连通性检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +45,59 @@ pub struct ToolMeta {
     pub description: String,
     pub icon: String,
     pub category: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolUpdateSource {
+    pub kind: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPlatformSupport {
+    pub windows: String,
+    pub macos: String,
+    pub linux: String,
+}
+
+impl ToolPlatformSupport {
+    pub fn windows_only() -> Self {
+        Self {
+            windows: "implemented".to_string(),
+            macos: "planned".to_string(),
+            linux: "planned".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCapabilities {
+    pub can_install: bool,
+    pub can_uninstall: bool,
+    pub can_launch: bool,
+    pub can_update: bool,
+    pub supports_pathless_uninstall: bool,
+    pub command_name: Option<String>,
+    pub managed_shim_name: Option<String>,
+    pub managed_executable_candidates: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCatalogItem {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub category: String,
+    pub install_strategy: String,
+    pub dependencies: Vec<ToolDependency>,
+    pub update_source: Option<ToolUpdateSource>,
+    pub platform_support: ToolPlatformSupport,
+    pub capabilities: ToolCapabilities,
 }
 
 /// 工具检测结果
@@ -55,7 +120,7 @@ impl DetectResult {
 }
 
 /// 工具依赖声明
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolDependency {
     pub tool_id: String,

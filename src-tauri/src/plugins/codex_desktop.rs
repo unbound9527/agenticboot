@@ -27,6 +27,14 @@ impl ToolPlugin for CodexDesktopPlugin {
         InstallStrategy::DesktopInstaller
     }
 
+    fn command_name(&self) -> Option<&'static str> {
+        Some("codex")
+    }
+
+    fn supports_pathless_uninstall(&self) -> bool {
+        true
+    }
+
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
         if let Some((install_path, version)) = detect_local_codex_installation() {
             debug!(
