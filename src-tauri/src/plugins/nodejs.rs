@@ -22,7 +22,7 @@ impl ToolPlugin for NodeJsPlugin {
         ToolMeta {
             id: "nodejs".into(),
             name: "Node.js".into(),
-            description: "JavaScript 运行时，CLI 工具的必要依赖".into(),
+            description: "Node.js JavaScript 运行时环境".into(),
             icon: "nodejs".into(),
             category: "dependency".into(),
         }
@@ -30,6 +30,14 @@ impl ToolPlugin for NodeJsPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::ManagedPrefix
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("node")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        vec!["node.exe".to_string(), "bin\\node.exe".to_string()]
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {

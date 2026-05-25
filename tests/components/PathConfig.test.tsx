@@ -3,15 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { PathConfig } from "@/components/tools/PathConfig";
 
 describe("PathConfig", () => {
-  it("shows D:\\AgenticBoot as the default root, placeholder, and preview", () => {
+  it("shows D:\\AgenticTools as the default root, placeholder, and preview", () => {
     const { container } = render(
       <PathConfig onNext={vi.fn()} onBack={vi.fn()} />,
     );
 
-    expect(screen.getByDisplayValue("D:\\AgenticBoot")).toHaveAttribute(
+    expect(screen.getByDisplayValue("D:\\AgenticTools")).toHaveAttribute(
       "placeholder",
-      "D:\\AgenticBoot",
+      "D:\\AgenticTools",
     );
-    expect(container.querySelector("pre")).toHaveTextContent("D:\\AgenticBoot");
+    expect(container.querySelector("pre")).toHaveTextContent("D:\\AgenticTools");
   });
 });

@@ -5,7 +5,9 @@ use crate::services::installer::dependency_resolver::resolve_install_plan as res
 use crate::services::installer::is_install_owned_by_root;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
-use crate::tool_types::{DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolUpdateInfo};
+use crate::tool_types::{
+    DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolCatalogItem, ToolUpdateInfo,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -73,6 +75,7 @@ fn persist_detect_result_cache(
     result: &DetectResult,
 ) {
     let next_status = cache_status_for_detect_result(previous, result);
+    let plugin_meta = crate::plugin::get_plugin_by_id(tool_id).map(|plugin| plugin.metadata());
     if next_status == "detected" {
         let Some(root) = install_root else {
             return;
@@ -91,6 +94,7 @@ fn persist_detect_result_cache(
         id: tool_id.to_string(),
         name: previous
             .map(|record| record.name.clone())
+            .or_else(|| plugin_meta.as_ref().map(|meta| meta.name.clone()))
             .unwrap_or_else(|| tool_id.to_string()),
         version: result.version.clone(),
         install_path: result.install_path.clone().unwrap_or_default(),
@@ -100,6 +104,7 @@ fn persist_detect_result_cache(
             .unwrap_or_default(),
         category: previous
             .map(|record| record.category.clone())
+            .or_else(|| plugin_meta.as_ref().map(|meta| meta.category.clone()))
             .unwrap_or_else(|| "tool".to_string()),
         status: next_status.to_string(),
         installed_at: previous.and_then(|record| record.installed_at),
@@ -114,6 +119,11 @@ fn persist_detect_result_cache(
 #[tauri::command]
 pub async fn check_network() -> Result<NetworkStatus, String> {
     Ok(InstallerService::check_network().await)
+}
+
+#[tauri::command]
+pub fn get_tool_catalog() -> Vec<ToolCatalogItem> {
+    crate::plugin::get_tool_catalog()
 }
 
 #[tauri::command]
@@ -348,7 +358,7 @@ pub async fn check_tool_updates(
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_tools_sync, should_use_db_fallback};
+    use super::{can_reuse_detect_cache, detect_tools_sync, should_use_db_fallback};
     use crate::database::{Database, InstalledToolRecord};
     use std::sync::Arc;
 
@@ -427,7 +437,7 @@ mod tests {
             id: "unknown-tool".into(),
             name: "Unknown Tool".into(),
             version: Some("9.9.9".into()),
-            install_path: "C:\\Users\\me\\AppData\\Roaming\\npm".into(),
+            install_path: "D:\\AgenticTools\\unknown-tool".into(),
             install_root: "D:\\AgenticTools".into(),
             category: "tool".into(),
             status: "detected".into(),
@@ -435,6 +445,11 @@ mod tests {
             updated_at: Some(1),
         })
         .expect("seed detected cache");
+        let cached = db
+            .get_installed_tool("unknown-tool")
+            .expect("load cache")
+            .expect("cache exists");
+        assert!(can_reuse_detect_cache(&cached, Some("D:\\AgenticTools")));
 
         let results = detect_tools_sync(
             vec!["unknown-tool".into()],
@@ -449,7 +464,7 @@ mod tests {
         assert_eq!(results[0].version.as_deref(), Some("9.9.9"));
         assert_eq!(
             results[0].install_path.as_deref(),
-            Some("C:\\Users\\me\\AppData\\Roaming\\npm")
+            Some("D:\\AgenticTools\\unknown-tool")
         );
     }
 

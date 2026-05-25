@@ -3,7 +3,9 @@ use crate::services::installer::windows::{
     find_executable_in_dir, find_local_uninstaller_executable, find_uninstall_entry_ex,
     read_command_version, run_windows_uninstaller_with_common_args, WindowsUninstallEntry,
 };
-use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta, ToolUpdateSource,
+};
 use log::debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -158,6 +160,21 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::DesktopInstaller
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("opencode")
+    }
+
+    fn supports_pathless_uninstall(&self) -> bool {
+        true
+    }
+
+    fn update_source(&self) -> Option<ToolUpdateSource> {
+        Some(ToolUpdateSource {
+            kind: "github".into(),
+            id: "opencode-ai/opencode".into(),
+        })
     }
 
     fn detect(&self, _install_root: Option<&Path>) -> DetectResult {

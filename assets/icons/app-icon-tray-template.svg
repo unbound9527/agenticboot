@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(36 36)">
+    <g transform="rotate(0)">
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000"/>
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000" transform="rotate(60)"/>
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000" transform="rotate(120)"/>
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000" transform="rotate(180)"/>
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000" transform="rotate(240)"/>
+      <path d="M0 -24 L3.2 -8.5 L0 -7 L-3.2 -8.5 Z" fill="#000000" transform="rotate(300)"/>
+    </g>
+    <g transform="rotate(20)">
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000"/>
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000" transform="rotate(60)"/>
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000" transform="rotate(120)"/>
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000" transform="rotate(180)"/>
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000" transform="rotate(240)"/>
+      <path d="M0 -19.5 L2.8 -7.3 L0 -6 L-2.8 -7.3 Z" fill="#000000" transform="rotate(300)"/>
+    </g>
+    <g transform="rotate(40)">
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000"/>
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000" transform="rotate(60)"/>
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000" transform="rotate(120)"/>
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000" transform="rotate(180)"/>
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000" transform="rotate(240)"/>
+      <path d="M0 -15 L2.2 -6.2 L0 -5 L-2.2 -6.2 Z" fill="#000000" transform="rotate(300)"/>
+    </g>
+    <circle cx="0" cy="0" r="4.2" fill="#000000"/>
+  </g>
+</svg>

@@ -39,7 +39,7 @@ impl ToolPlugin for HermesPlugin {
         ToolMeta {
             id: "hermes".into(),
             name: "Hermes (Web UI)".into(),
-            description: "Multi-provider AI coding assistant with Web UI".into(),
+            description: "多供应商 AI 编程助手，带 Web 界面".into(),
             icon: "hermes".into(),
             category: "ai-cli".into(),
         }
@@ -47,6 +47,19 @@ impl ToolPlugin for HermesPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::PythonPackage
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("hermes")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        vec![
+            "venv\\Scripts\\hermes.exe".to_string(),
+            "venv\\Scripts\\hermes.cmd".to_string(),
+            "Scripts\\hermes.exe".to_string(),
+            "Scripts\\hermes.cmd".to_string(),
+        ]
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {

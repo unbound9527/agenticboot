@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { FolderOpen, RefreshCw, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { InstallConsole } from "@/components/tools/InstallConsole";
 import { ToolCard } from "@/components/tools/ToolCard";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
@@ -14,77 +15,12 @@ import {
   useInstalledTools,
   useInstallRoot,
   useResolveInstallPlan,
+  useToolCatalog,
   useToolUpdates,
   useUninstallTool,
 } from "@/hooks/useTools";
 import { toolsApi } from "@/lib/api/tools";
-import type { DetectResult, InstalledTool, ToolMeta } from "@/types/tools";
-
-const ALL_TOOLS_META: ToolMeta[] = [
-  {
-    id: "claude-code-cli",
-    name: "Claude Code (CLI)",
-    description: "Anthropic 官方 CLI AI 编程助手",
-    icon: "claude",
-    category: "ai-cli",
-  },
-  {
-    id: "claude-code-desktop",
-    name: "Claude Code (桌面版)",
-    description: "Claude Code 桌面应用",
-    icon: "claude",
-    category: "ai-cli",
-  },
-  {
-    id: "codex-cli",
-    name: "Codex (CLI)",
-    description: "OpenAI 官方 CLI 编程助手",
-    icon: "codex",
-    category: "ai-cli",
-  },
-  {
-    id: "codex-desktop",
-    name: "Codex (桌面版)",
-    description: "Codex 桌面应用",
-    icon: "codex",
-    category: "ai-cli",
-  },
-  {
-    id: "gemini-cli",
-    name: "Gemini CLI",
-    description: "Google Gemini CLI 编程助手",
-    icon: "gemini",
-    category: "ai-cli",
-  },
-  {
-    id: "opencode-cli",
-    name: "OpenCode (CLI)",
-    description: "开源 AI 编程工具",
-    icon: "opencode",
-    category: "ai-cli",
-  },
-  {
-    id: "opencode-desktop",
-    name: "OpenCode (桌面版)",
-    description: "OpenCode 桌面应用",
-    icon: "opencode",
-    category: "ai-cli",
-  },
-  {
-    id: "openclaw",
-    name: "OpenClaw",
-    description: "可编程 AI 编码引擎",
-    icon: "openclaw",
-    category: "ai-cli",
-  },
-  {
-    id: "hermes",
-    name: "Hermes (Web UI)",
-    description: "多提供商 AI 编程助手，Web UI 交互",
-    icon: "hermes",
-    category: "ai-cli",
-  },
-];
+import type { DetectResult, InstalledTool, ToolCatalogItem } from "@/types/tools";
 
 interface ManagerProps {
   onInstallMore?: () => void;
@@ -92,7 +28,7 @@ interface ManagerProps {
 }
 
 function toExternalInstalledTool(
-  meta: ToolMeta,
+  meta: ToolCatalogItem,
   detect: DetectResult,
   fallbackRoot: string,
 ): InstalledTool {
@@ -102,25 +38,22 @@ function toExternalInstalledTool(
     version: detect.version,
     installPath: detect.installPath ?? "",
     installRoot: detect.installPath ?? fallbackRoot,
-    category: "tool",
+    category: meta.category,
     status: "detected",
   };
 }
 
-function supportsPathlessDetectedUninstall(toolId: string) {
-  return ["claude-code-desktop", "codex-desktop", "opencode-desktop"].includes(
-    toolId,
-  );
-}
-
-function canAutoUninstallTool(tool: InstalledTool) {
+function canAutoUninstallTool(
+  tool: InstalledTool,
+  meta: ToolCatalogItem | undefined,
+) {
   if (tool.category === "dependency") {
     return false;
   }
 
   if (
     !tool.installPath?.trim() &&
-    !(tool.status === "detected" && supportsPathlessDetectedUninstall(tool.id))
+    !(tool.status === "detected" && meta?.capabilities.supportsPathlessUninstall)
   ) {
     return false;
   }
@@ -136,7 +69,7 @@ function canAutoUninstallTool(tool: InstalledTool) {
   return false;
 }
 
-function buildPendingInstallProgress(tool: ToolMeta) {
+function buildPendingInstallProgress(tool: ToolCatalogItem) {
   return {
     toolId: tool.id,
     toolName: tool.name,
@@ -144,6 +77,15 @@ function buildPendingInstallProgress(tool: ToolMeta) {
     percent: 0,
     message: "Preparing installation...",
   };
+}
+
+function isManagedUserTool(tool: ToolCatalogItem) {
+  return (
+    tool.category !== "dependency" &&
+    (tool.capabilities.canInstall ||
+      tool.capabilities.canUninstall ||
+      tool.capabilities.canLaunch)
+  );
 }
 
 function addToolId(previous: Set<string>, toolId: string) {
@@ -180,6 +122,15 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     () => new Set(),
   );
 
+  const {
+    data: toolCatalog = [],
+    isError: isToolCatalogError,
+    refetch: refetchToolCatalog,
+  } = useToolCatalog();
+  const visibleTools = useMemo(
+    () => toolCatalog.filter(isManagedUserTool),
+    [toolCatalog],
+  );
   const { data: installedTools = [] } = useInstalledTools();
   const { data: installRoot } = useInstallRoot();
   const { data: updates = [], refetch: refetchToolUpdates } = useToolUpdates();
@@ -197,7 +148,10 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const managedInstalledTools = installedTools.filter(
     (tool) => tool.status === "installed",
   );
-  const allToolMetaById = new Map(ALL_TOOLS_META.map((tool) => [tool.id, tool]));
+  const allToolMetaById = useMemo(
+    () => new Map(visibleTools.map((tool) => [tool.id, tool])),
+    [visibleTools],
+  );
   const updatesByToolId = new Map(updates.map((update) => [update.toolId, update]));
   const effectiveInstallRoot = activeInstallRoot || installRoot || "";
   const selectedConsoleSession = openConsoleToolId
@@ -214,7 +168,12 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
 
   const refreshDetectedTools = useCallback(
     (forceRefresh = false) => {
-      const ids = ALL_TOOLS_META.map((tool) => tool.id);
+      const ids = visibleTools.map((tool) => tool.id);
+      if (ids.length === 0) {
+        setDetectedTools({});
+        setIsDetecting(false);
+        return Promise.resolve();
+      }
       setIsDetecting(true);
       const detectPromise = toolsApi.detectTools(
         ids,
@@ -234,7 +193,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
           setIsDetecting(false);
         });
     },
-    [effectiveInstallRoot],
+    [effectiveInstallRoot, visibleTools],
   );
 
   useEffect(() => {
@@ -268,14 +227,14 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
 
   const mergedInstalledTools: InstalledTool[] = [
     ...managedInstalledTools,
-    ...ALL_TOOLS_META.filter((meta) => !managedInstalledIds.has(meta.id))
+    ...visibleTools.filter((meta) => !managedInstalledIds.has(meta.id))
       .filter((meta) => detectedTools[meta.id]?.installed)
       .map((meta) =>
         toExternalInstalledTool(meta, detectedTools[meta.id], effectiveInstallRoot),
       ),
   ];
 
-  const notInstalled = ALL_TOOLS_META.filter(
+  const notInstalled = visibleTools.filter(
     (meta) => !installedIds.has(meta.id),
   );
 
@@ -474,6 +433,32 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         </div>
       </div>
 
+      {isToolCatalogError && (
+        <Alert variant="destructive" className="mb-4">
+          <RefreshCw className="h-4 w-4" />
+          <AlertTitle>
+            {t("tools.toolCatalogLoadFailed", "Failed to load tool catalog.")}
+          </AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>
+              {t(
+                "tools.toolCatalogManagerLoadFailedHint",
+                "Tool management is unavailable until the catalog can be loaded.",
+              )}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void refetchToolCatalog();
+              }}
+            >
+              {t("common.retry", "Retry")}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4 w-full">
           <TabsTrigger value="installed" className="flex-1 text-[13px]">
@@ -500,12 +485,10 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
             </div>
           )}
           {mergedInstalledTools.map((tool) => {
-            const canUninstall = canAutoUninstallTool(tool);
+            const meta = allToolMetaById.get(tool.id);
+            const canUninstall = canAutoUninstallTool(tool, meta);
             const canLaunch =
-              tool.installPath?.trim() &&
-              ["claude-code-desktop", "codex-desktop", "opencode-desktop"].includes(
-                tool.id,
-              );
+              tool.installPath?.trim() && meta?.capabilities.canLaunch;
 
             return (
               <ToolCard

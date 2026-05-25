@@ -4,8 +4,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toolsApi } from '@/lib/api/tools';
 
 const TOOLS_KEY = ['installed-tools'] as const;
+const TOOL_CATALOG_KEY = ['tool-catalog'] as const;
 const NETWORK_KEY = ['network-status'] as const;
 const UPDATES_KEY = ['tool-updates'] as const;
+
+export function useToolCatalog() {
+  return useQuery({
+    queryKey: TOOL_CATALOG_KEY,
+    queryFn: () => toolsApi.getToolCatalog(),
+    staleTime: Infinity,
+    retry: false,
+  });
+}
 
 export function useInstalledTools() {
   return useQuery({

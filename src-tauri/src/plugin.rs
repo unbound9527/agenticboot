@@ -1,5 +1,8 @@
 use crate::services::installer::logging::InstallLogEmitter;
-use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolCapabilities, ToolCatalogItem,
+    ToolDependency, ToolMeta, ToolPlatformSupport, ToolUpdateSource,
+};
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
@@ -67,6 +70,75 @@ pub trait ToolPlugin: Send + Sync {
     fn uninstall(&self, target_dir: &Path) -> Result<(), String>;
 
     fn dependencies(&self) -> Vec<ToolDependency>;
+
+    fn command_name(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn managed_shim_name(&self) -> Option<&'static str> {
+        self.command_name()
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn update_source(&self) -> Option<ToolUpdateSource> {
+        None
+    }
+
+    fn can_install(&self) -> bool {
+        self.platform_support().current_platform_is_implemented()
+    }
+
+    fn can_uninstall(&self) -> bool {
+        self.platform_support().current_platform_is_implemented()
+    }
+
+    fn supports_pathless_uninstall(&self) -> bool {
+        false
+    }
+
+    fn can_launch(&self) -> bool {
+        self.platform_support().current_platform_is_implemented()
+            && matches!(self.install_strategy(), InstallStrategy::DesktopInstaller)
+    }
+
+    fn platform_support(&self) -> ToolPlatformSupport {
+        ToolPlatformSupport::windows_only()
+    }
+
+    fn catalog_item(&self) -> ToolCatalogItem {
+        let meta = self.metadata();
+        let update_source = self.update_source();
+        let install_strategy = self.install_strategy();
+        let command_name = self.command_name().map(str::to_string);
+        let managed_shim_name = self.managed_shim_name().map(str::to_string);
+        let managed_executable_candidates = self.managed_executable_candidates();
+
+        ToolCatalogItem {
+            id: meta.id,
+            name: meta.name,
+            description: meta.description,
+            icon: meta.icon,
+            category: meta.category,
+            install_strategy: install_strategy.as_kebab_case().to_string(),
+            dependencies: self.dependencies(),
+            update_source: update_source.clone(),
+            platform_support: self.platform_support(),
+            capabilities: ToolCapabilities {
+                can_install: self.can_install(),
+                can_uninstall: self.can_uninstall(),
+                can_launch: self.can_launch(),
+                can_update: self.platform_support().current_platform_is_implemented()
+                    && update_source.is_some(),
+                supports_pathless_uninstall: self.supports_pathless_uninstall(),
+                command_name,
+                managed_shim_name,
+                managed_executable_candidates,
+            },
+        }
+    }
 }
 
 pub fn get_all_plugins() -> Vec<Box<dyn ToolPlugin>> {
@@ -91,14 +163,23 @@ pub fn get_plugin_by_id(id: &str) -> Option<Box<dyn ToolPlugin>> {
         .find(|p| p.metadata().id == id)
 }
 
+pub fn get_tool_catalog() -> Vec<ToolCatalogItem> {
+    get_all_plugins()
+        .into_iter()
+        .map(|plugin| plugin.catalog_item())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{get_plugin_by_id, ToolPlugin};
+    use super::{get_plugin_by_id, get_tool_catalog, ToolPlugin};
     use crate::services::installer::logging::InstallLogEmitter;
     use crate::tool_types::InstallStrategy;
-    use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
+    use crate::tool_types::{
+        DetectResult, InstallProgress, ToolDependency, ToolMeta, ToolPlatformSupport,
+    };
     use std::path::Path;
-    use tokio::sync::mpsc;
+    use tokio::sync::mpsc::{self, Sender};
 
     #[test]
     fn install_strategy_desktop_plugins_are_not_managed_prefix_tools() {
@@ -119,6 +200,114 @@ mod tests {
         let plugin = get_plugin_by_id("hermes").unwrap();
 
         assert_eq!(plugin.metadata().id, "hermes");
+    }
+
+    #[test]
+    fn tool_catalog_has_unique_plugin_owned_capabilities() {
+        let catalog = get_tool_catalog();
+        let mut ids = std::collections::HashSet::new();
+
+        for tool in &catalog {
+            assert!(ids.insert(tool.id.clone()), "duplicate tool id {}", tool.id);
+        }
+
+        let codex = catalog
+            .iter()
+            .find(|tool| tool.id == "codex-cli")
+            .expect("codex cli in catalog");
+        assert_eq!(codex.name, "Codex (CLI)");
+        assert_eq!(codex.category, "ai-cli");
+        assert_eq!(codex.capabilities.command_name.as_deref(), Some("codex"));
+        assert_eq!(codex.capabilities.managed_shim_name.as_deref(), Some("codex"));
+        assert!(codex.capabilities.can_install);
+        assert!(codex.capabilities.can_uninstall);
+        assert!(codex.capabilities.can_update);
+        assert_eq!(codex.update_source.as_ref().map(|source| source.kind.as_str()), Some("npm"));
+        assert_eq!(
+            codex.update_source.as_ref().map(|source| source.id.as_str()),
+            Some("@openai/codex")
+        );
+    }
+
+    #[test]
+    fn desktop_catalog_declares_pathless_uninstall_support() {
+        let catalog = get_tool_catalog();
+        let codex_desktop = catalog
+            .iter()
+            .find(|tool| tool.id == "codex-desktop")
+            .expect("codex desktop in catalog");
+
+        assert!(codex_desktop.capabilities.supports_pathless_uninstall);
+        assert!(codex_desktop.capabilities.can_launch);
+        assert_eq!(codex_desktop.install_strategy, "desktop-installer");
+    }
+
+    #[test]
+    fn catalog_capabilities_respect_platform_support() {
+        struct PlannedPlatformPlugin;
+
+        impl ToolPlugin for PlannedPlatformPlugin {
+            fn metadata(&self) -> ToolMeta {
+                ToolMeta {
+                    id: "future-tool".into(),
+                    name: "Future Tool".into(),
+                    description: "planned elsewhere".into(),
+                    icon: "tool".into(),
+                    category: "ai-cli".into(),
+                }
+            }
+
+            fn install_strategy(&self) -> InstallStrategy {
+                InstallStrategy::DesktopInstaller
+            }
+
+            fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+                DetectResult::not_installed()
+            }
+
+            fn install(
+                &self,
+                _target_dir: &Path,
+                _install_root: &Path,
+                _progress: Sender<InstallProgress>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn dependencies(&self) -> Vec<ToolDependency> {
+                Vec::new()
+            }
+
+            fn platform_support(&self) -> ToolPlatformSupport {
+                ToolPlatformSupport {
+                    windows: "planned".into(),
+                    macos: "implemented".into(),
+                    linux: "implemented".into(),
+                }
+            }
+        }
+
+        let plugin = PlannedPlatformPlugin;
+        let catalog_item = plugin.catalog_item();
+
+        #[cfg(target_os = "windows")]
+        {
+            assert!(!catalog_item.capabilities.can_install);
+            assert!(!catalog_item.capabilities.can_uninstall);
+            assert!(!catalog_item.capabilities.can_launch);
+            assert!(!catalog_item.capabilities.can_update);
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(catalog_item.capabilities.can_install);
+            assert!(catalog_item.capabilities.can_uninstall);
+            assert!(catalog_item.capabilities.can_launch);
+        }
     }
 
     #[test]

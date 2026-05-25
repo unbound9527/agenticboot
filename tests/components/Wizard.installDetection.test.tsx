@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Wizard } from "@/pages/Wizard";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -16,8 +17,59 @@ const TOOL_IDS = [
   "hermes",
 ] as const;
 
+const TOOL_NAMES: Record<(typeof TOOL_IDS)[number], string> = {
+  "claude-code-cli": "Claude Code (CLI)",
+  "claude-code-desktop": "Claude Code (桌面版)",
+  "codex-cli": "Codex (CLI)",
+  "codex-desktop": "Codex (桌面版)",
+  "gemini-cli": "Gemini CLI",
+  "opencode-cli": "OpenCode (CLI)",
+  "opencode-desktop": "OpenCode (桌面版)",
+  openclaw: "OpenClaw",
+  hermes: "Hermes (Web UI)",
+};
+
+function buildToolCatalog() {
+  return TOOL_IDS.map((id) => ({
+    id,
+    name: TOOL_NAMES[id],
+    description: `${TOOL_NAMES[id]} description`,
+    icon: id,
+    category: "ai-cli",
+    installStrategy: id.includes("desktop") ? "desktop-installer" : "global-npm",
+    dependencies: [],
+    updateSource: undefined,
+    platformSupport: {
+      windows: "implemented",
+      macos: "planned",
+      linux: "planned",
+    },
+    capabilities: {
+      canInstall: true,
+      canUninstall: true,
+      canLaunch: id.includes("desktop"),
+      canUpdate: false,
+      supportsPathlessUninstall: id.includes("desktop"),
+      commandName: id,
+      managedShimName: id,
+      managedExecutableCandidates: [],
+    },
+  }));
+}
+
+function buildCatalogItem(
+  id: (typeof TOOL_IDS)[number],
+  overrides: Partial<ReturnType<typeof buildToolCatalog>[number]> = {},
+) {
+  return {
+    ...buildToolCatalog().find((tool) => tool.id === id)!,
+    ...overrides,
+  };
+}
+
 const toolsApiMock = vi.hoisted(() => ({
   checkNetwork: vi.fn(),
+  getToolCatalog: vi.fn(),
   detectTools: vi.fn(),
   resolveInstallPlan: vi.fn(),
   executeInstallPlan: vi.fn(),
@@ -91,6 +143,7 @@ function createDeferred<T>() {
 
 describe("Wizard install detection", () => {
   beforeEach(() => {
+    toolsApiMock.getToolCatalog.mockResolvedValue(buildToolCatalog());
     toolsApiMock.checkNetwork.mockResolvedValue({
       githubReachable: true,
       npmReachable: true,
@@ -933,5 +986,69 @@ describe("Wizard install detection", () => {
         true,
       );
     });
+  });
+
+  it("shows a visible error state and retry action when tool catalog loading fails", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.getToolCatalog.mockRejectedValueOnce(new Error("catalog unavailable"));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Failed to load tool catalog.")).toBeInTheDocument();
+    expect(screen.getByText("Catalog is required before detection and installation can continue.")).toBeInTheDocument();
+    expect(toolsApiMock.detectTools).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(toolsApiMock.getToolCatalog).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("filters out tools that are not installable on the current platform", async () => {
+    toolsApiMock.getToolCatalog.mockResolvedValue([
+      buildCatalogItem("codex-cli"),
+      buildCatalogItem("gemini-cli", {
+        platformSupport: {
+          windows: "planned",
+          macos: "implemented",
+          linux: "implemented",
+        },
+        capabilities: {
+          ...buildCatalogItem("gemini-cli").capabilities,
+          canInstall: false,
+          canUninstall: false,
+          canLaunch: false,
+        },
+      }),
+    ]);
+    toolsApiMock.detectTools.mockResolvedValue([
+      {
+        installed: false,
+        version: undefined,
+        installPath: undefined,
+      },
+    ]);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Wizard onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        ["codex-cli"],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    expect(await screen.findByText("Codex (CLI)")).toBeInTheDocument();
+    expect(screen.queryByText("Gemini CLI")).not.toBeInTheDocument();
   });
 });

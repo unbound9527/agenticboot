@@ -21,6 +21,41 @@ export interface ToolMeta {
   category: 'ai-cli' | 'ai-ide' | 'local-model' | 'dependency';
 }
 
+export interface ToolDependency {
+  toolId: string;
+  minVersion?: string;
+}
+
+export interface ToolUpdateSource {
+  kind: "npm" | "github" | string;
+  id: string;
+}
+
+export interface ToolPlatformSupport {
+  windows: "implemented" | "planned" | "unsupported" | string;
+  macos: "implemented" | "planned" | "unsupported" | string;
+  linux: "implemented" | "planned" | "unsupported" | string;
+}
+
+export interface ToolCapabilities {
+  canInstall: boolean;
+  canUninstall: boolean;
+  canLaunch: boolean;
+  canUpdate: boolean;
+  supportsPathlessUninstall: boolean;
+  commandName?: string;
+  managedShimName?: string;
+  managedExecutableCandidates: string[];
+}
+
+export interface ToolCatalogItem extends ToolMeta {
+  installStrategy: string;
+  dependencies: ToolDependency[];
+  updateSource?: ToolUpdateSource;
+  platformSupport: ToolPlatformSupport;
+  capabilities: ToolCapabilities;
+}
+
 export interface InstallStep {
   toolId: string;
   toolName: string;
@@ -95,7 +130,7 @@ export interface InstalledTool {
   version?: string;
   installPath: string;
   installRoot: string;
-  category: 'tool' | 'dependency';
+  category: 'tool' | 'ai-cli' | 'ai-ide' | 'local-model' | 'dependency';
   status: 'not_installed' | 'installing' | 'installed' | 'detected' | 'error';
   installedAt?: number;
   updatedAt?: number;

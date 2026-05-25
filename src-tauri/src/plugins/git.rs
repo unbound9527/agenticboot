@@ -14,7 +14,7 @@ impl ToolPlugin for GitPlugin {
         ToolMeta {
             id: "git".into(),
             name: "Git".into(),
-            description: "版本控制系统，部分工具的依赖".into(),
+            description: "Git 版本控制系统，代码协作必备".into(),
             icon: "git".into(),
             category: "dependency".into(),
         }
@@ -22,6 +22,14 @@ impl ToolPlugin for GitPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::ManagedPrefix
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("git")
+    }
+
+    fn managed_executable_candidates(&self) -> Vec<String> {
+        vec!["cmd\\git.exe".to_string(), "bin\\git.exe".to_string()]
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {

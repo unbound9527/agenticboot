@@ -225,7 +225,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         ToolMeta {
             id: "claude-code-desktop".into(),
             name: "Claude Code (Desktop)".into(),
-            description: "Official Claude desktop app for Windows".into(),
+            description: "Claude 官方 Windows 桌面应用".into(),
             icon: "claude".into(),
             category: "ai-cli".into(),
         }
@@ -233,6 +233,14 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
 
     fn install_strategy(&self) -> InstallStrategy {
         InstallStrategy::DesktopInstaller
+    }
+
+    fn command_name(&self) -> Option<&'static str> {
+        Some("claude")
+    }
+
+    fn supports_pathless_uninstall(&self) -> bool {
+        true
     }
 
     fn detect(&self, install_root: Option<&Path>) -> DetectResult {
