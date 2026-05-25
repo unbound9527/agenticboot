@@ -64,6 +64,16 @@ function buildToolCatalog() {
   }));
 }
 
+function buildCatalogItem(
+  id: (typeof TOOL_IDS)[number],
+  overrides: Partial<ReturnType<typeof buildToolCatalog>[number]> = {},
+) {
+  return {
+    ...buildToolCatalog().find((tool) => tool.id === id)!,
+    ...overrides,
+  };
+}
+
 const toolsApiMock = vi.hoisted(() => ({
   checkNetwork: vi.fn(),
   getToolCatalog: vi.fn(),
@@ -1404,5 +1414,69 @@ describe("Manager install detection", () => {
     expect(
       within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     ).toBeInTheDocument();
+  });
+  it("shows a visible error state and retry action when tool catalog loading fails", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.getToolCatalog.mockRejectedValueOnce(new Error("catalog unavailable"));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Failed to load tool catalog.")).toBeInTheDocument();
+    expect(screen.getByText("Tool management is unavailable until the catalog can be loaded.")).toBeInTheDocument();
+    expect(toolsApiMock.detectTools).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(toolsApiMock.getToolCatalog).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("hides tools that are not installable on the current platform from the available list", async () => {
+    toolsApiMock.getToolCatalog.mockResolvedValue([
+      buildCatalogItem("codex-cli"),
+      buildCatalogItem("gemini-cli", {
+        platformSupport: {
+          windows: "planned",
+          macos: "implemented",
+          linux: "implemented",
+        },
+        capabilities: {
+          ...buildCatalogItem("gemini-cli").capabilities,
+          canInstall: false,
+          canUninstall: false,
+          canLaunch: false,
+        },
+      }),
+    ]);
+    toolsApiMock.detectTools.mockResolvedValue([
+      {
+        installed: false,
+        version: undefined,
+        installPath: undefined,
+      },
+    ]);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        ["codex-cli"],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    await userEvent.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("Codex (CLI)")).toBeInTheDocument();
+    expect(screen.queryByText("Gemini CLI")).not.toBeInTheDocument();
   });
 });

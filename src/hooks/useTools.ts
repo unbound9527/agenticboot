@@ -13,6 +13,7 @@ export function useToolCatalog() {
     queryKey: TOOL_CATALOG_KEY,
     queryFn: () => toolsApi.getToolCatalog(),
     staleTime: Infinity,
+    retry: false,
   });
 }
 

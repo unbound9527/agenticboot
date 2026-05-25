@@ -87,12 +87,21 @@ pub trait ToolPlugin: Send + Sync {
         None
     }
 
+    fn can_install(&self) -> bool {
+        self.platform_support().current_platform_is_implemented()
+    }
+
+    fn can_uninstall(&self) -> bool {
+        self.platform_support().current_platform_is_implemented()
+    }
+
     fn supports_pathless_uninstall(&self) -> bool {
         false
     }
 
     fn can_launch(&self) -> bool {
-        matches!(self.install_strategy(), InstallStrategy::DesktopInstaller)
+        self.platform_support().current_platform_is_implemented()
+            && matches!(self.install_strategy(), InstallStrategy::DesktopInstaller)
     }
 
     fn platform_support(&self) -> ToolPlatformSupport {
@@ -118,10 +127,11 @@ pub trait ToolPlugin: Send + Sync {
             update_source: update_source.clone(),
             platform_support: self.platform_support(),
             capabilities: ToolCapabilities {
-                can_install: true,
-                can_uninstall: true,
+                can_install: self.can_install(),
+                can_uninstall: self.can_uninstall(),
                 can_launch: self.can_launch(),
-                can_update: update_source.is_some(),
+                can_update: self.platform_support().current_platform_is_implemented()
+                    && update_source.is_some(),
                 supports_pathless_uninstall: self.supports_pathless_uninstall(),
                 command_name,
                 managed_shim_name,
@@ -165,9 +175,11 @@ mod tests {
     use super::{get_plugin_by_id, get_tool_catalog, ToolPlugin};
     use crate::services::installer::logging::InstallLogEmitter;
     use crate::tool_types::InstallStrategy;
-    use crate::tool_types::{DetectResult, InstallProgress, ToolDependency, ToolMeta};
+    use crate::tool_types::{
+        DetectResult, InstallProgress, ToolDependency, ToolMeta, ToolPlatformSupport,
+    };
     use std::path::Path;
-    use tokio::sync::mpsc;
+    use tokio::sync::mpsc::{self, Sender};
 
     #[test]
     fn install_strategy_desktop_plugins_are_not_managed_prefix_tools() {
@@ -228,6 +240,74 @@ mod tests {
         assert!(codex_desktop.capabilities.supports_pathless_uninstall);
         assert!(codex_desktop.capabilities.can_launch);
         assert_eq!(codex_desktop.install_strategy, "desktop-installer");
+    }
+
+    #[test]
+    fn catalog_capabilities_respect_platform_support() {
+        struct PlannedPlatformPlugin;
+
+        impl ToolPlugin for PlannedPlatformPlugin {
+            fn metadata(&self) -> ToolMeta {
+                ToolMeta {
+                    id: "future-tool".into(),
+                    name: "Future Tool".into(),
+                    description: "planned elsewhere".into(),
+                    icon: "tool".into(),
+                    category: "ai-cli".into(),
+                }
+            }
+
+            fn install_strategy(&self) -> InstallStrategy {
+                InstallStrategy::DesktopInstaller
+            }
+
+            fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
+                DetectResult::not_installed()
+            }
+
+            fn install(
+                &self,
+                _target_dir: &Path,
+                _install_root: &Path,
+                _progress: Sender<InstallProgress>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn uninstall(&self, _target_dir: &Path) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn dependencies(&self) -> Vec<ToolDependency> {
+                Vec::new()
+            }
+
+            fn platform_support(&self) -> ToolPlatformSupport {
+                ToolPlatformSupport {
+                    windows: "planned".into(),
+                    macos: "implemented".into(),
+                    linux: "implemented".into(),
+                }
+            }
+        }
+
+        let plugin = PlannedPlatformPlugin;
+        let catalog_item = plugin.catalog_item();
+
+        #[cfg(target_os = "windows")]
+        {
+            assert!(!catalog_item.capabilities.can_install);
+            assert!(!catalog_item.capabilities.can_uninstall);
+            assert!(!catalog_item.capabilities.can_launch);
+            assert!(!catalog_item.capabilities.can_update);
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(catalog_item.capabilities.can_install);
+            assert!(catalog_item.capabilities.can_uninstall);
+            assert!(catalog_item.capabilities.can_launch);
+        }
     }
 
     #[test]

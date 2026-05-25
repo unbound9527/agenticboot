@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { InstallProgress } from "@/components/tools/InstallProgress";
 import { NetworkHelpDialog } from "@/components/tools/NetworkHelpDialog";
 import { ToolIcon } from "@/components/tools/ToolIcon";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -88,8 +89,12 @@ export function Wizard({
   forceDetectionRefreshToken = 0,
 }: WizardProps) {
   const { t } = useTranslation();
-  const { data: toolCatalog = [], isLoading: isToolCatalogLoading } =
-    useToolCatalog();
+  const {
+    data: toolCatalog = [],
+    isLoading: isToolCatalogLoading,
+    isError: isToolCatalogError,
+    refetch: refetchToolCatalog,
+  } = useToolCatalog();
   const selectableTools = useMemo(
     () => toolCatalog.filter(isSelectableTool),
     [toolCatalog],
@@ -348,6 +353,32 @@ export function Wizard({
       </div>
 
       <div className="space-y-8">
+        {isToolCatalogError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>
+              {t("tools.toolCatalogLoadFailed", "Failed to load tool catalog.")}
+            </AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p>
+                {t(
+                  "tools.toolCatalogLoadFailedHint",
+                  "Catalog is required before detection and installation can continue.",
+                )}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void refetchToolCatalog();
+                }}
+              >
+                {t("common.retry", "Retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <section className="space-y-3 rounded-lg border p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">
@@ -358,6 +389,10 @@ export function Wizard({
                 variant="ghost"
                 size="sm"
                 onClick={() => {
+                  if (isToolCatalogError) {
+                    void refetchToolCatalog();
+                    return;
+                  }
                   refreshDetectedTools(true).catch(() => {});
                 }}
                 className="text-xs"
@@ -575,6 +610,7 @@ export function Wizard({
             size="lg"
             onClick={handleStartInstall}
             disabled={
+              isToolCatalogError ||
               isToolCatalogLoading ||
               isDetectingTools ||
               resolvePlan.isPending ||

@@ -70,6 +70,19 @@ impl ToolPlatformSupport {
             linux: "planned".to_string(),
         }
     }
+
+    pub fn current_platform_status(&self) -> &str {
+        match std::env::consts::OS {
+            "windows" => self.windows.as_str(),
+            "macos" => self.macos.as_str(),
+            "linux" => self.linux.as_str(),
+            _ => "unsupported",
+        }
+    }
+
+    pub fn current_platform_is_implemented(&self) -> bool {
+        self.current_platform_status() == "implemented"
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -335,7 +348,7 @@ impl InstallLogEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallLogEvent, InstallLogKind, InstallLogLevel};
+    use super::{InstallLogEvent, InstallLogKind, InstallLogLevel, ToolPlatformSupport};
 
     #[test]
     fn install_log_helper_marks_result_with_exit_code() {
@@ -352,5 +365,16 @@ mod tests {
         assert_eq!(event.kind, InstallLogKind::Result);
         assert_eq!(event.exit_code, Some(0));
         assert_eq!(event.level, InstallLogLevel::Success);
+    }
+
+    #[test]
+    fn tool_platform_support_reports_current_platform_status() {
+        let support = ToolPlatformSupport::windows_only();
+
+        #[cfg(target_os = "windows")]
+        assert!(support.current_platform_is_implemented());
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(!support.current_platform_is_implemented());
     }
 }

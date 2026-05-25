@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { InstallConsole } from "@/components/tools/InstallConsole";
 import { ToolCard } from "@/components/tools/ToolCard";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
@@ -79,7 +80,12 @@ function buildPendingInstallProgress(tool: ToolCatalogItem) {
 }
 
 function isManagedUserTool(tool: ToolCatalogItem) {
-  return tool.category !== "dependency";
+  return (
+    tool.category !== "dependency" &&
+    (tool.capabilities.canInstall ||
+      tool.capabilities.canUninstall ||
+      tool.capabilities.canLaunch)
+  );
 }
 
 function addToolId(previous: Set<string>, toolId: string) {
@@ -116,7 +122,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     () => new Set(),
   );
 
-  const { data: toolCatalog = [] } = useToolCatalog();
+  const {
+    data: toolCatalog = [],
+    isError: isToolCatalogError,
+    refetch: refetchToolCatalog,
+  } = useToolCatalog();
   const visibleTools = useMemo(
     () => toolCatalog.filter(isManagedUserTool),
     [toolCatalog],
@@ -422,6 +432,32 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
           </Button>
         </div>
       </div>
+
+      {isToolCatalogError && (
+        <Alert variant="destructive" className="mb-4">
+          <RefreshCw className="h-4 w-4" />
+          <AlertTitle>
+            {t("tools.toolCatalogLoadFailed", "Failed to load tool catalog.")}
+          </AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>
+              {t(
+                "tools.toolCatalogManagerLoadFailedHint",
+                "Tool management is unavailable until the catalog can be loaded.",
+              )}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void refetchToolCatalog();
+              }}
+            >
+              {t("common.retry", "Retry")}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4 w-full">
