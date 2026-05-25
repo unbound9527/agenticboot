@@ -61,7 +61,7 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4QzlBNTczOTI4RTMKUldUaktEbFhtb3dDeUM5US9kT0FmdGR5Ti9vQzcwa2dTMlpibDVDUmQ2M0VGTzVOWnd0SGpFVlEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCRkRDNEUzRjE4N0NDNDAKUldSQXpJZng0OFQ5RzZOWFNqci9jZ2h0T0JKUHRVaks1UElYRGsxMnJpRVQ0L0Q5UUZIa0dnek0K",
       "endpoints": [
         "https://github.com/unbound9527/agenticboot/releases/latest/download/latest.json"
       ]
