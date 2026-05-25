@@ -166,7 +166,7 @@ impl ToolPlugin for OpenClawPlugin {
         ToolMeta {
             id: "openclaw".into(),
             name: "OpenClaw".into(),
-            description: "Programmable AI coding engine".into(),
+            description: "可编程 AI 代码生成引擎".into(),
             icon: "openclaw".into(),
             category: "ai-cli".into(),
         }

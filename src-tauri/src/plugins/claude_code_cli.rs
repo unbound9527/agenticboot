@@ -17,7 +17,7 @@ impl ToolPlugin for ClaudeCodeCliPlugin {
         ToolMeta {
             id: "claude-code-cli".into(),
             name: "Claude Code (CLI)".into(),
-            description: "Anthropic 官方 CLI AI 编程助手".into(),
+            description: "Anthropic Claude Code 官方命令行工具".into(),
             icon: "claude".into(),
             category: "ai-cli".into(),
         }

@@ -17,7 +17,7 @@ impl ToolPlugin for CodexDesktopPlugin {
         ToolMeta {
             id: "codex-desktop".into(),
             name: "Codex (Desktop)".into(),
-            description: "OpenAI official Windows desktop app".into(),
+            description: "OpenAI Codex 官方 Windows 桌面应用".into(),
             icon: "codex".into(),
             category: "ai-cli".into(),
         }

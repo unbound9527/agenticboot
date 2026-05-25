@@ -17,7 +17,7 @@ impl ToolPlugin for OpenCodeCliPlugin {
         ToolMeta {
             id: "opencode-cli".into(),
             name: "OpenCode (CLI)".into(),
-            description: "OpenCode 瀹樻柟 CLI".into(),
+            description: "OpenCode 官方命令行工具".into(),
             icon: "opencode".into(),
             category: "ai-cli".into(),
         }

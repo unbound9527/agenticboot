@@ -22,7 +22,7 @@ impl ToolPlugin for NodeJsPlugin {
         ToolMeta {
             id: "nodejs".into(),
             name: "Node.js".into(),
-            description: "JavaScript 运行时，CLI 工具的必要依赖".into(),
+            description: "Node.js JavaScript 运行时环境".into(),
             icon: "nodejs".into(),
             category: "dependency".into(),
         }

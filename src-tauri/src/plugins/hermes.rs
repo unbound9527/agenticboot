@@ -39,7 +39,7 @@ impl ToolPlugin for HermesPlugin {
         ToolMeta {
             id: "hermes".into(),
             name: "Hermes (Web UI)".into(),
-            description: "Multi-provider AI coding assistant with Web UI".into(),
+            description: "多供应商 AI 编程助手，带 Web 界面".into(),
             icon: "hermes".into(),
             category: "ai-cli".into(),
         }

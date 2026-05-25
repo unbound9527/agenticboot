@@ -17,7 +17,7 @@ impl ToolPlugin for CodexCliPlugin {
         ToolMeta {
             id: "codex-cli".into(),
             name: "Codex (CLI)".into(),
-            description: "OpenAI 官方 CLI AI 编程助手".into(),
+            description: "OpenAI Codex 官方命令行工具".into(),
             icon: "codex".into(),
             category: "ai-cli".into(),
         }

@@ -225,7 +225,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         ToolMeta {
             id: "claude-code-desktop".into(),
             name: "Claude Code (Desktop)".into(),
-            description: "Official Claude desktop app for Windows".into(),
+            description: "Claude 官方 Windows 桌面应用".into(),
             icon: "claude".into(),
             category: "ai-cli".into(),
         }

@@ -17,7 +17,7 @@ impl ToolPlugin for GeminiCliPlugin {
         ToolMeta {
             id: "gemini-cli".into(),
             name: "Gemini CLI".into(),
-            description: "Google 官方 Gemini CLI AI 编程助手".into(),
+            description: "Google Gemini 官方命令行工具".into(),
             icon: "gemini".into(),
             category: "ai-cli".into(),
         }
