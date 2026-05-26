@@ -1,5 +1,6 @@
 pub mod balance;
 pub mod coding_plan;
+pub mod command_util;
 pub mod config;
 pub mod downloader;
 pub mod env_checker;

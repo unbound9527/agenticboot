@@ -1,6 +1,7 @@
 mod app_config;
 mod app_store;
 mod auto_launch;
+mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
@@ -56,7 +57,7 @@ pub use services::{
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
     SkillService, SpeedtestService,
 };
-pub use settings::{update_settings, AppSettings};
+pub use settings::{update_settings, AppSettings, VisibleApps};
 pub use store::AppState;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -284,6 +285,28 @@ pub fn run() {
         )
         .setup(|app| {
             let _ = rustls::crypto::ring::default_provider().install_default();
+
+            // 尽早显示窗口，避免用户在初始化期间看到空白/加载中状态
+            {
+                let settings = crate::settings::get_settings();
+                if let Some(window) = app.get_webview_window("main") {
+                    #[cfg(target_os = "linux")]
+                    let _ = window.set_decorations(!settings.use_app_window_controls);
+                    if !settings.silent_startup {
+                        let _ = window.show();
+                        #[cfg(target_os = "linux")]
+                        {
+                            linux_fix::nudge_main_window(window.clone());
+                        }
+                    } else {
+                        let _ = window.hide();
+                        #[cfg(target_os = "windows")]
+                        let _ = window.set_skip_taskbar(true);
+                        #[cfg(target_os = "macos")]
+                        tray::apply_tray_policy(app.handle(), false);
+                    }
+                }
+            }
 
             // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
             app_store::refresh_app_config_dir_override(app.handle());
@@ -1012,36 +1035,6 @@ pub fn run() {
                 }
             }
 
-            // 静默启动：根据设置决定是否显示主窗口
-            let settings = crate::settings::get_settings();
-            if let Some(window) = app.get_webview_window("main") {
-                // 在窗口首次显示前同步装饰状态，避免前端加载后再切换导致标题栏闪烁
-                // 仅 Linux 生效：解决 Wayland 下系统窗口按钮不可用的问题
-                #[cfg(target_os = "linux")]
-                let _ = window.set_decorations(!settings.use_app_window_controls);
-                if settings.silent_startup {
-                    // 静默启动模式：保持窗口隐藏
-                    let _ = window.hide();
-                    #[cfg(target_os = "windows")]
-                    let _ = window.set_skip_taskbar(true);
-                    #[cfg(target_os = "macos")]
-                    tray::apply_tray_policy(app.handle(), false);
-                    log::info!("静默启动模式：主窗口已隐藏");
-                } else {
-                    // 正常启动模式：显示窗口
-                    let _ = window.show();
-                    log::info!("正常启动模式：主窗口已显示");
-
-                    // Linux: 解决首次启动 UI 无响应问题（Tauri #10746 + wry #637）。
-                    // 启动时 webview 未获取焦点 + surface 尺寸协商失败，导致点击无效。
-                    // 这里做 set_focus + 伪 resize，等价于无视觉版本的"最大化-还原"。
-                    #[cfg(target_os = "linux")]
-                    {
-                        linux_fix::nudge_main_window(window.clone());
-                    }
-                }
-            }
-
 
             Ok(())
         })
@@ -1054,6 +1047,9 @@ pub fn run() {
             commands::remove_provider_from_live_config,
             commands::switch_provider,
             commands::import_default_config,
+            commands::get_claude_desktop_status,
+            commands::get_claude_desktop_default_routes,
+            commands::import_claude_desktop_providers_from_claude,
             commands::get_claude_config_status,
             commands::get_config_status,
             commands::get_claude_code_config_path,
@@ -1345,7 +1341,6 @@ pub fn run() {
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
             // AgenticBoot tool management
-            commands::check_network,
             commands::get_tool_catalog,
             commands::detect_tools,
             commands::resolve_install_plan,

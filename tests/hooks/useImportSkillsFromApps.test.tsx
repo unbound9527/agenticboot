@@ -9,6 +9,7 @@ function makeSkill(overrides: Partial<InstalledSkill> = {}): InstalledSkill {
     directory: "skill-a",
     apps: {
       claude: true,
+      "claude-desktop": false,
       codex: false,
       gemini: false,
       opencode: false,

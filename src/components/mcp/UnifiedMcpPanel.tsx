@@ -58,6 +58,7 @@ const UnifiedMcpPanel = React.forwardRef<
   const enabledCounts = useMemo(() => {
     const counts = {
       claude: 0,
+      "claude-desktop": 0,
       codex: 0,
       gemini: 0,
       opencode: 0,
@@ -142,7 +143,7 @@ const UnifiedMcpPanel = React.forwardRef<
     <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
       <AppCountBar
         totalLabel={t("mcp.serverCount", { count: serverEntries.length })}
-        counts={enabledCounts}
+        counts={enabledCounts as Record<AppId, number>}
         appIds={MCP_APP_IDS}
       />
 
@@ -283,7 +284,7 @@ const UnifiedMcpListItem: React.FC<UnifiedMcpListItemProps> = ({
       </div>
 
       <AppToggleGroup
-        apps={server.apps}
+                  apps={server.apps as Record<AppId, boolean>}
         onToggle={(app, enabled) => onToggleApp(id, app, enabled)}
         appIds={MCP_APP_IDS}
       />

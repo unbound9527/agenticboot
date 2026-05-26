@@ -125,4 +125,42 @@ describe("AddProviderDialog", () => {
       },
     });
   });
+  it("claude-desktop 也会从 ANTHROPIC_BASE_URL 回填默认端点", async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    mockFormValues = {
+      name: "Desktop Provider",
+      websiteUrl: "",
+      settingsConfig: JSON.stringify({
+        env: { ANTHROPIC_BASE_URL: "https://desktop.claude.base" },
+        config: {},
+      }),
+    };
+
+    render(
+      <AddProviderDialog
+        open
+        onOpenChange={vi.fn()}
+        appId="claude-desktop"
+        onSubmit={handleSubmit}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "common.add",
+      }),
+    );
+
+    await waitFor(() => expect(handleSubmit).toHaveBeenCalledTimes(1));
+
+    const submitted = handleSubmit.mock.calls[0][0];
+    expect(submitted.meta?.custom_endpoints).toEqual({
+      "https://desktop.claude.base": {
+        url: "https://desktop.claude.base",
+        addedAt: expect.any(Number),
+        lastUsed: undefined,
+      },
+    });
+  });
 });

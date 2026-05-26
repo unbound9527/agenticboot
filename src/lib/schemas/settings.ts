@@ -16,6 +16,17 @@ export const settingsSchema = z.object({
   launchOnStartup: z.boolean().optional(),
   enableLocalProxy: z.boolean().optional(),
   language: z.enum(["en", "zh", "ja"]).optional(),
+  visibleApps: z
+    .object({
+      claude: z.boolean().optional(),
+      "claude-desktop": z.boolean().optional(),
+      codex: z.boolean().optional(),
+      gemini: z.boolean().optional(),
+      opencode: z.boolean().optional(),
+      openclaw: z.boolean().optional(),
+      hermes: z.boolean().optional(),
+    })
+    .optional(),
 
   // 设备级目录覆盖
   claudeConfigDir: directorySchema.nullable().optional(),
@@ -26,6 +37,7 @@ export const settingsSchema = z.object({
 
   // 当前供应商 ID（设备级）
   currentProviderClaude: z.string().optional(),
+  currentProviderClaudeDesktop: z.string().optional(),
   currentProviderCodex: z.string().optional(),
   currentProviderGemini: z.string().optional(),
 

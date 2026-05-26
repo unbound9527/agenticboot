@@ -1,12 +1,5 @@
 // AgenticBoot 工具管理相关 TypeScript 类型
 
-export interface NetworkStatus {
-  githubReachable: boolean;
-  npmReachable: boolean;
-  youtubeReachable: boolean;
-  errorMessage?: string;
-}
-
 export interface DetectResult {
   installed: boolean;
   version?: string;
@@ -66,6 +59,13 @@ export interface InstallStep {
 
 export interface InstallPlan {
   steps: InstallStep[];
+}
+
+export interface ResolveProgress {
+  toolId: string;
+  toolName: string;
+  phase: 'resolving' | 'resolved' | 'error';
+  message: string;
 }
 
 export interface InstallProgress {

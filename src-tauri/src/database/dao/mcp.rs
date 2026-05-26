@@ -44,6 +44,7 @@ impl Database {
                         server,
                         apps: McpApps {
                             claude: enabled_claude,
+                            claude_desktop: false,
                             codex: enabled_codex,
                             gemini: enabled_gemini,
                             opencode: enabled_opencode,

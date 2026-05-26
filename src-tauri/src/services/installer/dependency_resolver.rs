@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_install_plan_marks_nodejs_for_install_when_dependent_needs_newer_version() {
+    fn resolve_install_plan_skips_nodejs_for_windows_openclaw_installer() {
         let tmp = tempfile::tempdir().unwrap();
         let node_dir = tmp.path().join("nodejs");
 
@@ -302,14 +302,9 @@ mod tests {
 
         let plan = resolve_install_plan(&["openclaw".to_string()], Some(tmp.path())).expect("plan");
 
-        let node_step = plan
-            .steps
-            .iter()
-            .find(|step| step.tool_id == "nodejs")
-            .expect("node step");
         assert!(
-            !node_step.is_installed,
-            "nodejs should be scheduled because openclaw requires a newer node version"
+            !plan.steps.iter().any(|step| step.tool_id == "nodejs"),
+            "openclaw should not schedule nodejs because the Windows installer manages it directly"
         );
     }
 

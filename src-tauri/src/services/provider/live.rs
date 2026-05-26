@@ -315,7 +315,7 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
     }
 
     match app_type {
-        AppType::Claude => match serde_json::from_str::<Value>(trimmed) {
+        AppType::Claude | AppType::ClaudeDesktop => match serde_json::from_str::<Value>(trimmed) {
             Ok(source) if source.is_object() => json_is_subset(settings, &source),
             _ => false,
         },
@@ -381,7 +381,7 @@ pub(crate) fn remove_common_config_from_settings(
     }
 
     match app_type {
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let source = serde_json::from_str::<Value>(trimmed)
                 .map_err(|e| AppError::Message(format!("Invalid Claude common config: {e}")))?;
             let mut result = settings.clone();
@@ -434,7 +434,7 @@ fn apply_common_config_to_settings(
     }
 
     match app_type {
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let source = serde_json::from_str::<Value>(trimmed)
                 .map_err(|e| AppError::Message(format!("Invalid Claude common config: {e}")))?;
             let mut result = settings.clone();
@@ -512,6 +512,16 @@ pub(crate) fn write_live_with_common_config(
     let mut effective_provider = provider.clone();
     effective_provider.settings_config =
         build_effective_settings_with_common_config(db, app_type, provider)?;
+
+    if matches!(app_type, AppType::ClaudeDesktop) {
+        crate::claude_desktop_config::apply_provider(db, &effective_provider)?;
+        log::info!(
+            "Claude Desktop 3P profile '{}' written for provider '{}'",
+            crate::claude_desktop_config::PROFILE_ID,
+            effective_provider.id
+        );
+        return Ok(());
+    }
 
     write_live_snapshot(app_type, &effective_provider)
 }
@@ -694,7 +704,7 @@ impl LiveSnapshot {
 /// Write live configuration snapshot for a provider
 pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
     match app_type {
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let path = get_claude_settings_path();
             let settings = sanitize_claude_settings_for_live(&provider.settings_config);
             write_json_file(&path, &settings)?;
@@ -942,7 +952,7 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
             let cfg_text = crate::codex_config::read_and_validate_codex_config_text()?;
             Ok(json!({ "auth": auth, "config": cfg_text }))
         }
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let path = get_claude_settings_path();
             if !path.exists() {
                 return Err(AppError::localized(
@@ -1065,7 +1075,7 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
             let config_str = crate::codex_config::read_and_validate_codex_config_text()?;
             json!({ "auth": auth, "config": config_str })
         }
-        AppType::Claude => {
+        AppType::Claude | AppType::ClaudeDesktop => {
             let settings_path = get_claude_settings_path();
             if !settings_path.exists() {
                 return Err(AppError::localized(

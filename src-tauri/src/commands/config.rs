@@ -64,7 +64,7 @@ fn validate_common_config_snippet(app_type: &str, snippet: &str) -> Result<(), S
 #[tauri::command]
 pub async fn get_config_status(app: String) -> Result<ConfigStatus, String> {
     match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => Ok(config::get_claude_config_status()),
+        AppType::Claude | AppType::ClaudeDesktop => Ok(config::get_claude_config_status()),
         AppType::Codex => {
             let auth_path = codex_config::get_codex_auth_path();
             let exists = auth_path.exists();
@@ -121,7 +121,7 @@ pub async fn get_claude_code_config_path() -> Result<String, String> {
 #[tauri::command]
 pub async fn get_config_dir(app: String) -> Result<String, String> {
     let dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => config::get_claude_config_dir(),
+        AppType::Claude | AppType::ClaudeDesktop => config::get_claude_config_dir(),
         AppType::Codex => codex_config::get_codex_config_dir(),
         AppType::Gemini => crate::gemini_config::get_gemini_dir(),
         AppType::OpenCode => crate::opencode_config::get_opencode_dir(),
@@ -135,7 +135,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, String> {
     let config_dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => config::get_claude_config_dir(),
+        AppType::Claude | AppType::ClaudeDesktop => config::get_claude_config_dir(),
         AppType::Codex => codex_config::get_codex_config_dir(),
         AppType::Gemini => crate::gemini_config::get_gemini_dir(),
         AppType::OpenCode => crate::opencode_config::get_opencode_dir(),

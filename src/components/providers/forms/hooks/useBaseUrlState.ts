@@ -5,6 +5,7 @@ import {
 } from "@/utils/providerConfigUtils";
 import type { ProviderCategory } from "@/types";
 import type { AppId } from "@/lib/api";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 
 interface UseBaseUrlStateProps {
   appType: AppId;
@@ -34,7 +35,7 @@ export function useBaseUrlState({
 
   // 从配置同步到 state（Claude）
   useEffect(() => {
-    if (appType !== "claude") return;
+    if (!isClaudeFamilyApp(appType)) return;
     // 只有 official 类别不显示 Base URL 输入框，其他类别都需要回填
     if (category === "official") return;
     if (isUpdatingRef.current) return;

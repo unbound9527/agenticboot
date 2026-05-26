@@ -463,7 +463,7 @@ impl ProxyService {
     /// 这样代理才能从数据库读取到正确的认证信息。
     async fn sync_live_to_provider(&self, app_type: &AppType) -> Result<(), String> {
         let live_config = match app_type {
-            AppType::Claude => self.read_claude_live()?,
+            AppType::Claude | AppType::ClaudeDesktop => self.read_claude_live()?,
             AppType::Codex => self.read_codex_live()?,
             AppType::Gemini => self.read_gemini_live()?,
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
@@ -482,14 +482,14 @@ impl ProxyService {
         live_config: &Value,
     ) -> Result<(), String> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 let provider_id =
-                    crate::settings::get_effective_current_provider(&self.db, &AppType::Claude)
+                    crate::settings::get_effective_current_provider(self.db.as_ref(), app_type)
                         .map_err(|e| format!("获取 Claude 当前供应商失败: {e}"))?;
 
                 if let Some(provider_id) = provider_id {
                     if let Ok(Some(mut provider)) =
-                        self.db.get_provider_by_id(&provider_id, "claude")
+                        self.db.get_provider_by_id(&provider_id, app_type.as_str())
                     {
                         if let Some(env) = live_config.get("env").and_then(|v| v.as_object()) {
                             let token_pair = [
@@ -862,6 +862,7 @@ impl ProxyService {
     async fn backup_live_config_strict(&self, app_type: &AppType) -> Result<(), String> {
         let (app_type_str, config) = match app_type {
             AppType::Claude => ("claude", self.read_claude_live()?),
+            AppType::ClaudeDesktop => ("claude-desktop", self.read_claude_live()?),
             AppType::Codex => ("codex", self.read_codex_live()?),
             AppType::Gemini => ("gemini", self.read_gemini_live()?),
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
@@ -969,7 +970,7 @@ impl ProxyService {
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 let mut live_config = self.read_claude_live()?;
                 Self::apply_claude_takeover_fields(&mut live_config, &proxy_url);
                 self.write_claude_live(&live_config)?;
@@ -1022,7 +1023,7 @@ impl ProxyService {
         let (proxy_url, proxy_codex_base_url) = self.build_proxy_urls().await?;
 
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 if let Ok(mut live_config) = self.read_claude_live() {
                     Self::apply_claude_takeover_fields(&mut live_config, &proxy_url);
                     let _ = self.write_claude_live(&live_config);
@@ -1077,7 +1078,7 @@ impl ProxyService {
 
     async fn restore_live_config_for_app_inner(&self, app_type: &AppType) -> Result<(), String> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 if let Ok(Some(backup)) = self.db.get_live_backup("claude").await {
                     let config: Value = serde_json::from_str(&backup.original_config)
                         .map_err(|e| format!("解析 Claude 备份失败: {e}"))?;
@@ -1189,7 +1190,7 @@ impl ProxyService {
 
     fn write_live_config_for_app(&self, app_type: &AppType, config: &Value) -> Result<(), String> {
         match app_type {
-            AppType::Claude => self.write_claude_live(config),
+            AppType::Claude | AppType::ClaudeDesktop => self.write_claude_live(config),
             AppType::Codex => self.write_codex_live(config),
             AppType::Gemini => self.write_gemini_live(config),
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
@@ -1201,7 +1202,7 @@ impl ProxyService {
 
     pub fn detect_takeover_in_live_config_for_app(&self, app_type: &AppType) -> bool {
         match app_type {
-            AppType::Claude => match self.read_claude_live() {
+            AppType::Claude | AppType::ClaudeDesktop => match self.read_claude_live() {
                 Ok(config) => Self::is_claude_live_taken_over(&config),
                 Err(_) => false,
             },
@@ -1253,7 +1254,9 @@ impl ProxyService {
         app_type: &AppType,
     ) -> Result<(), String> {
         match app_type {
-            AppType::Claude => self.cleanup_claude_takeover_placeholders_in_live(),
+            AppType::Claude | AppType::ClaudeDesktop => {
+                self.cleanup_claude_takeover_placeholders_in_live()
+            }
             AppType::Codex => self.cleanup_codex_takeover_placeholders_in_live(),
             AppType::Gemini => self.cleanup_gemini_takeover_placeholders_in_live(),
             AppType::OpenCode | AppType::OpenClaw | AppType::Hermes => {
@@ -1506,7 +1509,7 @@ impl ProxyService {
         }
 
         let backup_json = match app_type_enum {
-            AppType::Claude => serde_json::to_string(&effective_settings)
+            AppType::Claude | AppType::ClaudeDesktop => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?,
             AppType::Codex => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Codex 配置失败: {e}"))?,
@@ -1582,7 +1585,7 @@ impl ProxyService {
             self.update_live_backup_from_provider_inner(app_type, &provider)
                 .await?;
 
-            if matches!(app_type_enum, AppType::Claude) {
+            if matches!(app_type_enum, AppType::Claude | AppType::ClaudeDesktop) {
                 self.sync_claude_live_from_provider_while_proxy_active(&provider)
                     .await?;
                 if let Err(e) = self.cleanup_claude_model_overrides_in_live() {

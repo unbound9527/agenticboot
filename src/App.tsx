@@ -67,6 +67,7 @@ import { SettingsPage } from "@/components/settings/SettingsPage";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { ProxyToggle } from "@/components/proxy/ProxyToggle";
+import { ClaudeDesktopRouteToggle } from "@/components/proxy/ClaudeDesktopRouteToggle";
 import { FailoverToggle } from "@/components/proxy/FailoverToggle";
 import UsageScriptModal from "@/components/UsageScriptModal";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
@@ -123,6 +124,7 @@ const HEADER_HEIGHT = 64; // px
 const STORAGE_KEY = "agenticboot-last-app";
 const VALID_APPS: AppId[] = [
   "claude",
+  "claude-desktop",
   "codex",
   "gemini",
   "opencode",
@@ -172,6 +174,8 @@ function App() {
   const queryClient = useQueryClient();
 
   const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
+  const sharedFeatureApp: AppId =
+    activeApp === "claude-desktop" ? "claude" : activeApp;
   const [currentView, setCurrentView] = useState<View>(getInitialView);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -209,6 +213,7 @@ function App() {
   const contentTopOffset = dragBarHeight + HEADER_HEIGHT;
   const visibleApps: VisibleApps = settingsData?.visibleApps ?? {
     claude: true,
+    "claude-desktop": true,
     codex: true,
     gemini: true,
     opencode: true,
@@ -218,6 +223,7 @@ function App() {
 
   const getFirstVisibleApp = (): AppId => {
     if (visibleApps.claude) return "claude";
+    if (visibleApps["claude-desktop"]) return "claude-desktop";
     if (visibleApps.codex) return "codex";
     if (visibleApps.gemini) return "gemini";
     if (visibleApps.opencode) return "opencode";
@@ -236,16 +242,16 @@ function App() {
   useEffect(() => {
     if (
       currentView === "sessions" &&
-      activeApp !== "claude" &&
-      activeApp !== "codex" &&
-      activeApp !== "opencode" &&
-      activeApp !== "openclaw" &&
-      activeApp !== "gemini" &&
-      activeApp !== "hermes"
+      sharedFeatureApp !== "claude" &&
+      sharedFeatureApp !== "codex" &&
+      sharedFeatureApp !== "opencode" &&
+      sharedFeatureApp !== "openclaw" &&
+      sharedFeatureApp !== "gemini" &&
+      sharedFeatureApp !== "hermes"
     ) {
       setCurrentView("providers");
     }
-  }, [activeApp, currentView]);
+  }, [sharedFeatureApp, currentView]);
 
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
@@ -297,14 +303,14 @@ function App() {
       currentView === "openclawAgents");
   const { data: openclawHealthWarnings = [] } =
     useOpenClawHealth(isOpenClawView);
-  const hasSkillsSupport = true;
+  const hasSkillsSupport = sharedFeatureApp !== "openclaw";
   const hasSessionSupport =
-    activeApp === "claude" ||
-    activeApp === "codex" ||
-    activeApp === "opencode" ||
-    activeApp === "openclaw" ||
-    activeApp === "gemini" ||
-    activeApp === "hermes";
+    sharedFeatureApp === "claude" ||
+    sharedFeatureApp === "codex" ||
+    sharedFeatureApp === "opencode" ||
+    sharedFeatureApp === "openclaw" ||
+    sharedFeatureApp === "gemini" ||
+    sharedFeatureApp === "hermes";
 
   const {
     addProvider,
@@ -935,7 +941,7 @@ function App() {
               ref={promptPanelRef}
               open={true}
               onOpenChange={() => setCurrentView("providers")}
-              appId={activeApp}
+              appId={sharedFeatureApp}
             />
           );
         case "hermesMemory":
@@ -945,14 +951,18 @@ function App() {
             <UnifiedSkillsPanel
               ref={unifiedSkillsPanelRef}
               onOpenDiscovery={() => setCurrentView("skillsDiscovery")}
-              currentApp={activeApp === "openclaw" ? "claude" : activeApp}
+              currentApp={
+                sharedFeatureApp === "openclaw" ? "claude" : sharedFeatureApp
+              }
             />
           );
         case "skillsDiscovery":
           return (
             <SkillsPage
               ref={skillsPageRef}
-              initialApp={activeApp === "openclaw" ? "claude" : activeApp}
+              initialApp={
+                sharedFeatureApp === "openclaw" ? "claude" : sharedFeatureApp
+              }
             />
           );
         case "mcp":
@@ -974,7 +984,9 @@ function App() {
           );
 
         case "sessions":
-          return <SessionManagerPage key={activeApp} appId={activeApp} />;
+          return (
+            <SessionManagerPage key={sharedFeatureApp} appId={sharedFeatureApp} />
+          );
         case "workspace":
           return <WorkspaceFilesPanel />;
         case "openclawEnv":
@@ -1300,12 +1312,17 @@ function App() {
                   className="flex shrink-0 items-center gap-1.5"
                   style={{ WebkitAppRegion: "no-drag" } as any}
                 >
-                  {settingsData?.enableLocalProxy && (
-                    <ProxyToggle activeApp={activeApp} />
+                  {activeApp === "claude-desktop" ? (
+                    <ClaudeDesktopRouteToggle />
+                  ) : (
+                    settingsData?.enableLocalProxy && (
+                      <ProxyToggle activeApp={activeApp} />
+                    )
                   )}
-                  {settingsData?.enableFailoverToggle && (
-                    <FailoverToggle activeApp={activeApp} />
-                  )}
+                  {activeApp !== "claude-desktop" &&
+                    settingsData?.enableFailoverToggle && (
+                      <FailoverToggle activeApp={activeApp} />
+                    )}
                 </div>
               )}
             <div

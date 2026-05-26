@@ -933,7 +933,7 @@ base_url = "http://localhost:8080"
 
 impl ProviderService {
     fn normalize_provider_if_claude(app_type: &AppType, provider: &mut Provider) {
-        if matches!(app_type, AppType::Claude) {
+        if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
             let mut v = provider.settings_config.clone();
             if normalize_claude_models_in_value(&mut v) {
                 provider.settings_config = v;
@@ -1221,7 +1221,7 @@ impl ProviderService {
                 )
                 .map_err(|e| AppError::Message(format!("更新 Live 备份失败: {e}")))?;
 
-                if matches!(app_type, AppType::Claude) {
+                if matches!(app_type, AppType::Claude | AppType::ClaudeDesktop) {
                     futures::executor::block_on(
                         state
                             .proxy_service
@@ -1394,6 +1394,10 @@ impl ProviderService {
         if matches!(app_type, AppType::OpenCode)
             && _provider.category.as_deref() == Some("omo-slim")
         {
+            return Self::switch_normal(state, app_type, id, &providers);
+        }
+
+        if matches!(app_type, AppType::ClaudeDesktop) {
             return Self::switch_normal(state, app_type, id, &providers);
         }
 
@@ -1729,7 +1733,9 @@ impl ProviderService {
             .ok_or_else(|| AppError::Message(format!("Provider {current_id} not found")))?;
 
         match app_type {
-            AppType::Claude => Self::extract_claude_common_config(&provider.settings_config),
+            AppType::Claude | AppType::ClaudeDesktop => {
+                Self::extract_claude_common_config(&provider.settings_config)
+            }
             AppType::Codex => Self::extract_codex_common_config(&provider.settings_config),
             AppType::Gemini => Self::extract_gemini_common_config(&provider.settings_config),
             AppType::OpenCode => Self::extract_opencode_common_config(&provider.settings_config),
@@ -1744,7 +1750,9 @@ impl ProviderService {
         settings_config: &Value,
     ) -> Result<String, AppError> {
         match app_type {
-            AppType::Claude => Self::extract_claude_common_config(settings_config),
+            AppType::Claude | AppType::ClaudeDesktop => {
+                Self::extract_claude_common_config(settings_config)
+            }
             AppType::Codex => Self::extract_codex_common_config(settings_config),
             AppType::Gemini => Self::extract_gemini_common_config(settings_config),
             AppType::OpenCode => Self::extract_opencode_common_config(settings_config),
@@ -2047,7 +2055,7 @@ impl ProviderService {
 
     fn validate_provider_settings(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 if !provider.settings_config.is_object() {
                     return Err(AppError::localized(
                         "provider.claude.settings.not_object",
@@ -2150,7 +2158,7 @@ impl ProviderService {
         app_type: &AppType,
     ) -> Result<(String, String), AppError> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 let env = provider
                     .settings_config
                     .get("env")

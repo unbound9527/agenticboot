@@ -3,12 +3,14 @@ import { FolderOpen, RefreshCw, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InstallConsole } from "@/components/tools/InstallConsole";
 import { ToolCard } from "@/components/tools/ToolCard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstallProgress } from "@/hooks/useInstallProgress";
+import { useResolveProgress } from "@/hooks/useResolveProgress";
 import { useInstallSessions } from "@/hooks/useInstallSessions";
 import {
   useExecuteInstallPlan,
@@ -79,6 +81,21 @@ function buildPendingInstallProgress(tool: ToolCatalogItem) {
   };
 }
 
+function buildResolveInstallProgress(
+  toolId: string,
+  toolName: string,
+  phase: "resolving" | "resolved" | "error",
+  message: string,
+) {
+  return {
+    toolId,
+    toolName,
+    phase: phase === "error" ? ("error" as const) : ("starting" as const),
+    percent: phase === "resolving" ? 15 : phase === "resolved" ? 35 : 0,
+    message,
+  };
+}
+
 function isManagedUserTool(tool: ToolCatalogItem) {
   return (
     tool.category !== "dependency" &&
@@ -121,6 +138,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const [pendingActionToolIds, setPendingActionToolIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [uninstallConfirm, setUninstallConfirm] = useState<{
+    toolId: string;
+    toolName: string;
+    rootPath: string;
+  } | null>(null);
 
   const {
     data: toolCatalog = [],
@@ -139,6 +161,8 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const executePlan = useExecuteInstallPlan();
   const { getToolProgress, getToolTargetProgress, resetProgress } =
     useInstallProgress();
+  const { getProgress: getResolveProgress, reset: resetResolveProgress } =
+    useResolveProgress();
   const {
     sessions: installSessions,
     startOptimisticSession,
@@ -158,7 +182,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     ? installSessions.get(openConsoleToolId) ?? null
     : null;
   const visibleConsoleSession =
-    selectedConsoleSession?.status === "running" ? selectedConsoleSession : null;
+    selectedConsoleSession &&
+    (selectedConsoleSession.status === "running" ||
+      selectedConsoleSession.status === "error")
+      ? selectedConsoleSession
+      : null;
 
   useEffect(() => {
     const nextRoot = installRoot ?? "";
@@ -238,9 +266,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     (meta) => !installedIds.has(meta.id),
   );
 
-  const handleUninstall = useCallback(
-    async (toolId: string, rootPath: string) => {
-      const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+  const handleUninstallConfirm = useCallback(
+    async () => {
+      if (!uninstallConfirm) return;
+      const { toolId, rootPath, toolName } = uninstallConfirm;
+      setUninstallConfirm(null);
       setUninstallingToolIds((previous) => addToolId(previous, toolId));
       try {
         await uninstallTool.mutateAsync({ toolId, rootPath });
@@ -251,7 +281,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         markSessionError(
           toolId,
           toolName,
-          `System: Install request failed before completion: ${String(err)}`,
+          `System: Uninstall request failed: ${String(err)}`,
         );
         toast.error(
           t("tools.uninstallFailed", "卸载失败: {{error}}", {
@@ -262,7 +292,15 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         setUninstallingToolIds((previous) => removeToolId(previous, toolId));
       }
     },
-    [allToolMetaById, markSessionError, onToolStateChanged, refreshDetectedTools, uninstallTool, t],
+    [uninstallConfirm, markSessionError, onToolStateChanged, refreshDetectedTools, uninstallTool, t],
+  );
+
+  const handleUninstall = useCallback(
+    (toolId: string, rootPath: string) => {
+      const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+      setUninstallConfirm({ toolId, toolName, rootPath });
+    },
+    [allToolMetaById],
   );
 
   const handleSingleInstall = useCallback(
@@ -281,6 +319,8 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         setOpenConsoleToolId(toolId);
       }
       const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+      resetProgress();
+      resetResolveProgress();
       setPendingActionToolIds((previous) => addToolId(previous, toolId));
       startOptimisticSession(toolId, toolName, [
         "System: Install requested.",
@@ -296,7 +336,6 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
           toolName,
           "System: Install plan resolved. Starting installer...",
         );
-        resetProgress();
         appendOptimisticEntry(
           toolId,
           toolName,
@@ -305,6 +344,11 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         await executePlan.mutateAsync({ plan, rootPath: resolvedRoot });
         toast.success(t("tools.installStarted", "安装成功"));
       } catch (err) {
+        markSessionError(
+          toolId,
+          toolName,
+          `System: Install request failed: ${String(err)}`,
+        );
         toast.error(
           t("tools.installFailed", "安装失败: {{error}}", {
             error: String(err),
@@ -368,6 +412,16 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         return progress;
       }
 
+      const resolveProgress = getResolveProgress(toolId);
+      if (resolveProgress && pendingActionToolIds.has(toolId)) {
+        return buildResolveInstallProgress(
+          toolId,
+          allToolMetaById.get(toolId)?.name ?? resolveProgress.toolName,
+          resolveProgress.phase,
+          resolveProgress.message,
+        );
+      }
+
       if (pendingActionToolIds.has(toolId)) {
         const tool = allToolMetaById.get(toolId);
         if (tool) {
@@ -377,7 +431,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
 
       return null;
     },
-    [allToolMetaById, getToolProgress, pendingActionToolIds],
+    [allToolMetaById, getResolveProgress, getToolProgress, pendingActionToolIds],
   );
 
   return (
@@ -417,7 +471,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 }
               }).catch((error) => {
                 toast.error(
-                  t("tools.checkUpdatesFailed", "妫€鏌ユ洿鏂板け璐? {{error}}", {
+                  t("tools.checkUpdatesFailed", "检查更新失败: {{error}}", {
                     error: String(error),
                   }),
                 );
@@ -546,14 +600,23 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         </TabsContent>
 
         <TabsContent value="available" className="space-y-2">
+          {notInstalled.length === 0 && (
+            <div className="py-10 text-center text-muted-foreground">
+              <p className="text-[14px]">
+                {t("tools.allToolsInstalled", "所有工具均已安装")}
+              </p>
+            </div>
+          )}
           {notInstalled.map((tool) => (
             <ToolCard
               key={tool.id}
               tool={tool}
               variant="available"
+              isInstalling={pendingActionToolIds.has(tool.id)}
               progress={getDisplayProgress(tool.id)}
               installSession={installSessions.get(tool.id) ?? null}
               onInstall={() => {
+                if (pendingActionToolIds.has(tool.id)) return;
                 handleSingleInstall(tool.id, effectiveInstallRoot, {
                   openConsole: true,
                 });
@@ -623,6 +686,21 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={uninstallConfirm !== null}
+        title={t("tools.uninstallConfirmTitle", "确认卸载")}
+        message={t("tools.uninstallConfirmMessage", "确定要卸载 {{name}} 吗？此操作不可撤销。", {
+          name: uninstallConfirm?.toolName ?? "",
+        })}
+        confirmText={t("tools.uninstall", "卸载")}
+        cancelText={t("common.cancel", "取消")}
+        variant="destructive"
+        onConfirm={() => {
+          void handleUninstallConfirm();
+        }}
+        onCancel={() => setUninstallConfirm(null)}
+      />
     </div>
   );
 }

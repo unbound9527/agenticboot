@@ -1,6 +1,7 @@
-use crate::plugin::ToolPlugin;
+use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::services::installer::windows::{
-    find_command_on_path, find_managed_paths, read_command_version, run_detection_command_output,
+    find_command_on_path, find_managed_paths, read_command_version,
+    run_command_checked_with_streaming_logs_for_command, run_detection_command_output,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
 use std::path::{Path, PathBuf};
@@ -8,6 +9,225 @@ use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct HermesPlugin;
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HermesCheckoutHealth {
+    Missing,
+    Healthy,
+    Broken(String),
+}
+
+fn emit_hermes_progress(
+    progress: &Sender<InstallProgress>,
+    phase: &str,
+    percent: u8,
+    message: &str,
+) {
+    let _ = progress.blocking_send(InstallProgress {
+        tool_id: "hermes".into(),
+        tool_name: "Hermes".into(),
+        phase: phase.into(),
+        percent,
+        message: message.into(),
+    });
+}
+
+fn run_hermes_installer(
+    progress: &Sender<InstallProgress>,
+    context: Option<&ToolInstallContext>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let hermes_home = hermes_official_home_dir()
+            .ok_or_else(|| "LOCALAPPDATA is unavailable for Hermes install".to_string())?;
+
+        emit_hermes_progress(
+            progress,
+            "diagnosing",
+            5,
+            "Inspecting Hermes install state...",
+        );
+        if let Some(context) = context {
+            context
+                .install_log()
+                .emit_phase("diagnosing", "Inspecting Hermes install state");
+        }
+
+        let preflight_actions = repair_hermes_official_home(&hermes_home)?;
+        if preflight_actions.is_empty() {
+            if let Some(context) = context {
+                context.install_log().emit_output(
+                    "diagnosing",
+                    crate::tool_types::InstallLogLevel::Info,
+                    "Hermes home is ready for install",
+                );
+            }
+        } else {
+            emit_hermes_progress(
+                progress,
+                "repairing",
+                12,
+                "Repairing previous Hermes install state...",
+            );
+            if let Some(context) = context {
+                context
+                    .install_log()
+                    .emit_phase("repairing", "Repairing previous Hermes install state");
+                for action in &preflight_actions {
+                    context.install_log().emit_output(
+                        "repairing",
+                        crate::tool_types::InstallLogLevel::Info,
+                        action.clone(),
+                    );
+                }
+            }
+        }
+
+        run_hermes_installer_once(progress, context)?;
+
+        emit_hermes_progress(
+            progress,
+            "verifying",
+            92,
+            "Verifying Hermes installation...",
+        );
+        if let Some(context) = context {
+            context
+                .install_log()
+                .emit_phase("verifying", "Verifying Hermes installation");
+        }
+
+        match verify_hermes_official_install_layout(&hermes_home) {
+            Ok(launcher) => {
+                if let Some(context) = context {
+                    context.install_log().emit_output(
+                        "verifying",
+                        crate::tool_types::InstallLogLevel::Success,
+                        format!("Verified Hermes launcher at {}", launcher.display()),
+                    );
+                }
+            }
+            Err(first_error) => {
+                if let Some(context) = context {
+                    context.install_log().emit_output(
+                        "verifying",
+                        crate::tool_types::InstallLogLevel::Error,
+                        format!("Initial verification failed: {first_error}"),
+                    );
+                    context.install_log().emit_phase(
+                        "repairing",
+                        "Resetting broken Hermes checkout and retrying official installer once",
+                    );
+                }
+
+                emit_hermes_progress(
+                    progress,
+                    "repairing",
+                    94,
+                    "Repairing broken Hermes checkout and retrying...",
+                );
+
+                let retry_actions = reset_hermes_checkout_for_retry(&hermes_home)?;
+                if let Some(context) = context {
+                    for action in &retry_actions {
+                        context.install_log().emit_output(
+                            "repairing",
+                            crate::tool_types::InstallLogLevel::Info,
+                            action.clone(),
+                        );
+                    }
+                }
+
+                run_hermes_installer_once(progress, context)?;
+
+                let launcher =
+                    verify_hermes_official_install_layout(&hermes_home).map_err(|retry_error| {
+                        format!("{first_error}; retry verification failed: {retry_error}")
+                    })?;
+
+                if let Some(context) = context {
+                    context.install_log().emit_output(
+                        "verifying",
+                        crate::tool_types::InstallLogLevel::Success,
+                        format!(
+                            "Verified Hermes launcher after recovery at {}",
+                            launcher.display()
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    emit_hermes_progress(progress, "complete", 100, "Hermes install complete");
+    Ok(())
+}
+
+fn run_hermes_installer_once(
+    progress: &Sender<InstallProgress>,
+    context: Option<&ToolInstallContext>,
+) -> Result<(), String> {
+    emit_hermes_progress(
+        progress,
+        "installing",
+        20,
+        "Running the official Hermes Windows installer...",
+    );
+
+    if let Some(context) = context {
+        context
+            .install_log()
+            .emit_phase("installing", "Running official Hermes PowerShell installer");
+        context
+            .install_log()
+            .emit_command("installing", hermes_installer_command());
+    }
+
+    emit_hermes_progress(
+        progress,
+        "installing",
+        85,
+        "Waiting for the official Hermes installer to finish...",
+    );
+
+    let mut command = Command::new("powershell");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &hermes_installer_command(),
+    ]);
+
+    if let Some(context) = context {
+        run_command_checked_with_streaming_logs_for_command(
+            context.install_log(),
+            "installing",
+            &mut command,
+            "Hermes installer failed",
+        )?;
+    } else {
+        crate::services::command_util::hide_console(&mut command);
+        let output = command
+            .output()
+            .map_err(|e| format!("failed to launch Hermes installer: {e}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let details = if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                format!("exit code: {:?}", output.status.code())
+            };
+            return Err(format!("Hermes installer failed: {details}"));
+        }
+    }
+
+    Ok(())
+}
 
 /// Matches NousResearch `scripts/install.ps1`: Python **3.11** via `uv python` / embeddable zip.
 /// Hermes declares `requires-python >= 3.11`; 3.11 is the best-tested Windows path upstream.
@@ -33,6 +253,11 @@ const HERMES_AGENT_ZIP_NAME: &str = "hermes-agent-src.zip";
 /// (`[web,mcp,cron,cli,messaging,dev]`), then `[web]` only, then bare package.
 #[cfg(target_os = "windows")]
 const HERMES_PIP_INSTALL_TIERS: &[&str] = &[".[web,mcp,cron,cli,messaging,dev]", ".[web]", "."];
+#[cfg(target_os = "windows")]
+const HERMES_INSTALLER_URL: &str =
+    "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1";
+#[cfg(target_os = "windows")]
+const HERMES_OFFICIAL_HOME_DIR_NAME: &str = "hermes";
 
 impl ToolPlugin for HermesPlugin {
     fn metadata(&self) -> ToolMeta {
@@ -46,7 +271,7 @@ impl ToolPlugin for HermesPlugin {
     }
 
     fn install_strategy(&self) -> InstallStrategy {
-        InstallStrategy::PythonPackage
+        InstallStrategy::OfficialScript
     }
 
     fn command_name(&self) -> Option<&'static str> {
@@ -85,6 +310,24 @@ impl ToolPlugin for HermesPlugin {
             }
         }
 
+        #[cfg(target_os = "windows")]
+        if let Some(executable) = hermes_official_windows_command() {
+            let install_path = detect_install_path_from_executable(&executable)
+                .or_else(|| executable.parent().map(PathBuf::from))
+                .map(|dir| dir.to_string_lossy().to_string());
+            let version = read_python_package_version_from_executable(
+                &executable,
+                &["hermes_agent", "hermes-agent"],
+            )
+            .or_else(|| read_hermes_command_version());
+
+            return DetectResult {
+                installed: true,
+                version,
+                install_path,
+            };
+        }
+
         if let Some(executable) = find_command_on_path("hermes") {
             let install_path = detect_install_path_from_executable(&executable)
                 .or_else(|| executable.parent().map(PathBuf::from))
@@ -116,109 +359,22 @@ impl ToolPlugin for HermesPlugin {
     #[cfg(target_os = "windows")]
     fn install(
         &self,
-        target_dir: &Path,
+        _target_dir: &Path,
         _install_root: &Path,
         progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
-        let _ = progress.blocking_send(InstallProgress {
-            tool_id: "hermes".into(),
-            tool_name: "Hermes".into(),
-            phase: "installing".into(),
-            percent: 0,
-            message: "Preparing managed Python runtime...".into(),
-        });
+        run_hermes_installer(&progress, None)
+    }
 
-        let python_exe = ensure_managed_python_runtime(target_dir, &progress)?;
-        let venv_dir = target_dir.join("venv");
-        let hermes_python = venv_dir.join("Scripts").join("python.exe");
-
-        let venv_output = Command::new(&python_exe)
-            .args(["-m", "venv", &venv_dir.to_string_lossy()])
-            .output()
-            .map_err(|e| format!("failed to create Hermes venv: {e}"))?;
-        if !venv_output.status.success() {
-            return Err(format!(
-                "failed to create Hermes venv: {}",
-                String::from_utf8_lossy(&venv_output.stderr)
-            ));
-        }
-
-        let _ = progress.blocking_send(InstallProgress {
-            tool_id: "hermes".into(),
-            tool_name: "Hermes".into(),
-            phase: "installing".into(),
-            percent: 55,
-            message: "Upgrading pip in Hermes venv...".into(),
-        });
-
-        run_python_module(
-            &hermes_python,
-            &[
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "pip",
-                "setuptools",
-                "wheel",
-            ],
-            "upgrade pip",
-        )?;
-
-        let _ = progress.blocking_send(InstallProgress {
-            tool_id: "hermes".into(),
-            tool_name: "Hermes".into(),
-            phase: "downloading".into(),
-            percent: 62,
-            message: "Downloading Hermes Agent source (GitHub)...".into(),
-        });
-
-        let checkout_dir = target_dir.join(HERMES_AGENT_CHECKOUT_DIR);
-        let zip_path = target_dir.join(HERMES_AGENT_ZIP_NAME);
-        if checkout_dir.exists() {
-            std::fs::remove_dir_all(&checkout_dir)
-                .map_err(|e| format!("failed to clear Hermes checkout dir: {e}"))?;
-        }
-        std::fs::create_dir_all(&checkout_dir)
-            .map_err(|e| format!("failed to create Hermes checkout dir: {e}"))?;
-
-        let rt =
-            tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
-        rt.block_on(async {
-            crate::services::downloader::download_file(HERMES_AGENT_SOURCE_ZIP_URL, &zip_path, None)
-                .await
-        })?;
-
-        let _ = progress.blocking_send(InstallProgress {
-            tool_id: "hermes".into(),
-            tool_name: "Hermes".into(),
-            phase: "extracting".into(),
-            percent: 68,
-            message: "Extracting Hermes Agent source...".into(),
-        });
-
-        crate::services::downloader::extract_zip(&zip_path, &checkout_dir)?;
-        std::fs::remove_file(&zip_path).ok();
-
-        let project_root = find_hermes_pyproject_root(&checkout_dir)?;
-        install_hermes_from_source_with_tiers(&hermes_python, &project_root, &progress)?;
-
-        std::fs::remove_dir_all(&checkout_dir).ok();
-
-        let hermes_exe = venv_dir.join("Scripts").join("hermes.exe");
-        if !hermes_exe.exists() {
-            return Err("Hermes install did not produce venv\\Scripts\\hermes.exe".into());
-        }
-        run_python_module(&hermes_exe, &["--help"], "verify Hermes command")?;
-
-        let _ = progress.blocking_send(InstallProgress {
-            tool_id: "hermes".into(),
-            tool_name: "Hermes".into(),
-            phase: "complete".into(),
-            percent: 100,
-            message: "Hermes install complete".into(),
-        });
-        Ok(())
+    #[cfg(target_os = "windows")]
+    fn install_with_context(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        run_hermes_installer(&progress, Some(&context))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -258,6 +414,196 @@ fn read_hermes_command_version() -> Option<String> {
         .or_else(|| extract_hermes_version(&String::from_utf8_lossy(&output.stderr)))
 }
 
+#[cfg(target_os = "windows")]
+fn hermes_installer_command() -> String {
+    format!("& ([scriptblock]::Create((irm {HERMES_INSTALLER_URL}))) -Branch main")
+}
+
+#[cfg(target_os = "windows")]
+fn hermes_official_home_dir() -> Option<PathBuf> {
+    let local_appdata = std::env::var_os("LOCALAPPDATA")?;
+    let local_appdata = PathBuf::from(local_appdata);
+    Some(hermes_official_home_dir_from_local_appdata(&local_appdata))
+}
+
+#[cfg(target_os = "windows")]
+fn hermes_official_home_dir_from_local_appdata(local_appdata: &Path) -> PathBuf {
+    local_appdata.join(HERMES_OFFICIAL_HOME_DIR_NAME)
+}
+
+#[cfg(target_os = "windows")]
+fn hermes_official_windows_command() -> Option<PathBuf> {
+    let hermes_home = hermes_official_home_dir()?;
+    hermes_official_windows_command_in_home(&hermes_home)
+}
+
+#[cfg(target_os = "windows")]
+fn hermes_official_windows_command_in_home(hermes_home: &Path) -> Option<PathBuf> {
+    // The official install.ps1 can place launchers in multiple locations:
+    // - bin/hermes.{cmd,exe} (older or full install)
+    // - hermes-agent/venv/Scripts/hermes.exe (venv install)
+    // - hermes-agent/Scripts/hermes.exe (pip-only install)
+    let launcher_names = ["hermes.cmd", "hermes.exe", "hermes.bat"];
+    let search_dirs = [
+        hermes_home.join("bin"),
+        hermes_home
+            .join("hermes-agent")
+            .join("venv")
+            .join("Scripts"),
+        hermes_home.join("hermes-agent").join("Scripts"),
+    ];
+
+    for dir in &search_dirs {
+        if let Some(found) = launcher_names
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|path| path.exists())
+        {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn inspect_hermes_checkout_health(repo_dir: &Path) -> HermesCheckoutHealth {
+    if !repo_dir.exists() {
+        return HermesCheckoutHealth::Missing;
+    }
+
+    if !repo_dir.join("pyproject.toml").is_file() {
+        return HermesCheckoutHealth::Broken("checkout is missing pyproject.toml".to_string());
+    }
+
+    let git_dir = repo_dir.join(".git");
+    if !git_dir.is_dir() {
+        return HermesCheckoutHealth::Broken("checkout is missing .git metadata".to_string());
+    }
+
+    let head_path = git_dir.join("HEAD");
+    let head = match std::fs::read_to_string(&head_path) {
+        Ok(value) => value.trim().to_string(),
+        Err(_) => {
+            return HermesCheckoutHealth::Broken("git HEAD is missing".to_string());
+        }
+    };
+
+    if let Some(reference) = head.strip_prefix("ref:") {
+        let reference = reference.trim();
+        let reference_path = git_dir.join(reference.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let packed_refs = git_dir.join("packed-refs");
+        if reference_path.is_file() || packed_refs_contains_ref(&packed_refs, reference) {
+            return HermesCheckoutHealth::Healthy;
+        }
+
+        return HermesCheckoutHealth::Broken("git HEAD points to a missing ref".to_string());
+    }
+
+    let normalized = head.trim_start_matches(|c| matches!(c, 'v' | 'V'));
+    if !normalized.is_empty() && normalized.chars().all(|c| c.is_ascii_hexdigit()) {
+        HermesCheckoutHealth::Healthy
+    } else {
+        HermesCheckoutHealth::Broken("git HEAD is not a valid commit".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn packed_refs_contains_ref(packed_refs: &Path, reference: &str) -> bool {
+    let Ok(contents) = std::fs::read_to_string(packed_refs) else {
+        return false;
+    };
+
+    contents.lines().any(|line| {
+        let trimmed = line.trim();
+        !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && !trimmed.starts_with('^')
+            && trimmed
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|candidate| candidate == reference)
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn repair_hermes_official_home(hermes_home: &Path) -> Result<Vec<String>, String> {
+    let mut actions = Vec::new();
+    let repo_dir = hermes_home.join("hermes-agent");
+    let git_lock = repo_dir.join(".git").join("index.lock");
+
+    if git_lock.exists() {
+        std::fs::remove_file(&git_lock)
+            .map_err(|e| format!("failed to remove stale Hermes git lock: {e}"))?;
+        actions.push(format!("Removed stale git lock: {}", git_lock.display()));
+    }
+
+    match inspect_hermes_checkout_health(&repo_dir) {
+        HermesCheckoutHealth::Broken(reason) => {
+            std::fs::remove_dir_all(&repo_dir)
+                .map_err(|e| format!("failed to remove broken Hermes checkout: {e}"))?;
+            actions.push(format!("Removed broken Hermes checkout: {reason}"));
+            if remove_hermes_launchers_from_dir(&hermes_home.join("bin"))? {
+                actions.push("Removed stale Hermes launchers from official bin directory".into());
+            }
+        }
+        HermesCheckoutHealth::Missing | HermesCheckoutHealth::Healthy => {}
+    }
+
+    if !repo_dir.exists() && remove_hermes_launchers_from_dir(&hermes_home.join("bin"))? {
+        actions.push("Removed stale Hermes launchers from official bin directory".into());
+    }
+
+    Ok(actions)
+}
+
+#[cfg(target_os = "windows")]
+fn reset_hermes_checkout_for_retry(hermes_home: &Path) -> Result<Vec<String>, String> {
+    let mut actions = Vec::new();
+    let repo_dir = hermes_home.join("hermes-agent");
+    if repo_dir.exists() {
+        std::fs::remove_dir_all(&repo_dir)
+            .map_err(|e| format!("failed to reset broken Hermes checkout: {e}"))?;
+        actions.push("Removed Hermes checkout before retry".to_string());
+    }
+
+    if remove_hermes_launchers_from_dir(&hermes_home.join("bin"))? {
+        actions.push("Removed Hermes launchers before retry".to_string());
+    }
+
+    Ok(actions)
+}
+
+#[cfg(target_os = "windows")]
+fn verify_hermes_official_install_layout(hermes_home: &Path) -> Result<PathBuf, String> {
+    let launcher = hermes_official_windows_command_in_home(hermes_home).ok_or_else(|| {
+        format!(
+            "official Hermes installer finished but no Hermes launcher was created under {}",
+            hermes_home.display()
+        )
+    })?;
+
+    let install_root = detect_install_path_from_executable(&launcher)
+        .or_else(|| launcher.parent().map(PathBuf::from))
+        .ok_or_else(|| format!("failed to resolve install root for {}", launcher.display()))?;
+
+    let environment_looks_valid =
+        read_python_package_version_from_executable(&launcher, &["hermes_agent", "hermes-agent"])
+            .is_some()
+            || read_command_version(&launcher, &["--version"]).is_some()
+            || install_root.join("venv").join("pyvenv.cfg").exists()
+            || install_root.join("pyvenv.cfg").exists();
+
+    if !environment_looks_valid {
+        return Err(format!(
+            "Hermes launcher exists at {} but its Python environment could not be validated",
+            launcher.display()
+        ));
+    }
+
+    Ok(launcher)
+}
+
 fn detect_install_path_from_executable(executable: &Path) -> Option<PathBuf> {
     let scripts_dir = executable.parent()?;
     resolve_uninstall_root(scripts_dir).or_else(|| Some(scripts_dir.to_path_buf()))
@@ -275,6 +621,11 @@ fn resolve_uninstall_root(target_dir: &Path) -> Option<PathBuf> {
     for candidate in candidates {
         if candidate.join("venv").join("pyvenv.cfg").exists() {
             return Some(candidate);
+        }
+
+        let official_root = candidate.join("hermes-agent");
+        if official_root.join("venv").join("pyvenv.cfg").exists() {
+            return Some(official_root);
         }
 
         if candidate.join("pyvenv.cfg").exists() {
@@ -729,10 +1080,10 @@ mod tests {
     }
 
     #[test]
-    fn native_windows_hermes_uses_python_package_strategy() {
+    fn native_windows_hermes_uses_official_script_strategy() {
         assert_eq!(
             HermesPlugin.install_strategy(),
-            InstallStrategy::PythonPackage
+            InstallStrategy::OfficialScript
         );
     }
 
@@ -771,12 +1122,144 @@ mod tests {
     }
 
     #[test]
+    fn hermes_installer_command_uses_branch_main() {
+        let command = super::hermes_installer_command();
+        assert!(command.contains("install.ps1"));
+        assert!(command.contains("-Branch main"));
+    }
+
+    #[test]
     fn native_windows_hermes_python_runtime_urls_match_supported_architectures() {
         let amd64 = super::managed_python_download_url("amd64");
         let arm64 = super::managed_python_download_url("arm64");
 
         assert!(amd64.ends_with("/python-3.11.9-amd64.zip"));
         assert!(arm64.ends_with("/python-3.11.9-arm64.zip"));
+    }
+
+    #[test]
+    fn hermes_checkout_health_detects_missing_head_ref_as_broken_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo_dir = tmp.path().join("hermes-agent");
+        let git_dir = repo_dir.join(".git");
+
+        std::fs::create_dir_all(git_dir.join("refs").join("heads")).unwrap();
+        std::fs::write(repo_dir.join("pyproject.toml"), "[project]\n").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let health = super::inspect_hermes_checkout_health(&repo_dir);
+
+        assert_eq!(
+            health,
+            super::HermesCheckoutHealth::Broken("git HEAD points to a missing ref".to_string())
+        );
+    }
+
+    #[test]
+    fn hermes_checkout_health_accepts_valid_head_ref() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo_dir = tmp.path().join("hermes-agent");
+        let git_dir = repo_dir.join(".git");
+
+        std::fs::create_dir_all(git_dir.join("refs").join("heads")).unwrap();
+        std::fs::write(repo_dir.join("pyproject.toml"), "[project]\n").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(git_dir.join("refs").join("heads").join("main"), "abc123\n").unwrap();
+
+        let health = super::inspect_hermes_checkout_health(&repo_dir);
+
+        assert_eq!(health, super::HermesCheckoutHealth::Healthy);
+    }
+
+    #[test]
+    fn hermes_preflight_repair_removes_broken_checkout_but_keeps_other_home_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_dir = tmp.path().join("hermes");
+        let repo_dir = home_dir.join("hermes-agent");
+        let git_dir = repo_dir.join(".git");
+        let bin_dir = home_dir.join("bin");
+        let preserved = home_dir.join("user-data");
+
+        std::fs::create_dir_all(git_dir.join("refs").join("heads")).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&preserved).unwrap();
+        std::fs::write(repo_dir.join("pyproject.toml"), "[project]\n").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(bin_dir.join("hermes.cmd"), "@echo off\r\n").unwrap();
+
+        let actions = super::repair_hermes_official_home(&home_dir).unwrap();
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("Removed broken Hermes checkout")),
+            "expected broken checkout removal action, got {actions:?}"
+        );
+        assert!(!repo_dir.exists());
+        assert!(!bin_dir.join("hermes.cmd").exists());
+        assert!(preserved.exists());
+    }
+
+    #[test]
+    fn hermes_preflight_repair_removes_stale_index_lock_without_resetting_healthy_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_dir = tmp.path().join("hermes");
+        let repo_dir = home_dir.join("hermes-agent");
+        let git_dir = repo_dir.join(".git");
+
+        std::fs::create_dir_all(git_dir.join("refs").join("heads")).unwrap();
+        std::fs::write(repo_dir.join("pyproject.toml"), "[project]\n").unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(git_dir.join("refs").join("heads").join("main"), "abc123\n").unwrap();
+        std::fs::write(git_dir.join("index.lock"), "").unwrap();
+
+        let actions = super::repair_hermes_official_home(&home_dir).unwrap();
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("Removed stale git lock")),
+            "expected lock removal action, got {actions:?}"
+        );
+        assert!(repo_dir.exists());
+        assert!(!git_dir.join("index.lock").exists());
+    }
+
+    #[test]
+    fn hermes_install_verification_requires_a_real_launcher() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_dir = tmp.path().join("hermes");
+        std::fs::create_dir_all(&home_dir).unwrap();
+
+        let err = super::verify_hermes_official_install_layout(&home_dir).unwrap_err();
+
+        assert!(err.contains("no Hermes launcher"));
+    }
+
+    #[test]
+    fn hermes_install_verification_accepts_official_venv_launcher() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_dir = tmp.path().join("hermes");
+        let scripts_dir = home_dir.join("hermes-agent").join("venv").join("Scripts");
+        let dist_info_dir = home_dir
+            .join("hermes-agent")
+            .join("venv")
+            .join("Lib")
+            .join("site-packages")
+            .join("hermes_agent-0.12.0.dist-info");
+
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::create_dir_all(&dist_info_dir).unwrap();
+        std::fs::write(scripts_dir.join("hermes.exe"), b"").unwrap();
+        std::fs::write(
+            dist_info_dir.join("METADATA"),
+            "Metadata-Version: 2.4\r\nName: hermes-agent\r\nVersion: 0.12.0\r\n",
+        )
+        .unwrap();
+
+        let launcher = super::verify_hermes_official_install_layout(&home_dir).unwrap();
+
+        assert_eq!(launcher, scripts_dir.join("hermes.exe"));
     }
 
     #[test]
@@ -930,5 +1413,23 @@ mod tests {
         assert!(!scripts_dir.join("hermes.exe").exists());
         assert!(python_root.join("python.exe").exists());
         assert!(python_root.exists());
+    }
+
+    #[test]
+    fn resolve_uninstall_root_supports_official_windows_install_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hermes_home = tmp.path().join("hermes");
+        let bin_dir = hermes_home.join("bin");
+        let venv_dir = hermes_home.join("hermes-agent").join("venv");
+
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&venv_dir).unwrap();
+        std::fs::write(venv_dir.join("pyvenv.cfg"), "home = managed").unwrap();
+
+        let resolved = super::resolve_uninstall_root(&bin_dir);
+        assert_eq!(
+            resolved.as_deref(),
+            Some(hermes_home.join("hermes-agent").as_path())
+        );
     }
 }

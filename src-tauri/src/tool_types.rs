@@ -26,16 +26,6 @@ impl InstallStrategy {
     }
 }
 
-/// 网络连通性检测结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NetworkStatus {
-    pub github_reachable: bool,
-    pub npm_reachable: bool,
-    pub youtube_reachable: bool,
-    pub error_message: Option<String>,
-}
-
 /// 工具元信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -167,6 +157,16 @@ pub struct InstallStep {
     pub category: String,
     pub reason: String,
     pub is_installed: bool,
+}
+
+/// 安装计划解析进度
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveProgress {
+    pub tool_id: String,
+    pub tool_name: String,
+    pub phase: String,
+    pub message: String,
 }
 
 /// 已安装工具信息（前端展示用）

@@ -5,6 +5,7 @@ import type { ProviderPreset } from "@/config/claudeProviderPresets";
 import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
 import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 
 type PresetEntry = {
   id: string;
@@ -79,7 +80,7 @@ export function useApiKeyLink({
 
   return {
     shouldShowApiKeyLink:
-      appId === "claude" ||
+      isClaudeFamilyApp(appId) ||
       appId === "codex" ||
       appId === "gemini" ||
       appId === "opencode"

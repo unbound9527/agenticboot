@@ -1,10 +1,10 @@
 import {
+  ArrowUpCircle,
   Download,
   FolderOpen,
   Loader2,
-  RefreshCw,
   Trash2,
-  Zap,
+  Play,
   Terminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -33,6 +33,7 @@ interface ToolCardProps {
   isUninstalling?: boolean;
   isLaunching?: boolean;
   isUpdating?: boolean;
+  isInstalling?: boolean;
   progress?: InstallProgress | null;
   installSession?: ToolInstallSession | null;
   onShowConsole?: () => void;
@@ -49,6 +50,7 @@ export function ToolCard({
   isUninstalling = false,
   isLaunching = false,
   isUpdating = false,
+  isInstalling: isInstallingProp = false,
   progress,
   installSession,
   onShowConsole,
@@ -56,9 +58,10 @@ export function ToolCard({
   const { t } = useTranslation();
   const formattedVersion =
     "version" in tool ? formatInstalledVersion(tool.version) : null;
-  const isInstalling = Boolean(
+  const hasActiveProgress = Boolean(
     progress && !["complete", "error", "skipped"].includes(progress.phase),
   );
+  const isInstalling = isInstallingProp || hasActiveProgress;
   const disableInstalledActions = isInstalling || isUpdating;
 
   return (
@@ -93,7 +96,7 @@ export function ToolCard({
       </div>
 
       <div className="flex flex-shrink-0 items-center gap-1">
-        {installSession?.status === "running" && onShowConsole && (
+        {(installSession?.status === "running" || installSession?.status === "error") && onShowConsole && (
           <Button
             variant="ghost"
             size="icon"
@@ -139,7 +142,7 @@ export function ToolCard({
                 {isLaunching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Zap className="h-4 w-4" />
+                  <Play className="h-4 w-4" />
                 )}
               </Button>
             )}
@@ -173,7 +176,7 @@ export function ToolCard({
                 {isUpdating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-4 w-4" />
+                  <ArrowUpCircle className="h-4 w-4" />
                 )}
               </Button>
             )}

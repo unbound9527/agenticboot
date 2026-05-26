@@ -2,6 +2,7 @@ import { Download, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import type { AppId } from "@/lib/api/types";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 
 interface ProviderEmptyStateProps {
   appId: AppId;
@@ -16,7 +17,7 @@ export function ProviderEmptyState({
 }: ProviderEmptyStateProps) {
   const { t } = useTranslation();
   const showSnippetHint =
-    appId === "claude" || appId === "codex" || appId === "gemini";
+    isClaudeFamilyApp(appId) || appId === "codex" || appId === "gemini";
 
   return (
     <div className="claude-card flex flex-col items-center justify-center border-dashed p-10 text-center">

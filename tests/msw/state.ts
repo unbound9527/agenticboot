@@ -31,6 +31,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
       createdAt: Date.now() + 1,
     },
   },
+  "claude-desktop": {},
   codex: {
     "codex-1": {
       id: "codex-1",
@@ -71,6 +72,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
 
 const createDefaultCurrent = (): CurrentProviderState => ({
   claude: "claude-1",
+  "claude-desktop": "",
   codex: "codex-1",
   gemini: "gemini-1",
   opencode: "",
@@ -152,6 +154,7 @@ let mcpConfigs: McpConfigState = {
       enabled: true,
       apps: {
         claude: true,
+        "claude-desktop": false,
         codex: false,
         gemini: false,
         opencode: false,
@@ -164,6 +167,7 @@ let mcpConfigs: McpConfigState = {
       },
     },
   },
+  "claude-desktop": {},
   codex: {
     httpServer: {
       id: "httpServer",
@@ -171,6 +175,7 @@ let mcpConfigs: McpConfigState = {
       enabled: false,
       apps: {
         claude: false,
+        "claude-desktop": false,
         codex: true,
         gemini: false,
         opencode: false,
@@ -219,6 +224,7 @@ export const resetProviderState = () => {
         enabled: true,
         apps: {
           claude: true,
+          "claude-desktop": false,
           codex: false,
           gemini: false,
           opencode: false,
@@ -231,6 +237,7 @@ export const resetProviderState = () => {
         },
       },
     },
+    "claude-desktop": {},
     codex: {
       httpServer: {
         id: "httpServer",
@@ -238,6 +245,7 @@ export const resetProviderState = () => {
         enabled: false,
         apps: {
           claude: false,
+          "claude-desktop": false,
           codex: true,
           gemini: false,
           opencode: false,

@@ -41,6 +41,7 @@ impl Database {
                     readme_url: row.get(7)?,
                     apps: SkillApps {
                         claude: row.get(8)?,
+                        claude_desktop: false,
                         codex: row.get(9)?,
                         gemini: row.get(10)?,
                         opencode: row.get(11)?,
@@ -85,6 +86,7 @@ impl Database {
                 readme_url: row.get(7)?,
                 apps: SkillApps {
                     claude: row.get(8)?,
+                    claude_desktop: false,
                     codex: row.get(9)?,
                     gemini: row.get(10)?,
                     opencode: row.get(11)?,

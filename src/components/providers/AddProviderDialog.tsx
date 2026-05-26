@@ -18,6 +18,7 @@ import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import { geminiProviderPresets } from "@/config/geminiProviderPresets";
 import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
 
@@ -128,7 +129,7 @@ export function AddProviderDialog({
         };
 
         if (values.presetId) {
-          if (appId === "claude") {
+          if (isClaudeFamilyApp(appId)) {
             const presets = providerPresets;
             const presetIndex = parseInt(
               values.presetId.replace("claude-", ""),
@@ -174,7 +175,7 @@ export function AddProviderDialog({
           }
         }
 
-        if (appId === "claude") {
+        if (isClaudeFamilyApp(appId)) {
           const env = parsedConfig.env as Record<string, any> | undefined;
           if (env?.ANTHROPIC_BASE_URL) {
             addUrl(env.ANTHROPIC_BASE_URL);

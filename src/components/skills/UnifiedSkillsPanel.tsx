@@ -115,6 +115,7 @@ const UnifiedSkillsPanel = React.forwardRef<
   const enabledCounts = useMemo(() => {
     const counts = {
       claude: 0,
+      "claude-desktop": 0,
       codex: 0,
       gemini: 0,
       opencode: 0,
@@ -348,7 +349,7 @@ const UnifiedSkillsPanel = React.forwardRef<
       <div className="flex items-center justify-between">
         <AppCountBar
           totalLabel={t("skills.installed", { count: skills?.length || 0 })}
-          counts={enabledCounts}
+          counts={enabledCounts as Record<AppId, number>}
           appIds={SKILLS_APP_IDS}
         />
         <div className="flex items-center gap-1.5">
@@ -552,7 +553,7 @@ const InstalledSkillListItem: React.FC<InstalledSkillListItemProps> = ({
       </div>
 
       <AppToggleGroup
-        apps={skill.apps}
+        apps={skill.apps as Record<AppId, boolean>}
         onToggle={(app, enabled) => onToggleApp(skill.id, app, enabled)}
         appIds={SKILLS_APP_IDS}
       />
@@ -742,6 +743,7 @@ const ImportSkillsDialog: React.FC<ImportSkillsDialogProps> = ({
         skill.directory,
         {
           claude: skill.foundIn.includes("claude"),
+          "claude-desktop": false,
           codex: skill.foundIn.includes("codex"),
           gemini: skill.foundIn.includes("gemini"),
           opencode: skill.foundIn.includes("opencode"),

@@ -86,6 +86,8 @@ const toolsApiMock = vi.hoisted(() => ({
   getInstallRoot: vi.fn(),
   setInstallRoot: vi.fn(),
   checkToolUpdates: vi.fn(),
+  onResolveProgress: vi.fn(),
+  onResolveComplete: vi.fn(),
   onInstallProgress: vi.fn(),
   onInstallLog: vi.fn(),
   onInstallComplete: vi.fn(),
@@ -122,6 +124,14 @@ let installLogListener:
       line: string;
       command?: string;
       exitCode?: number | null;
+    }) => void)
+  | null = null;
+let resolveProgressListener:
+  | ((progress: {
+      toolId: string;
+      toolName: string;
+      phase: "resolving" | "resolved" | "error";
+      message: string;
     }) => void)
   | null = null;
 
@@ -172,6 +182,14 @@ describe("Manager install detection", () => {
     toolsApiMock.executeInstallPlan.mockReset();
     toolsApiMock.setInstallRoot.mockReset();
     installProgressListener = null;
+    resolveProgressListener = null;
+    toolsApiMock.onResolveProgress.mockImplementation(async (callback) => {
+      resolveProgressListener = callback;
+      return () => {
+        resolveProgressListener = null;
+      };
+    });
+    toolsApiMock.onResolveComplete.mockImplementation(async (_callback) => () => {});
     toolsApiMock.onInstallProgress.mockImplementation(async (callback) => {
       installProgressListener = callback;
       return () => {
@@ -671,6 +689,57 @@ describe("Manager install detection", () => {
       within(codexCard as HTMLElement).getByText(/Preparing installation|准备安装/),
     ).toBeInTheDocument();
     expect(toolsApiMock.executeInstallPlan).not.toHaveBeenCalled();
+  });
+
+  it("surfaces resolve-progress updates on the tool card while plan resolution is in flight", async () => {
+    const user = userEvent.setup();
+    const deferredPlan = createDeferred<{
+      steps: Array<{
+        toolId: string;
+        toolName: string;
+        category: string;
+        reason: string;
+        isInstalled: boolean;
+      }>;
+    }>();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+    toolsApiMock.resolveInstallPlan.mockReturnValue(deferredPlan.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(toolsApiMock.detectTools).toHaveBeenCalledWith(
+        [...TOOL_IDS],
+        "D:\\AgenticTools",
+        false,
+      );
+    });
+
+    await user.click(screen.getAllByRole("tab")[1]);
+
+    const codexCard = (await screen.findByText("Codex (CLI)")).closest(
+      ".claude-card",
+    );
+    expect(codexCard).not.toBeNull();
+
+    await user.click(within(codexCard as HTMLElement).getByTitle("安装"));
+
+    await act(async () => {
+      resolveProgressListener?.({
+        toolId: "codex-cli",
+        toolName: "Codex (CLI)",
+        phase: "resolving",
+        message: "Checking dependency graph...",
+      });
+    });
+
+    expect(
+      within(codexCard as HTMLElement).getByText("Checking dependency graph..."),
+    ).toBeInTheDocument();
   });
 
   it("opens the console immediately after clicking install, even before plan resolution", async () => {
@@ -1415,6 +1484,51 @@ describe("Manager install detection", () => {
       within(openClawCard as HTMLElement).getByRole("button", { name: /控制台/i }),
     ).toBeInTheDocument();
   });
+  it("keeps the console visible for errored sessions", async () => {
+    const user = userEvent.setup();
+    toolsApiMock.detectTools.mockResolvedValue(buildDetectResults([]));
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getAllByRole("tab")[1]);
+    expect(await screen.findByText("OpenClaw")).toBeInTheDocument();
+
+    await act(async () => {
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-error-visible",
+        timestamp: "2026-05-12T10:10:00.000Z",
+        level: "info",
+        kind: "session-started",
+        line: "Install session started",
+      });
+      installLogListener?.({
+        toolId: "openclaw",
+        toolName: "OpenClaw",
+        sessionId: "session-error-visible",
+        timestamp: "2026-05-12T10:10:01.000Z",
+        level: "error",
+        kind: "result",
+        line: "Installer failed with exit code 1",
+        exitCode: 1,
+      });
+    });
+
+    const openClawCard = (await screen.findByText("OpenClaw")).closest(".claude-card");
+    expect(openClawCard).not.toBeNull();
+
+    await user.click(within(openClawCard as HTMLElement).getByTitle("控制台"));
+
+    expect(
+      screen.getByText("Installer failed with exit code 1"),
+    ).toBeInTheDocument();
+  });
+
   it("shows a visible error state and retry action when tool catalog loading fails", async () => {
     const user = userEvent.setup();
     toolsApiMock.getToolCatalog.mockRejectedValueOnce(new Error("catalog unavailable"));

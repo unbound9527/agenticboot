@@ -6,7 +6,7 @@ use crate::services::installer::windows::{
     WindowsUninstallEntry,
 };
 use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -243,7 +243,7 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         true
     }
 
-    fn detect(&self, install_root: Option<&Path>) -> DetectResult {
+    fn detect(&self, _install_root: Option<&Path>) -> DetectResult {
         info!("[Claude Desktop] detect called, searching registry for entries matching Claude/AnthropicClaude excluding CLI/npm");
         if let Some(entry) =
             find_uninstall_entry_ex(&["Claude", "AnthropicClaude"], &["CLI", "npm"])

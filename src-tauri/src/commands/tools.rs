@@ -6,11 +6,12 @@ use crate::services::installer::is_install_owned_by_root;
 use crate::services::installer::InstallerService;
 use crate::store::AppState;
 use crate::tool_types::{
-    DetectResult, InstallPlan, InstalledTool, NetworkStatus, ToolCatalogItem, ToolUpdateInfo,
+    DetectResult, InstallPlan, InstalledTool, ResolveProgress, ToolCatalogItem, ToolUpdateInfo,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
+use tauri::Emitter;
 
 fn should_use_db_fallback(install_root: Option<&str>) -> bool {
     install_root.is_none()
@@ -117,11 +118,6 @@ fn persist_detect_result_cache(
 }
 
 #[tauri::command]
-pub async fn check_network() -> Result<NetworkStatus, String> {
-    Ok(InstallerService::check_network().await)
-}
-
-#[tauri::command]
 pub fn get_tool_catalog() -> Vec<ToolCatalogItem> {
     crate::plugin::get_tool_catalog()
 }
@@ -130,9 +126,68 @@ pub fn get_tool_catalog() -> Vec<ToolCatalogItem> {
 pub fn resolve_install_plan(
     tool_ids: Vec<String>,
     install_root: Option<String>,
+    app_handle: tauri::AppHandle,
 ) -> Result<InstallPlan, String> {
+    for tool_id in &tool_ids {
+        let tool_name = crate::plugin::get_plugin_by_id(tool_id)
+            .map(|plugin| plugin.metadata().name)
+            .unwrap_or_else(|| tool_id.clone());
+        let _ = app_handle.emit(
+            "resolve-progress",
+            ResolveProgress {
+                tool_id: tool_id.clone(),
+                tool_name,
+                phase: "resolving".to_string(),
+                message: "Resolving install plan...".to_string(),
+            },
+        );
+    }
+
     let root = install_root.as_deref().map(Path::new);
-    resolve_plan(&tool_ids, root)
+    let plan = resolve_plan(&tool_ids, root);
+
+    match &plan {
+        Ok(plan) => {
+            for step in &plan.steps {
+                let message = if step.is_installed {
+                    "Already installed. Will skip.".to_string()
+                } else if step.reason == "selected" {
+                    "Resolved for installation.".to_string()
+                } else {
+                    format!("Resolved dependency: {}", step.reason)
+                };
+                let _ = app_handle.emit(
+                    "resolve-progress",
+                    ResolveProgress {
+                        tool_id: step.tool_id.clone(),
+                        tool_name: step.tool_name.clone(),
+                        phase: "resolved".to_string(),
+                        message,
+                    },
+                );
+            }
+            let _ = app_handle.emit("resolve-complete", ());
+        }
+        Err(error) => {
+            for tool_id in &tool_ids {
+                let tool_name = crate::plugin::get_plugin_by_id(tool_id)
+                    .map(|plugin| plugin.metadata().name)
+                    .unwrap_or_else(|| tool_id.clone());
+                let _ = app_handle.emit(
+                    "resolve-progress",
+                    ResolveProgress {
+                        tool_id: tool_id.clone(),
+                        tool_name,
+                        phase: "error".to_string(),
+                        message: error.clone(),
+                    },
+                );
+            }
+            let _ = app_handle.emit("resolve-complete", ());
+        }
+    }
+
+    plan
 }
 
 #[tauri::command]

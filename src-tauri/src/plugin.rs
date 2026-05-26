@@ -218,13 +218,25 @@ mod tests {
         assert_eq!(codex.name, "Codex (CLI)");
         assert_eq!(codex.category, "ai-cli");
         assert_eq!(codex.capabilities.command_name.as_deref(), Some("codex"));
-        assert_eq!(codex.capabilities.managed_shim_name.as_deref(), Some("codex"));
+        assert_eq!(
+            codex.capabilities.managed_shim_name.as_deref(),
+            Some("codex")
+        );
         assert!(codex.capabilities.can_install);
         assert!(codex.capabilities.can_uninstall);
         assert!(codex.capabilities.can_update);
-        assert_eq!(codex.update_source.as_ref().map(|source| source.kind.as_str()), Some("npm"));
         assert_eq!(
-            codex.update_source.as_ref().map(|source| source.id.as_str()),
+            codex
+                .update_source
+                .as_ref()
+                .map(|source| source.kind.as_str()),
+            Some("npm")
+        );
+        assert_eq!(
+            codex
+                .update_source
+                .as_ref()
+                .map(|source| source.id.as_str()),
             Some("@openai/codex")
         );
     }

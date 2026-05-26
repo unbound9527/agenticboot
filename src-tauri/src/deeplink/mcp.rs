@@ -164,6 +164,7 @@ pub fn import_mcp_from_deeplink(
 pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
     let mut apps = McpApps {
         claude: false,
+        claude_desktop: false,
         codex: false,
         gemini: false,
         opencode: false,
@@ -173,6 +174,9 @@ pub(crate) fn parse_mcp_apps(apps_str: &str) -> Result<McpApps, AppError> {
     for app in apps_str.split(',') {
         match app.trim() {
             "claude" => apps.claude = true,
+            "claude-desktop" | "claude_desktop" => {
+                log::debug!("Claude Desktop doesn't support MCP yet, ignoring in apps parameter");
+            }
             "codex" => apps.codex = true,
             "gemini" => apps.gemini = true,
             "opencode" => apps.opencode = true,

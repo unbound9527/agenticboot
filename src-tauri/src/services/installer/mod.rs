@@ -14,7 +14,7 @@ use crate::plugin::{get_plugin_by_id, NpmRegistrySource, ToolInstallContext};
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::services::installer::windows::find_managed_executable;
 use crate::tool_types::{
-    InstallPlan, InstallProgress, InstallStrategy, NetworkStatus, ToolUpdateInfo,
+    InstallPlan, InstallProgress, InstallStep, InstallStrategy, ToolUpdateInfo,
 };
 use path_manager::PathManager;
 use regex::Regex;
@@ -60,6 +60,31 @@ fn is_update_available(current_version: &str, latest_version: &str) -> bool {
 }
 
 /// npm 包名映射表（tool_id → npm package name）
+fn install_failure_summary(install_errors: &[String]) -> Result<(), String> {
+    if install_errors.is_empty() {
+        return Ok(());
+    }
+
+    let preview = install_errors
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("; ");
+    let suffix = if install_errors.len() > 3 {
+        format!("; and {} more", install_errors.len() - 3)
+    } else {
+        String::new()
+    };
+
+    Err(format!(
+        "{} tool install(s) failed: {}{}",
+        install_errors.len(),
+        preview,
+        suffix
+    ))
+}
+
 fn should_delete_install_dir(strategy: InstallStrategy, owned_by_root: bool) -> bool {
     owned_by_root
         && matches!(
@@ -165,14 +190,6 @@ where
     }
 }
 
-fn choose_npm_registry_source(network: &NetworkStatus) -> NpmRegistrySource {
-    if network.npm_reachable {
-        NpmRegistrySource::Official
-    } else {
-        NpmRegistrySource::Mirror
-    }
-}
-
 async fn fetch_latest_npm_version(client: &reqwest::Client, package_name: &str) -> Option<String> {
     let url = format!("https://registry.npmjs.org/{package_name}");
     let response = client.get(url).send().await.ok()?;
@@ -226,57 +243,6 @@ impl InstallerService {
         }
     }
 
-    /// 检测网络连通性
-    pub async fn check_network() -> NetworkStatus {
-        let client = reqwest::Client::new();
-
-        let github_ok = client
-            .get("https://github.com")
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-
-        let npm_ok = client
-            .get("https://registry.npmjs.org")
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-
-        let youtube_ok = client
-            .get("https://www.youtube.com")
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-
-        let all_ok = github_ok && npm_ok && youtube_ok;
-        let error_message = if all_ok {
-            None
-        } else if !github_ok && !npm_ok && !youtube_ok {
-            Some("网络连接异常，请检查网络设置。".to_string())
-        } else if !github_ok && !npm_ok && youtube_ok {
-            Some("GitHub 和 npm 源连接异常，但国际网络正常，可能是站点被屏蔽。".to_string())
-        } else if !github_ok {
-            Some("GitHub 连接异常，部分工具可能无法下载。".to_string())
-        } else if !npm_ok {
-            Some("npm 源连接异常，CLI 工具可能无法安装。".to_string())
-        } else {
-            Some("部分站点连接异常（YouTube 不可达），请检查网络。".to_string())
-        };
-
-        NetworkStatus {
-            github_reachable: github_ok,
-            npm_reachable: npm_ok,
-            youtube_reachable: youtube_ok,
-            error_message,
-        }
-    }
-
     /// 执行安装计划
     pub async fn execute_install_plan(
         &self,
@@ -288,8 +254,7 @@ impl InstallerService {
             "[InstallerService] execute_install_plan 开始, 共 {} 个步骤",
             plan.steps.len()
         );
-        let network = Self::check_network().await;
-        let npm_registry_source = choose_npm_registry_source(&network);
+        let npm_registry_source = NpmRegistrySource::Mirror;
         // 确保 bin 目录和 PATH 已就绪
         self.path_manager.ensure_bin_dir()?;
         log::info!(
@@ -299,237 +264,359 @@ impl InstallerService {
         self.path_manager.register_in_path()?;
         log::info!("[InstallerService] PATH 注册完成");
 
+        // ── Phase 1: 处理已安装的步骤（顺序执行，立即完成）──
         for step in &plan.steps {
-            log::info!(
-                "[InstallerService] 处理步骤: tool_id={}, tool_name={}, is_installed={}",
-                step.tool_id,
-                step.tool_name,
-                step.is_installed
-            );
-            // 跳过已安装
-            if step.is_installed {
-                let plugin = get_plugin_by_id(&step.tool_id)
-                    .ok_or_else(|| format!("未知工具: {}", step.tool_id))?;
-                if matches!(plugin.install_strategy(), InstallStrategy::GlobalNpm) {
-                    if let Some(shim_name) = plugin.managed_shim_name() {
-                        self.path_manager.remove_windows_cli_shims(shim_name)?;
-                    }
-                }
-                let detect = plugin.detect(Some(&self.root_path));
-                if should_publish_managed_shims(plugin.install_strategy(), &self.root_path, &detect)
-                {
-                    let exe_name = plugin
-                        .managed_shim_name()
-                        .ok_or_else(|| format!("{} does not declare a managed shim", step.tool_id))?;
-                    let candidates = plugin.managed_executable_candidates();
-                    let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
-                    let exe_path =
-                        find_managed_executable(&self.root_path, &step.tool_id, &candidate_refs)
-                            .ok_or_else(|| {
-                                format!("已安装的 {} 缺少可执行文件，无法修复 shim", step.tool_id)
-                            })?;
-                    self.path_manager
-                        .create_windows_cli_shims(&exe_name, &exe_path)?;
-                }
-                let _ = app_handle.emit(
-                    "install-progress",
-                    InstallProgress {
-                        tool_id: step.tool_id.clone(),
-                        tool_name: step.tool_name.clone(),
-                        phase: "skipped".to_string(),
-                        percent: 100,
-                        message: "已安装，跳过".to_string(),
-                    },
-                );
+            if !step.is_installed {
                 continue;
             }
-
-            // 开始安装
-            let install_tool_name = step.tool_name.clone();
-            let install_log = InstallLogEmitter::new(
-                app_handle.clone(),
-                step.tool_id.clone(),
-                install_tool_name.clone(),
+            log::info!(
+                "[InstallerService] 已安装: tool_id={}, tool_name={}",
+                step.tool_id,
+                step.tool_name,
             );
-            install_log.emit_session_started();
-            install_log.emit_phase("starting", "Preparing install");
+            let plugin = get_plugin_by_id(&step.tool_id)
+                .ok_or_else(|| format!("未知工具: {}", step.tool_id))?;
+            if matches!(plugin.install_strategy(), InstallStrategy::GlobalNpm) {
+                if let Some(shim_name) = plugin.managed_shim_name() {
+                    self.path_manager.remove_windows_cli_shims(shim_name)?;
+                }
+            }
+            let detect = plugin.detect(Some(&self.root_path));
+            if should_publish_managed_shims(plugin.install_strategy(), &self.root_path, &detect) {
+                let exe_name = plugin
+                    .managed_shim_name()
+                    .ok_or_else(|| format!("{} does not declare a managed shim", step.tool_id))?;
+                let candidates = plugin.managed_executable_candidates();
+                let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+                let exe_path =
+                    find_managed_executable(&self.root_path, &step.tool_id, &candidate_refs)
+                        .ok_or_else(|| {
+                            format!("已安装的 {} 缺少可执行文件，无法修复 shim", step.tool_id)
+                        })?;
+                self.path_manager
+                    .create_windows_cli_shims(&exe_name, &exe_path)?;
+            }
             let _ = app_handle.emit(
                 "install-progress",
                 InstallProgress {
                     tool_id: step.tool_id.clone(),
-                    tool_name: install_tool_name.clone(),
-                    phase: "starting".to_string(),
-                    percent: 0,
-                    message: "准备安装...".to_string(),
+                    tool_name: step.tool_name.clone(),
+                    phase: "skipped".to_string(),
+                    percent: 100,
+                    message: "已安装，跳过".to_string(),
                 },
             );
+        }
 
-            let plugin = get_plugin_by_id(&step.tool_id)
-                .ok_or_else(|| format!("未知工具: {}", step.tool_id))?;
-            log::info!(
-                "[InstallerService] 找到插件: {} -> {}",
-                step.tool_id,
-                plugin.metadata().name
-            );
+        // ── Phase 2: 构建依赖图（仅未安装的步骤）──
+        let non_installed: Vec<&InstallStep> =
+            plan.steps.iter().filter(|s| !s.is_installed).collect();
 
-            let target_dir = self.path_manager.get_tool_install_dir(&step.tool_id);
-            log::info!("[InstallerService] 目标安装目录: {}", target_dir.display());
+        if non_installed.is_empty() {
+            return Ok(());
+        }
 
-            // 创建进度通道
-            let (tx, rx) = mpsc::channel::<InstallProgress>(32);
-
-            let install_target = target_dir.clone();
-            let install_tool_id = step.tool_id.clone();
-            let install_tool_name = install_tool_name.clone();
-            let _install_category = step.category.clone();
-            let install_root = self.root_path.clone();
-
-            log::info!(
-                "[InstallerService] 开始调用 plugin.install_with_context for {}",
-                install_tool_id
-            );
-            let progress_forwarder = tokio::spawn({
-                let progress_handle = app_handle.clone();
-                async move {
-                    forward_install_progress_with(rx, move |progress| {
-                        let _ = progress_handle.emit("install-progress", progress);
-                    })
-                    .await;
-                }
-            });
-
-            let install_log_for_plugin = install_log.clone();
-            let install_result = tokio::task::spawn_blocking(move || {
-                plugin.install_with_context(
-                    &install_target,
-                    &install_root,
-                    tx,
-                    ToolInstallContext::new(install_log_for_plugin, npm_registry_source),
-                )
-            })
-            .await
-            .map_err(|e| format!("安装线程错误: {e}"))?;
-
-            log::info!(
-                "[InstallerService] plugin.install_with_context 返回: {:?}",
-                install_result
-            );
-            progress_forwarder
-                .await
-                .map_err(|e| format!("安装进度转发线程错误: {e}"))?;
-
-            // 重新获取插件以进行后续操作
-            let post_plugin = get_plugin_by_id(&install_tool_id)
-                .ok_or_else(|| format!("未知工具: {}", install_tool_id))?;
-
-            match install_result {
-                Ok(()) => {
-                    if matches!(post_plugin.install_strategy(), InstallStrategy::GlobalNpm) {
-                        if let Some(shim_name) = post_plugin.managed_shim_name() {
-                            self.path_manager.remove_windows_cli_shims(shim_name)?;
-                        }
-                    }
-                    // 检测已安装版本（传入安装根目录）
-                    let detect = post_plugin.detect(Some(&self.root_path));
-                    let publish_managed_shims = should_publish_managed_shims(
-                        post_plugin.install_strategy(),
-                        &self.root_path,
-                        &detect,
-                    );
-                    let (version, install_path) =
-                        detect_successful_install(&install_tool_id, &target_dir, detect)?;
-
-                    // 创建 shim
-                    if publish_managed_shims {
-                        let exe_name = post_plugin.managed_shim_name().ok_or_else(|| {
-                            format!("{install_tool_id} does not declare a managed shim")
-                        })?;
-                        let candidates = post_plugin.managed_executable_candidates();
-                        let candidate_refs =
-                            candidates.iter().map(String::as_str).collect::<Vec<_>>();
-                        let exe_path = find_managed_executable(
-                            &self.root_path,
-                            &install_tool_id,
-                            &candidate_refs,
-                        )
-                        .ok_or_else(|| {
-                            format!("安装完成后未找到 {} 的可执行文件", install_tool_id)
-                        })?;
-                        self.path_manager
-                            .create_windows_cli_shims(&exe_name, &exe_path)?;
-                    }
-
-                    // 更新数据库
-                    let now = chrono::Utc::now().timestamp();
-                    db.upsert_installed_tool(&InstalledToolRecord {
-                        id: install_tool_id.clone(),
-                        name: install_tool_name.clone(),
-                        version,
-                        install_path,
-                        install_root: self.root_path.to_string_lossy().to_string(),
-                        category: step.category.clone(),
-                        status: "installed".to_string(),
-                        installed_at: Some(now),
-                        updated_at: Some(now),
-                    })
-                    .map_err(|e| format!("保存安装记录失败: {e}"))?;
-
-                    install_log.emit_result("complete", "Install completed", Some(0), true);
-                    let _ = app_handle.emit(
-                        "install-progress",
-                        InstallProgress {
-                            tool_id: install_tool_id.clone(),
-                            tool_name: install_tool_name.clone(),
-                            phase: "complete".to_string(),
-                            percent: 100,
-                            message: "安装完成".to_string(),
-                        },
-                    );
-
-                    let _ = app_handle.emit("install-complete", &install_tool_id);
-                }
-                Err(e) => {
-                    // 记录错误状态
-                    let now = chrono::Utc::now().timestamp();
-                    db.upsert_installed_tool(&InstalledToolRecord {
-                        id: install_tool_id.clone(),
-                        name: install_tool_name.clone(),
-                        version: None,
-                        install_path: target_dir.to_string_lossy().to_string(),
-                        install_root: self.root_path.to_string_lossy().to_string(),
-                        category: step.category.clone(),
-                        status: "error".to_string(),
-                        installed_at: None,
-                        updated_at: Some(now),
-                    })
-                    .ok();
-
-                    install_log.emit_result("error", e.clone(), None, false);
-                    let _ = app_handle.emit(
-                        "install-progress",
-                        InstallProgress {
-                            tool_id: install_tool_id.clone(),
-                            tool_name: install_tool_name.clone(),
-                            phase: "error".to_string(),
-                            percent: 0,
-                            message: e.clone(),
-                        },
-                    );
-
-                    let _ = app_handle.emit(
-                        "install-error",
-                        serde_json::json!({
-                            "toolId": install_tool_id,
-                            "error": e
-                        }),
-                    );
-
-                    return Err(format!("安装 {} 失败", install_tool_name));
-                }
+        let step_ids: std::collections::HashSet<&str> =
+            non_installed.iter().map(|s| s.tool_id.as_str()).collect();
+        let mut deps_map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for step in &non_installed {
+            if let Some(plugin) = get_plugin_by_id(&step.tool_id) {
+                let deps: Vec<String> = plugin
+                    .dependencies()
+                    .iter()
+                    .filter(|d| step_ids.contains(d.tool_id.as_str()))
+                    .map(|d| d.tool_id.clone())
+                    .collect();
+                deps_map.insert(step.tool_id.clone(), deps);
             }
         }
 
-        Ok(())
+        // ── Phase 3: 按依赖层级并行安装 ──
+        let mut completed: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut pending: Vec<&&InstallStep> = non_installed.iter().collect();
+        let mut install_errors: Vec<String> = Vec::new();
+
+        while !pending.is_empty() {
+            // 分离出当前层级：所有依赖项已完成的步骤
+            let (ready, waiting): (Vec<_>, Vec<_>) = pending.into_iter().partition(|step| {
+                deps_map
+                    .get(&step.tool_id)
+                    .map_or(true, |deps| deps.iter().all(|d| completed.contains(d)))
+            });
+
+            if ready.is_empty() {
+                log::error!(
+                    "[InstallerService] 安装计划死锁 — 缺少依赖: {:?}",
+                    waiting
+                        .iter()
+                        .map(|s: &&&InstallStep| &s.tool_id)
+                        .collect::<Vec<_>>()
+                );
+                for step in &waiting {
+                    install_errors
+                        .push(format!("{}: dependency installation failed", step.tool_id));
+                    let _ = app_handle.emit(
+                        "install-progress",
+                        InstallProgress {
+                            tool_id: step.tool_id.clone(),
+                            tool_name: step.tool_name.clone(),
+                            phase: "error".to_string(),
+                            percent: 0,
+                            message: "依赖项安装失败，无法继续".to_string(),
+                        },
+                    );
+                    let _ = app_handle.emit(
+                        "install-error",
+                        serde_json::json!({
+                            "toolId": step.tool_id,
+                            "error": "依赖安装失败"
+                        }),
+                    );
+                    completed.insert(step.tool_id.clone());
+                }
+                break;
+            }
+
+            log::info!(
+                "[InstallerService] 并行安装 {} 个工具: {:?}",
+                ready.len(),
+                ready.iter().map(|s| &s.tool_id).collect::<Vec<_>>()
+            );
+
+            // 同层级并行启动
+            let handles: Vec<_> = ready
+                .into_iter()
+                .map(|step| {
+                    let tool_id = step.tool_id.clone();
+                    let tool_name = step.tool_name.clone();
+                    let category = step.category.clone();
+                    let app_handle = app_handle.clone();
+                    let db = Arc::clone(db);
+                    let target_dir = self.path_manager.get_tool_install_dir(&step.tool_id);
+                    let root_path = self.root_path.clone();
+                    let npm_source = npm_registry_source;
+
+                    tokio::spawn(async move {
+                        let result = Self::install_single_tool(
+                            tool_id.clone(),
+                            tool_name,
+                            category,
+                            app_handle,
+                            db,
+                            target_dir,
+                            root_path,
+                            npm_source,
+                        )
+                        .await;
+                        (tool_id, result)
+                    })
+                })
+                .collect();
+
+            // 等待当前层级全部完成
+            for handle in handles {
+                match handle.await {
+                    Ok((tool_id, Ok(()))) => {
+                        log::info!("[InstallerService] {} 安装成功", tool_id);
+                        completed.insert(tool_id);
+                    }
+                    Ok((tool_id, Err(e))) => {
+                        log::error!("[InstallerService] {} 安装失败: {}", tool_id, e);
+                        install_errors.push(format!("{tool_id}: {e}"));
+                        completed.insert(tool_id);
+                    }
+                    Err(join_err) => {
+                        log::error!("[InstallerService] 安装任务 panic: {join_err}");
+                    }
+                }
+            }
+
+            pending = waiting;
+        }
+
+        if !install_errors.is_empty() {
+            log::warn!(
+                "[InstallerService] {} 个工具安装失败: {:?}",
+                install_errors.len(),
+                install_errors
+            );
+        }
+
+        install_failure_summary(&install_errors)
+    }
+
+    /// 安装单个工具（可并行化）
+    async fn install_single_tool(
+        tool_id: String,
+        tool_name: String,
+        category: String,
+        app_handle: AppHandle,
+        db: Arc<Database>,
+        target_dir: PathBuf,
+        root_path: PathBuf,
+        npm_registry_source: NpmRegistrySource,
+    ) -> Result<(), String> {
+        let install_log =
+            InstallLogEmitter::new(app_handle.clone(), tool_id.clone(), tool_name.clone());
+        install_log.emit_session_started();
+        install_log.emit_phase("starting", "Preparing install");
+        let _ = app_handle.emit(
+            "install-progress",
+            InstallProgress {
+                tool_id: tool_id.clone(),
+                tool_name: tool_name.clone(),
+                phase: "starting".to_string(),
+                percent: 0,
+                message: "准备安装...".to_string(),
+            },
+        );
+
+        let plugin = get_plugin_by_id(&tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+        log::info!(
+            "[InstallerService] 找到插件: {} -> {}",
+            tool_id,
+            plugin.metadata().name
+        );
+        log::info!("[InstallerService] 目标安装目录: {}", target_dir.display());
+
+        let (tx, rx) = mpsc::channel::<InstallProgress>(32);
+
+        let install_target = target_dir.clone();
+        let install_tool_id = tool_id.clone();
+        let install_root = root_path.clone();
+
+        log::info!(
+            "[InstallerService] 开始调用 plugin.install_with_context for {}",
+            install_tool_id
+        );
+        let progress_forwarder = tokio::spawn({
+            let progress_handle = app_handle.clone();
+            async move {
+                forward_install_progress_with(rx, move |progress| {
+                    let _ = progress_handle.emit("install-progress", progress);
+                })
+                .await;
+            }
+        });
+
+        let install_log_for_plugin = install_log.clone();
+        let install_result = tokio::task::spawn_blocking(move || {
+            plugin.install_with_context(
+                &install_target,
+                &install_root,
+                tx,
+                ToolInstallContext::new(install_log_for_plugin, npm_registry_source),
+            )
+        })
+        .await
+        .map_err(|e| format!("安装线程错误: {e}"))?;
+
+        log::info!(
+            "[InstallerService] plugin.install_with_context 返回: {:?}",
+            install_result
+        );
+        progress_forwarder
+            .await
+            .map_err(|e| format!("安装进度转发线程错误: {e}"))?;
+
+        let post_plugin =
+            get_plugin_by_id(&tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+
+        match install_result {
+            Ok(()) => {
+                let path_manager = PathManager::new(&root_path);
+                if matches!(post_plugin.install_strategy(), InstallStrategy::GlobalNpm) {
+                    if let Some(shim_name) = post_plugin.managed_shim_name() {
+                        path_manager.remove_windows_cli_shims(shim_name)?;
+                    }
+                }
+                let detect = post_plugin.detect(Some(&root_path));
+                let publish_managed_shims = should_publish_managed_shims(
+                    post_plugin.install_strategy(),
+                    &root_path,
+                    &detect,
+                );
+                let (version, install_path) =
+                    detect_successful_install(&tool_id, &target_dir, detect)?;
+
+                if publish_managed_shims {
+                    let exe_name = post_plugin
+                        .managed_shim_name()
+                        .ok_or_else(|| format!("{tool_id} does not declare a managed shim"))?;
+                    let candidates = post_plugin.managed_executable_candidates();
+                    let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+                    let exe_path =
+                        find_managed_executable(&root_path, &tool_id, &candidate_refs)
+                            .ok_or_else(|| format!("安装完成后未找到 {} 的可执行文件", tool_id))?;
+                    path_manager.create_windows_cli_shims(&exe_name, &exe_path)?;
+                }
+
+                let now = chrono::Utc::now().timestamp();
+                db.upsert_installed_tool(&InstalledToolRecord {
+                    id: tool_id.clone(),
+                    name: tool_name.clone(),
+                    version,
+                    install_path,
+                    install_root: root_path.to_string_lossy().to_string(),
+                    category,
+                    status: "installed".to_string(),
+                    installed_at: Some(now),
+                    updated_at: Some(now),
+                })
+                .map_err(|e| format!("保存安装记录失败: {e}"))?;
+
+                install_log.emit_result("complete", "Install completed", Some(0), true);
+                let _ = app_handle.emit(
+                    "install-progress",
+                    InstallProgress {
+                        tool_id: tool_id.clone(),
+                        tool_name: tool_name.clone(),
+                        phase: "complete".to_string(),
+                        percent: 100,
+                        message: "安装完成".to_string(),
+                    },
+                );
+                let _ = app_handle.emit("install-complete", &tool_id);
+                Ok(())
+            }
+            Err(e) => {
+                let now = chrono::Utc::now().timestamp();
+                db.upsert_installed_tool(&InstalledToolRecord {
+                    id: tool_id.clone(),
+                    name: tool_name.clone(),
+                    version: None,
+                    install_path: target_dir.to_string_lossy().to_string(),
+                    install_root: root_path.to_string_lossy().to_string(),
+                    category,
+                    status: "error".to_string(),
+                    installed_at: None,
+                    updated_at: Some(now),
+                })
+                .ok();
+
+                install_log.emit_result("error", e.clone(), None, false);
+                let _ = app_handle.emit(
+                    "install-progress",
+                    InstallProgress {
+                        tool_id: tool_id.clone(),
+                        tool_name: tool_name.clone(),
+                        phase: "error".to_string(),
+                        percent: 0,
+                        message: e.clone(),
+                    },
+                );
+                let _ = app_handle.emit(
+                    "install-error",
+                    serde_json::json!({
+                        "toolId": tool_id,
+                        "error": e
+                    }),
+                );
+
+                Err(format!("安装 {} 失败", tool_name))
+            }
+        }
     }
 
     /// 卸载工具
@@ -666,18 +753,34 @@ impl InstallerService {
 #[cfg(test)]
 mod tests {
     use super::{
-        allows_uninstall_outside_managed_root, choose_npm_registry_source,
-        detect_successful_install, forward_install_progress_with, is_install_owned_by_root,
-        is_update_available,
+        allows_uninstall_outside_managed_root, detect_successful_install,
+        forward_install_progress_with, is_install_owned_by_root, is_update_available,
         is_user_facing_tool_category, normalized_version_for_update, should_delete_install_dir,
         should_ignore_uninstall_error, should_publish_managed_shims, should_remove_shim,
     };
-    use crate::plugin::{get_plugin_by_id, NpmRegistrySource};
+    use crate::plugin::get_plugin_by_id;
     use crate::tool_types::InstallProgress;
-    use crate::tool_types::{DetectResult, InstallStrategy, NetworkStatus};
+    use crate::tool_types::{DetectResult, InstallStrategy};
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
     use tokio::sync::mpsc;
+
+    #[test]
+    fn install_failure_summary_returns_ok_when_no_errors_exist() {
+        assert!(super::install_failure_summary(&[]).is_ok());
+    }
+
+    #[test]
+    fn install_failure_summary_includes_count_and_first_failure() {
+        let err = super::install_failure_summary(&[
+            "codex-cli: install failed".to_string(),
+            "nodejs: dependency failed".to_string(),
+        ])
+        .expect_err("summary should return an error");
+
+        assert!(err.contains("2"));
+        assert!(err.contains("codex-cli"));
+    }
 
     #[test]
     fn install_strategy_uninstall_policy_only_deletes_managed_prefix_directories() {
@@ -838,36 +941,6 @@ mod tests {
     fn nodejs_shim_uses_node_command_name() {
         let plugin = get_plugin_by_id("nodejs").expect("node plugin");
         assert_eq!(plugin.managed_shim_name(), Some("node"));
-    }
-
-    #[test]
-    fn npm_registry_source_prefers_official_when_npm_is_reachable() {
-        let network = NetworkStatus {
-            github_reachable: true,
-            npm_reachable: true,
-            youtube_reachable: false,
-            error_message: None,
-        };
-
-        assert_eq!(
-            choose_npm_registry_source(&network),
-            NpmRegistrySource::Official
-        );
-    }
-
-    #[test]
-    fn npm_registry_source_falls_back_to_mirror_when_npm_is_unreachable() {
-        let network = NetworkStatus {
-            github_reachable: false,
-            npm_reachable: false,
-            youtube_reachable: false,
-            error_message: Some("npm unavailable".to_string()),
-        };
-
-        assert_eq!(
-            choose_npm_registry_source(&network),
-            NpmRegistrySource::Mirror
-        );
     }
 
     #[test]

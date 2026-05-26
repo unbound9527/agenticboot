@@ -5,7 +5,6 @@ import { toolsApi } from '@/lib/api/tools';
 
 const TOOLS_KEY = ['installed-tools'] as const;
 const TOOL_CATALOG_KEY = ['tool-catalog'] as const;
-const NETWORK_KEY = ['network-status'] as const;
 const UPDATES_KEY = ['tool-updates'] as const;
 
 export function useToolCatalog() {
@@ -29,15 +28,6 @@ export function useHasInstalledTools() {
   return useQuery({
     queryKey: ['has-installed-tools'],
     queryFn: () => toolsApi.hasAnyInstalledTools(),
-  });
-}
-
-export function useCheckNetwork() {
-  return useQuery({
-    queryKey: NETWORK_KEY,
-    queryFn: () => toolsApi.checkNetwork(),
-    retry: false,
-    refetchOnWindowFocus: true,
   });
 }
 

@@ -1,16 +1,8 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import {
-  Loader2,
-  CheckCircle,
-  AlertTriangle,
-  ExternalLink,
-  FolderOpen,
-  RefreshCw,
-} from "lucide-react";
+import { CheckCircle, FolderOpen, RefreshCw, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { InstallProgress } from "@/components/tools/InstallProgress";
-import { NetworkHelpDialog } from "@/components/tools/NetworkHelpDialog";
 import { ToolIcon } from "@/components/tools/ToolIcon";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import {
-  useCheckNetwork,
   useToolCatalog,
   useResolveInstallPlan,
   useExecuteInstallPlan,
@@ -104,9 +95,9 @@ export function Wizard({
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [installPlan, setInstallPlan] = useState<InstallPlan | null>(null);
   const [started, setStarted] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [isDetectingTools, setIsDetectingTools] = useState(true);
+  const [detectingTooLong, setDetectingTooLong] = useState(false);
   const detectionRequestIdRef = useRef(0);
   const activeRootPathRef = useRef(rootPath);
   const rootPathDirtyRef = useRef(false);
@@ -146,6 +137,22 @@ export function Wizard({
       cancelled = true;
       clearTimeout(fallbackTimer);
     };
+  }, []);
+
+  // 检测超过 8 秒后显示"跳过检测"按钮，防止用户卡住
+  useEffect(() => {
+    if (!isDetectingTools) {
+      setDetectingTooLong(false);
+      return;
+    }
+    const timer = setTimeout(() => setDetectingTooLong(true), 8000);
+    return () => clearTimeout(timer);
+  }, [isDetectingTools]);
+
+  const skipDetection = useCallback(() => {
+    detectionRequestIdRef.current += 1;
+    setIsDetectingTools(false);
+    setDetectingTooLong(false);
   }, []);
 
   const refreshDetectedTools = useCallback(
@@ -235,19 +242,9 @@ export function Wizard({
     };
   }, [forceDetectionRefreshToken, isInstallRootReady, refreshDetectedTools]);
 
-  const {
-    data: netStatus,
-    isLoading: netLoading,
-    isFetching: netFetching,
-    isError: netError,
-    refetch: retryNet,
-  } = useCheckNetwork();
   const resolvePlan = useResolveInstallPlan();
   const executePlan = useExecuteInstallPlan();
   const { resetProgress } = useInstallProgress();
-
-  const netOk =
-    !netLoading && !netFetching && !netError && !netStatus?.errorMessage;
 
   const handleStartInstall = useCallback(() => {
     const toolIds = [...selectedTools];
@@ -416,9 +413,21 @@ export function Wizard({
           </div>
 
           {(isToolCatalogLoading || isDetectingTools) && (
-            <p className="text-xs text-muted-foreground">
-              {t("tools.detectingInstalled", "正在识别已安装工具...")}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                {t("tools.detectingInstalled", "正在识别已安装工具...")}
+              </p>
+              {detectingTooLong && (
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={skipDetection}
+                  className="h-auto p-0 text-xs"
+                >
+                  {t("tools.skipDetection", "跳过检测")}
+                </Button>
+              )}
+            </div>
           )}
 
           <div className="space-y-1">
@@ -523,85 +532,6 @@ export function Wizard({
           </p>
         </section>
 
-        <section className="rounded-lg border p-4">
-          <div className="flex items-center gap-4">
-            {(netLoading || netFetching) && (
-              <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-500" />
-            )}
-            {!netLoading && !netFetching && netOk && (
-              <CheckCircle className="h-4 w-4 flex-shrink-0 text-green-500" />
-            )}
-            {!netLoading &&
-              !netFetching &&
-              (netError || netStatus?.errorMessage) && (
-                <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500" />
-              )}
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-muted-foreground">连通性</span>
-                {netLoading || netFetching ? (
-                  <span className="text-muted-foreground">检测中...</span>
-                ) : (
-                  <>
-                    <span
-                      className={
-                        netStatus?.githubReachable
-                          ? "text-green-600"
-                          : "text-red-500"
-                      }
-                    >
-                      GitHub {netStatus?.githubReachable ? "✓" : "×"}
-                    </span>
-                    <span
-                      className={
-                        netStatus?.npmReachable
-                          ? "text-green-600"
-                          : "text-red-500"
-                      }
-                    >
-                      npm {netStatus?.npmReachable ? "✓" : "×"}
-                    </span>
-                    <span
-                      className={
-                        netStatus?.youtubeReachable
-                          ? "text-green-600"
-                          : "text-muted-foreground"
-                      }
-                    >
-                      YouTube {netStatus?.youtubeReachable ? "✓" : "×"}
-                    </span>
-                  </>
-                )}
-              </div>
-              {netStatus?.errorMessage && (
-                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                  {netStatus.errorMessage}
-                </p>
-              )}
-            </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => retryNet()}
-              title="刷新"
-            >
-              <RefreshCw className="h-3 w-3" />
-            </Button>
-          </div>
-
-          {!netLoading && !netFetching && !netOk && (
-            <button
-              onClick={() => setHelpOpen(true)}
-              className="mt-3 inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 hover:underline"
-            >
-              <ExternalLink className="h-3 w-3" />
-              网络不通？点击查看解决方法
-            </button>
-          )}
-        </section>
-
         <div className="flex justify-center gap-4 pt-2">
           <Button variant="outline" size="lg" onClick={onComplete}>
             {t("tools.skipForNow", "跳过")}
@@ -624,8 +554,6 @@ export function Wizard({
           </Button>
         </div>
       </div>
-
-      <NetworkHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }

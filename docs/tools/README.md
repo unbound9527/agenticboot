@@ -9,7 +9,7 @@ The current implementation is Windows-first:
 - Existing installations are detected before install.
 - Dependencies such as `Node.js` and `Git` are reused if already present.
 - Official desktop apps are installed as desktop apps, not replaced with npm stand-ins.
-- Hermes uses a managed Python runtime and does not require the user to preinstall Python.
+- Hermes uses the upstream Windows installer and does not require the user to preinstall Python.
 
 ## Documents
 

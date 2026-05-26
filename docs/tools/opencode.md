@@ -6,9 +6,9 @@ OpenCode is supported on Windows in the current AgenticBoot implementation.
 
 ### OpenCode CLI
 
-- Windows uses the native npm package `opencode-ai`.
+- Windows downloads the published `opencode-ai` package artifact and installs the bundled `opencode.exe` directly under the managed root.
 - AgenticBoot detects an existing `opencode` command first and skips reinstalling it when already usable.
-- This path does not require WSL.
+- This path does not require WSL or a preinstalled Node.js runtime.
 
 ### OpenCode desktop app
 

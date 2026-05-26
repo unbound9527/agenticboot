@@ -103,6 +103,7 @@ import { HERMES_DEFAULT_CONFIG } from "./hooks/useHermesFormState";
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import { useOpenClawLiveProviderIds } from "@/hooks/useOpenClaw";
 import { useHermesLiveProviderIds } from "@/hooks/useHermes";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 
 type PresetEntry = {
   id: string;
@@ -191,7 +192,8 @@ export function ProviderForm({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
-  const supportsFullUrl = appId === "claude" || appId === "codex";
+  const isClaudeFamily = isClaudeFamilyApp(appId);
+  const supportsFullUrl = isClaudeFamily || appId === "codex";
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
     return initialData?.meta?.isFullUrl ?? false;
@@ -287,7 +289,7 @@ export function ProviderForm({
 
   const [localApiKeyField, setLocalApiKeyField] = useState<ClaudeApiKeyField>(
     () => {
-      if (appId !== "claude") return "ANTHROPIC_AUTH_TOKEN";
+      if (!isClaudeFamily) return "ANTHROPIC_AUTH_TOKEN";
       if (initialData?.meta?.apiKeyField) return initialData.meta.apiKeyField;
       // Infer from existing config env
       const env = (initialData?.settingsConfig as Record<string, unknown>)
@@ -318,7 +320,7 @@ export function ProviderForm({
     selectedPresetId,
     category,
     appType: appId,
-    apiKeyField: appId === "claude" ? localApiKeyField : undefined,
+    apiKeyField: isClaudeFamily ? localApiKeyField : undefined,
   });
 
   const { baseUrl, handleClaudeBaseUrlChange } = useBaseUrlState({
@@ -342,7 +344,7 @@ export function ProviderForm({
   });
 
   const [localApiFormat, setLocalApiFormat] = useState<ClaudeApiFormat>(() => {
-    if (appId !== "claude") return "anthropic";
+    if (!isClaudeFamily) return "anthropic";
     return initialData?.meta?.apiFormat ?? "anthropic";
   });
 
@@ -491,8 +493,8 @@ export function ProviderForm({
     handleTemplateValueChange,
     validateTemplateValues,
   } = useTemplateValues({
-    selectedPresetId: appId === "claude" ? selectedPresetId : null,
-    presetEntries: appId === "claude" ? presetEntries : [],
+    selectedPresetId: isClaudeFamily ? selectedPresetId : null,
+    presetEntries: isClaudeFamily ? presetEntries : [],
     settingsConfig: form.getValues("settingsConfig"),
     onConfigChange: handleSettingsConfigChange,
   });
@@ -508,11 +510,11 @@ export function ProviderForm({
   } = useCommonConfigSnippet({
     settingsConfig: form.getValues("settingsConfig"),
     onConfigChange: handleSettingsConfigChange,
-    initialData: appId === "claude" ? initialData : undefined,
+    initialData: isClaudeFamily ? initialData : undefined,
     initialEnabled:
-      appId === "claude" ? initialData?.meta?.commonConfigEnabled : undefined,
+      isClaudeFamily ? initialData?.meta?.commonConfigEnabled : undefined,
     selectedPresetId: selectedPresetId ?? undefined,
-    enabled: appId === "claude",
+    enabled: isClaudeFamily,
   });
 
   const {
@@ -777,7 +779,7 @@ export function ProviderForm({
     const issues: string[] = [];
 
     // 模板变量未填：A 类（空值）
-    if (appId === "claude" && templateValueEntries.length > 0) {
+    if (isClaudeFamily && templateValueEntries.length > 0) {
       const validation = validateTemplateValues();
       if (!validation.isValid && validation.missingField) {
         issues.push(
@@ -944,7 +946,7 @@ export function ProviderForm({
     // 非官方供应商端点 / API Key 空：A 类
     // cloud_provider（如 Bedrock）通过模板变量处理认证，跳过通用校验
     if (category !== "official" && category !== "cloud_provider") {
-      if (appId === "claude") {
+      if (isClaudeFamily) {
         if (!isCodexOauthProvider && !baseUrl.trim()) {
           issues.push(
             t("providerForm.endpointRequired", {
@@ -1195,11 +1197,11 @@ export function ProviderForm({
           ? pricingConfig.pricingModelSource
           : undefined,
       apiFormat:
-        appId === "claude" && category !== "official"
+        isClaudeFamily && category !== "official"
           ? localApiFormat
           : undefined,
       apiKeyField:
-        appId === "claude" &&
+        isClaudeFamily &&
         category !== "official" &&
         localApiKeyField !== "ANTHROPIC_AUTH_TOKEN"
           ? localApiKeyField
@@ -1743,7 +1745,7 @@ export function ProviderForm({
             }
           />
 
-          {appId === "claude" && (
+          {isClaudeFamily && (
             <ClaudeFormFields
               providerId={providerId}
               shouldShowApiKey={

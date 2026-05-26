@@ -5,6 +5,7 @@ import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import { geminiProviderPresets } from "@/config/geminiProviderPresets";
 import { opencodeProviderPresets } from "@/config/opencodeProviderPresets";
+import { isClaudeFamilyApp } from "@/lib/appFamilies";
 
 interface UseProviderCategoryProps {
   appId: AppId;
@@ -58,7 +59,7 @@ export function useProviderCategory({
           preset.category || (preset.isOfficial ? "official" : undefined),
         );
       }
-    } else if (type === "claude" && appId === "claude") {
+    } else if (type === "claude" && isClaudeFamilyApp(appId)) {
       const preset = providerPresets[index];
       if (preset) {
         setCategory(

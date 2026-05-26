@@ -1,7 +1,10 @@
+use crate::services::command_util::hide_console;
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::tool_types::InstallLogLevel;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 
 const DETECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -534,8 +537,10 @@ pub fn winget_exists() -> bool {
 }
 
 pub fn run_winget(args: &[&str]) -> Result<(), String> {
-    let output = Command::new("winget")
-        .args(args)
+    let mut command = Command::new("winget");
+    command.args(args);
+    hide_console(&mut command);
+    let output = command
         .output()
         .map_err(|e| format!("启动 winget 失败: {e}"))?;
     if !output.status.success() {
@@ -570,8 +575,10 @@ pub fn run_spawned_command_with_logs<P: AsRef<Path>>(
         format_command_for_log(&program.to_string_lossy(), args),
     );
 
-    let status = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    hide_console(&mut command);
+    let status = command
         .spawn()
         .map_err(|e| {
             let error = format!("{failure_context}: {e}");
@@ -652,6 +659,7 @@ fn run_command_checked_with_command(
 }
 
 fn run_command_output(command: &mut Command, failure_context: &str) -> Result<Output, String> {
+    hide_console(command);
     command
         .output()
         .map_err(|e| format!("{failure_context}: {e}"))
@@ -682,15 +690,109 @@ fn run_command_checked_with_logs_for_command(
     Err(format!("{failure_context}: {details}"))
 }
 
+#[allow(dead_code)]
+pub fn run_command_checked_with_streaming_logs_for_command(
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    command: &mut Command,
+    failure_context: &str,
+) -> Result<(), String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(command);
+
+    let mut child = command.spawn().map_err(|e| {
+        let error = format!("{failure_context}: {e}");
+        install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+        error
+    })?;
+
+    let stdout_reader = child.stdout.take().map(|stdout| {
+        spawn_stream_reader(
+            stdout,
+            install_log.clone(),
+            phase.to_string(),
+            InstallLogLevel::Stdout,
+        )
+    });
+    let stderr_reader = child.stderr.take().map(|stderr| {
+        spawn_stream_reader(
+            stderr,
+            install_log.clone(),
+            phase.to_string(),
+            InstallLogLevel::Stderr,
+        )
+    });
+
+    let status = child.wait().map_err(|e| {
+        let error = format!("{failure_context}: {e}");
+        install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+        error
+    })?;
+
+    let stdout = join_stream_reader(stdout_reader, install_log, phase, failure_context, "stdout")?;
+    let stderr = join_stream_reader(stderr_reader, install_log, phase, failure_context, "stderr")?;
+
+    if status.success() {
+        install_log.emit_output(phase, InstallLogLevel::Success, "Command completed");
+        return Ok(());
+    }
+
+    let details = command_failure_details_from_text(&stdout, &stderr, status.code());
+    install_log.emit_output(phase, InstallLogLevel::Error, details.clone());
+    Err(format!("{failure_context}: {details}"))
+}
+
+fn spawn_stream_reader<R: Read + Send + 'static>(
+    reader: R,
+    install_log: InstallLogEmitter,
+    phase: String,
+    level: InstallLogLevel,
+) -> thread::JoinHandle<String> {
+    thread::spawn(move || {
+        let mut collected = Vec::new();
+        for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            install_log.emit_output(&phase, level, trimmed.to_string());
+            collected.push(trimmed.to_string());
+        }
+        collected.join("\n")
+    })
+}
+
+fn join_stream_reader(
+    handle: Option<thread::JoinHandle<String>>,
+    install_log: &InstallLogEmitter,
+    phase: &str,
+    failure_context: &str,
+    stream_name: &str,
+) -> Result<String, String> {
+    let Some(handle) = handle else {
+        return Ok(String::new());
+    };
+
+    handle.join().map_err(|_| {
+        let error = format!("{failure_context}: failed to collect {stream_name} output");
+        install_log.emit_output(phase, InstallLogLevel::Error, error.clone());
+        error
+    })
+}
+
 fn command_failure_details(output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    command_failure_details_from_text(&stdout, &stderr, output.status.code())
+}
+
+fn command_failure_details_from_text(stdout: &str, stderr: &str, exit_code: Option<i32>) -> String {
     if !stderr.is_empty() {
-        stderr
+        stderr.to_string()
     } else if !stdout.is_empty() {
-        stdout
+        stdout.to_string()
     } else {
-        format!("exit code: {:?}", output.status.code())
+        format!("exit code: {exit_code:?}")
     }
 }
 
@@ -1086,6 +1188,7 @@ pub fn run_windows_uninstaller_with_common_args(uninstaller: &Path) -> Result<()
     for args in attempts {
         let mut command = Command::new(uninstaller);
         command.args(*args);
+        hide_console(&mut command);
         match command.spawn() {
             Ok(mut child) => match child.wait() {
                 Ok(status) if status.success() => return Ok(()),
@@ -1509,6 +1612,7 @@ fn run_detection_command_output_with_timeout(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    hide_console(command);
 
     let mut child = command
         .spawn()
@@ -1549,8 +1653,9 @@ mod tests {
         find_local_uninstaller_executable, find_node_on_system, list_nvm_version_directories,
         read_command_version, read_nvm_root_from_settings, resolve_managed_npm_command,
         resolve_npm_command_for_uninstall, resolve_npm_command_from_node_dir, run_command_checked,
-        run_command_checked_with_logs, run_detection_command_output_with_timeout,
-        run_with_node_env, ManagedNpmCommand, ShellCommandOutput, WindowsShell,
+        run_command_checked_with_logs, run_command_checked_with_streaming_logs_for_command,
+        run_detection_command_output_with_timeout, run_with_node_env, ManagedNpmCommand,
+        ShellCommandOutput, WindowsShell,
     };
     use crate::services::installer::logging::InstallLogEmitter;
     use crate::tool_types::{InstallLogEvent, InstallLogKind, InstallLogLevel};
@@ -1874,6 +1979,60 @@ mod tests {
         assert!(!events
             .iter()
             .any(|event| event.kind == InstallLogKind::Result));
+    }
+
+    #[test]
+    fn run_command_checked_with_streaming_logs_emits_output_before_process_exit() {
+        let (install_log, events) = test_install_log_emitter();
+        let worker = std::thread::spawn(move || {
+            let mut command = std::process::Command::new("powershell");
+            command.args([
+                "-NoProfile",
+                "-Command",
+                "[Console]::Out.WriteLine('stream-start'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 1000; [Console]::Error.WriteLine('stream-end'); [Console]::Error.Flush()",
+            ]);
+
+            run_command_checked_with_streaming_logs_for_command(
+                &install_log,
+                "installing",
+                &mut command,
+                "streaming command failed",
+            )
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(600));
+
+        let saw_early_stdout = {
+            let events = events.lock().unwrap();
+            events.iter().any(|event| {
+                event.kind == InstallLogKind::Output
+                    && event.level == InstallLogLevel::Stdout
+                    && event.line.contains("stream-start")
+            })
+        };
+
+        assert!(
+            saw_early_stdout,
+            "expected stdout to be emitted before the installer process finished"
+        );
+        assert!(
+            !worker.is_finished(),
+            "expected the process to still be running when the first line was streamed"
+        );
+
+        worker.join().unwrap().unwrap();
+
+        let events = events.lock().unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Output
+                && event.level == InstallLogLevel::Stderr
+                && event.line.contains("stream-end")
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == InstallLogKind::Output
+                && event.level == InstallLogLevel::Success
+                && event.line == "Command completed"
+        }));
     }
 
     #[test]

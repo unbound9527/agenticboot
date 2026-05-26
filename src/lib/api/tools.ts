@@ -3,10 +3,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  NetworkStatus,
   DetectResult,
   InstallPlan,
   InstallLogEvent,
+  ResolveProgress,
   InstallProgress,
   InstalledTool,
   ToolCatalogItem,
@@ -40,10 +40,6 @@ export function withTimeout<T>(
 
 export const toolsApi = {
   // ── 命令调用 ──
-
-  checkNetwork(): Promise<NetworkStatus> {
-    return invoke("check_network");
-  },
 
   getToolCatalog(): Promise<ToolCatalogItem[]> {
     return invoke("get_tool_catalog");
@@ -130,6 +126,20 @@ export const toolsApi = {
   onInstallComplete(callback: (toolId: string) => void): Promise<UnlistenFn> {
     return listen<string>("install-complete", (event) => {
       callback(event.payload);
+    });
+  },
+
+  onResolveProgress(
+    callback: (progress: ResolveProgress) => void,
+  ): Promise<UnlistenFn> {
+    return listen<ResolveProgress>("resolve-progress", (event) => {
+      callback(event.payload);
+    });
+  },
+
+  onResolveComplete(callback: () => void): Promise<UnlistenFn> {
+    return listen<void>("resolve-complete", () => {
+      callback();
     });
   },
 

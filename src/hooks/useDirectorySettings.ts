@@ -30,6 +30,7 @@ const APP_DIRECTORY_META: Record<
   { key: AppDirectoryKey; defaultFolder: string }
 > = {
   claude: { key: "claude", defaultFolder: ".claude" },
+  "claude-desktop": { key: "claude", defaultFolder: ".claude" },
   codex: { key: "codex", defaultFolder: ".codex" },
   gemini: { key: "gemini", defaultFolder: ".gemini" },
   opencode: { key: "opencode", defaultFolder: ".config/opencode" },
