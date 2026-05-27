@@ -206,13 +206,6 @@ pub fn import_claude_desktop_providers_from_claude(
         imported += 1;
     }
 
-    if let Err(e) = state.db.ensure_official_seed_by_id(
-        crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID,
-        AppType::ClaudeDesktop,
-    ) {
-        log::warn!("Failed to ensure claude-desktop-official seed during import: {e}");
-    }
-
     Ok(imported)
 }
 

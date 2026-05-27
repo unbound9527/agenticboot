@@ -59,6 +59,7 @@ import { Label } from "@/components/ui/label";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { BasicFormFields } from "./BasicFormFields";
 import { ClaudeFormFields } from "./ClaudeFormFields";
+import { ClaudeDesktopProviderForm } from "./ClaudeDesktopProviderForm";
 import { CodexFormFields } from "./CodexFormFields";
 import { GeminiFormFields } from "./GeminiFormFields";
 import { OmoFormFields } from "./OmoFormFields";
@@ -116,7 +117,7 @@ type PresetEntry = {
     | HermesProviderPreset;
 };
 
-interface ProviderFormProps {
+export interface ProviderFormProps {
   appId: AppId;
   providerId?: string;
   submitLabel: string;
@@ -138,7 +139,15 @@ interface ProviderFormProps {
   showButtons?: boolean;
 }
 
-export function ProviderForm({
+export function ProviderForm(props: ProviderFormProps) {
+  if (props.appId === "claude-desktop") {
+    return <ClaudeDesktopProviderForm {...props} />;
+  }
+
+  return <ProviderFormFull {...props} />;
+}
+
+function ProviderFormFull({
   appId,
   providerId,
   submitLabel,

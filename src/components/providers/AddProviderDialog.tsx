@@ -17,8 +17,8 @@ import { UniversalProviderPanel } from "@/components/universal";
 import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import { geminiProviderPresets } from "@/config/geminiProviderPresets";
+import { claudeDesktopProviderPresets } from "@/config/claudeDesktopProviderPresets";
 import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
-import { isClaudeFamilyApp } from "@/lib/appFamilies";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import type { UniversalProviderPreset } from "@/config/universalProviderPresets";
 
@@ -43,7 +43,10 @@ export function AddProviderDialog({
   const { t } = useTranslation();
   // OpenCode and OpenClaw don't support universal providers
   const showUniversalTab =
-    appId !== "opencode" && appId !== "openclaw" && appId !== "hermes";
+    appId !== "opencode" &&
+    appId !== "openclaw" &&
+    appId !== "hermes" &&
+    appId !== "claude-desktop";
   const [activeTab, setActiveTab] = useState<"app-specific" | "universal">(
     "app-specific",
   );
@@ -129,7 +132,7 @@ export function AddProviderDialog({
         };
 
         if (values.presetId) {
-          if (isClaudeFamilyApp(appId)) {
+          if (appId === "claude") {
             const presets = providerPresets;
             const presetIndex = parseInt(
               values.presetId.replace("claude-", ""),
@@ -143,6 +146,22 @@ export function AddProviderDialog({
               if (preset?.endpointCandidates) {
                 preset.endpointCandidates.forEach(addUrl);
               }
+            }
+          } else if (appId === "claude-desktop") {
+            const presets = claudeDesktopProviderPresets;
+            const presetIndex = parseInt(
+              values.presetId.replace("claude-desktop-", ""),
+            );
+            if (
+              !isNaN(presetIndex) &&
+              presetIndex >= 0 &&
+              presetIndex < presets.length
+            ) {
+              const preset = presets[presetIndex];
+              if (Array.isArray(preset.endpointCandidates)) {
+                preset.endpointCandidates.forEach(addUrl);
+              }
+              addUrl(preset.baseUrl);
             }
           } else if (appId === "codex") {
             const presets = codexProviderPresets;
@@ -175,7 +194,12 @@ export function AddProviderDialog({
           }
         }
 
-        if (isClaudeFamilyApp(appId)) {
+        if (appId === "claude") {
+          const env = parsedConfig.env as Record<string, any> | undefined;
+          if (env?.ANTHROPIC_BASE_URL) {
+            addUrl(env.ANTHROPIC_BASE_URL);
+          }
+        } else if (appId === "claude-desktop") {
           const env = parsedConfig.env as Record<string, any> | undefined;
           if (env?.ANTHROPIC_BASE_URL) {
             addUrl(env.ANTHROPIC_BASE_URL);

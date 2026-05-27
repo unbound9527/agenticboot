@@ -190,6 +190,7 @@ impl RequestForwarder {
             // 转发请求（每个 Provider 只尝试一次，重试由客户端控制）
             match self
                 .forward(
+                    app_type,
                     provider,
                     endpoint,
                     &provider_body,
@@ -320,6 +321,7 @@ impl RequestForwarder {
                                 // 使用同一供应商重试（不计入熔断器）
                                 match self
                                     .forward(
+                                        app_type,
                                         provider,
                                         endpoint,
                                         &provider_body,
@@ -519,6 +521,7 @@ impl RequestForwarder {
                             // 使用同一供应商重试（不计入熔断器）
                             match self
                                 .forward(
+                                    app_type,
                                     provider,
                                     endpoint,
                                     &provider_body,
@@ -758,6 +761,7 @@ impl RequestForwarder {
     /// 转发单个请求（使用适配器）
     async fn forward(
         &self,
+        app_type: &AppType,
         provider: &Provider,
         endpoint: &str,
         body: &Value,
@@ -774,9 +778,15 @@ impl RequestForwarder {
             .and_then(|meta| meta.is_full_url)
             .unwrap_or(false);
 
-        // 应用模型映射（独立于格式转换）
-        let (mapped_body, _original_model, _mapped_model) =
-            super::model_mapper::apply_model_mapping(body.clone(), provider);
+        // Apply upstream model mapping before request transforms.
+        let mapped_body = if matches!(app_type, AppType::ClaudeDesktop) {
+            crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
+                .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
+        } else {
+            let (mapped_body, _original_model, _mapped_model) =
+                super::model_mapper::apply_model_mapping(body.clone(), provider);
+            mapped_body
+        };
 
         // 与 CCH 对齐：请求前不做 thinking 主动改写（仅保留兼容入口）
         let mut mapped_body = normalize_thinking_type(mapped_body);
@@ -795,6 +805,9 @@ impl RequestForwarder {
                 super::providers::copilot_model_map::apply_copilot_model_normalization(mapped_body);
             self.apply_copilot_live_model_resolution(provider, &mut mapped_body)
                 .await;
+        } else {
+            mapped_body =
+                super::model_mapper::strip_one_m_suffix_for_upstream_from_body(mapped_body);
         }
 
         // --- Copilot 优化器：分类 + 请求体优化（在格式转换之前执行） ---

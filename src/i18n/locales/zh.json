@@ -172,11 +172,52 @@
       }
     }
   },
+  "claudeDesktop": {
+    "officialNotice": "Claude Desktop 官方供应商使用应用内置的 1P 登录，无需配置 API Key 和接口地址。",
+    "mode": "模型处理方式",
+    "modeDirect": "直连",
+    "modeProxy": "需要路由",
+    "modelMappingToggle": "需要模型映射",
+    "modelMappingOffHint": "如果您的供应商提供的不是原生 Claude 系列模型，请打开此开关。",
+    "modelMappingOnHint": "Claude Desktop 目前对模型 ID 进行了限制，如果您的供应商提供的模型不是 Claude 系列模型，则需要打开本开关，并在使用过程中保持本地路由开启。",
+    "routeMapTitle": "模型映射",
+    "routeMapHint": "选择模型角色后，CC Switch 会自动生成 Claude Desktop 兼容路由；菜单显示名可以写 DeepSeek、Kimi 等品牌模型，实际请求模型按右侧填写内容发送。",
+    "routeModelLabel": "模型角色",
+    "routeRoleSonnet": "Sonnet",
+    "routeRoleOpus": "Opus",
+    "routeRoleHaiku": "Haiku",
+    "labelOverrideLabel": "菜单显示名",
+    "upstreamModelLabel": "实际请求模型",
+    "supports1mLabel": "声明支持 1M",
+    "supports1mShort": "1M",
+    "directModelListTitle": "手动指定 Claude Desktop 模型列表（高级，可选）",
+    "directModelListCollapsedHint": "原生 Claude 模型供应商通常不用填写，Claude Desktop 会自动读取 /v1/models。",
+    "directModelListHint": "仅当供应商的 /v1/models 不可用或没有返回 Claude Desktop 可识别的 claude-* 模型名时填写；勾选 1M 会向 Claude Desktop 声明支持 1M 上下文。",
+    "directModelInvalid": "直连模型必须使用 claude-* / anthropic/claude-* 模型名",
+    "addModel": "添加模型",
+    "addRoute": "添加模型",
+    "routeInvalid": "请选择模型角色并填写实际请求模型",
+    "routesRequired": "至少填写一个模型映射",
+    "statusTitle": "Claude Desktop 配置需要检查",
+    "statusUnsupported": "当前平台暂不支持 Claude Desktop 3P 配置写入。",
+    "statusStaleRawModels": "Claude Desktop profile 中存在非 claude-* 模型名，新版 Claude Desktop 可能拒绝加载；重新切换当前供应商可修复。",
+    "statusMissingRouteMappings": "当前供应商启用了模型映射，但没有有效路由；请编辑供应商并补全至少一个模型映射。",
+    "statusGatewayTokenMissing": "当前本地路由 token 尚未生成；重新切换该供应商会写入新的本地 token。",
+    "statusBaseUrlMismatch": "Claude Desktop profile 指向的地址与当前供应商不一致；当前为 {{actual}}，应为 {{expected}}。重新切换当前供应商可修复。",
+    "route": {
+      "tooltip": {
+        "active": "Claude Desktop 本地路由已开启 - {{address}}:{{port}}",
+        "inactive": "开启 Claude Desktop 本地路由，用于需要模型映射或格式转换的供应商。当前配置地址：{{address}}:{{port}}"
+      }
+    }
+  },
   "notifications": {
     "providerAdded": "供应商已添加",
     "providerSaved": "供应商配置已保存",
     "providerDeleted": "供应商删除成功",
     "switchSuccess": "切换成功！",
+    "claudeDesktopRestartRequired": "切换成功，重启 Claude Desktop 后生效",
+    "claudeDesktopProxyRestartRequired": "切换成功，请保持 CC Switch 运行，并重启 Claude Desktop 后生效",
     "addToConfigSuccess": "已添加到配置",
     "removeFromConfigSuccess": "已从配置移除",
     "switchFailedTitle": "切换失败",
@@ -661,6 +702,8 @@
   },
   "apps": {
     "claude": "Claude",
+    "claudeDesktop": "Claude Desktop",
+    "claude-desktop": "Claude Desktop",
     "codex": "Codex",
     "gemini": "Gemini",
     "opencode": "OpenCode",

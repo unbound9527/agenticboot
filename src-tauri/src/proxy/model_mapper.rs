@@ -2,6 +2,7 @@
 //!
 //! 在请求转发前，根据 Provider 配置替换请求中的模型名称
 
+use crate::claude_desktop_config::ONE_M_CONTEXT_MARKER;
 use crate::provider::Provider;
 use serde_json::Value;
 
@@ -110,6 +111,33 @@ pub fn apply_model_mapping(
     }
 
     (body, original_model, None)
+}
+
+/// Claude Code 会通过 `[1M]` 后缀声明 1M 上下文能力；上游 API
+/// 通常不接受这个本地能力标记，转发前需要剥离。
+pub fn strip_one_m_suffix_for_upstream(model: &str) -> &str {
+    let trimmed = model.trim_end();
+    let marker = ONE_M_CONTEXT_MARKER.as_bytes();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= marker.len()
+        && bytes[bytes.len() - marker.len()..].eq_ignore_ascii_case(marker)
+    {
+        return trimmed[..trimmed.len() - marker.len()].trim_end();
+    }
+    model
+}
+
+pub fn strip_one_m_suffix_for_upstream_from_body(mut body: Value) -> Value {
+    let Some(model) = body.get("model").and_then(Value::as_str) else {
+        return body;
+    };
+
+    let stripped = strip_one_m_suffix_for_upstream(model);
+    if stripped != model {
+        log::debug!("[ModelMapper] 去除本地 1M 标记: {model} -> {stripped}");
+        body["model"] = serde_json::json!(stripped);
+    }
+    body
 }
 
 #[cfg(test)]

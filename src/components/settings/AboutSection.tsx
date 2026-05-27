@@ -3,6 +3,7 @@ import {
   Download,
   Copy,
   ExternalLink,
+  Github,
   Info,
   Loader2,
   RefreshCw,
@@ -241,13 +242,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
       if (!displayVersion) {
         await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
+          "https://github.com/unbound9527/agenticboot/releases",
         );
         return;
       }
 
       await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
+        `https://github.com/unbound9527/agenticboot/releases/tag/${displayVersion}`,
       );
     } catch (error) {
       console.error("[AboutSection] Failed to open release notes", error);
@@ -360,6 +361,20 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                settingsApi.openExternal(
+                  "https://github.com/unbound9527/agenticboot",
+                )
+              }
+              className="h-8 gap-1.5 text-xs"
+            >
+              <Github className="h-3.5 w-3.5" />
+              {t("settings.github")}
+            </Button>
             <Button
               type="button"
               variant="outline"

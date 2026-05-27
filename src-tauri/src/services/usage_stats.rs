@@ -4,6 +4,7 @@
 
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
+use crate::proxy::usage::calculator::ModelPricing;
 use chrono::{Local, NaiveDate, TimeZone, Timelike};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -1348,7 +1349,7 @@ impl Database {
             return Ok(false);
         }
 
-        let pricing = match Self::get_model_pricing_cached(conn, pricing_cache, &log.model)? {
+        let pricing = match Self::get_log_model_pricing_cached(conn, pricing_cache, log)? {
             Some(info) => info,
             None => return Ok(false),
         };
@@ -1361,12 +1362,16 @@ impl Database {
 
         let million = rust_decimal::Decimal::from(1_000_000u64);
 
-        // 与 CostCalculator::calculate 保持一致的计算逻辑：
-        // 1. input_cost 需要扣除 cache_read_tokens（避免缓存部分被重复计费）
-        // 2. 各项成本是基础成本（不含倍率）
-        // 3. 倍率只作用于最终总价
-        let billable_input_tokens =
-            (log.input_tokens as u64).saturating_sub(log.cache_read_tokens as u64);
+        // 与代理计费逻辑保持一致：
+        // 1. Codex/Gemini 的 input_tokens 含 cache_read，需要扣除
+        // 2. Claude/Claude Desktop 的 input_tokens 已是 fresh input，不能再扣
+        // 3. 倍率仅作用于最终总价
+        let input_includes_cache_read = matches!(log.app_type.as_str(), "codex" | "gemini");
+        let billable_input_tokens = if input_includes_cache_read {
+            (log.input_tokens as u64).saturating_sub(log.cache_read_tokens as u64)
+        } else {
+            log.input_tokens as u64
+        };
         let input_cost =
             rust_decimal::Decimal::from(billable_input_tokens) * pricing.input / million;
         let output_cost =
@@ -1470,15 +1475,155 @@ impl Database {
         cache.insert(model.to_string(), pricing.clone());
         Ok(Some(pricing))
     }
+
+    fn get_log_model_pricing_cached(
+        conn: &Connection,
+        cache: &mut HashMap<String, PricingInfo>,
+        log: &RequestLogDetail,
+    ) -> Result<Option<PricingInfo>, AppError> {
+        if let Some(pricing) = Self::get_model_pricing_cached(conn, cache, &log.model)? {
+            return Ok(Some(pricing));
+        }
+
+        let Some(request_model) = log.request_model.as_deref() else {
+            return Ok(None);
+        };
+        if request_model == log.model {
+            return Ok(None);
+        }
+
+        Self::get_model_pricing_cached(conn, cache, request_model)
+    }
+}
+
+pub(crate) fn find_model_pricing(conn: &Connection, model_id: &str) -> Option<ModelPricing> {
+    find_model_pricing_row(conn, model_id)
+        .ok()
+        .flatten()
+        .and_then(|(input, output, cache_read, cache_creation)| {
+            ModelPricing::from_strings(&input, &output, &cache_read, &cache_creation).ok()
+        })
 }
 
 pub(crate) fn find_model_pricing_row(
     conn: &Connection,
     model_id: &str,
 ) -> Result<Option<(String, String, String, String)>, AppError> {
-    // 清洗模型名称：去前缀(/)、去后缀(:)、@ 替换为 -
-    // 例如 moonshotai/gpt-5.2-codex@low:v2 → gpt-5.2-codex-low
-    let cleaned = model_id
+    let candidates = model_pricing_candidates(model_id);
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    for candidate in &candidates {
+        if let Some(row) = query_model_pricing_exact(conn, candidate)? {
+            return Ok(Some(row));
+        }
+    }
+
+    for candidate in &candidates {
+        if should_try_pricing_prefix_match(candidate) {
+            if let Some(row) = query_model_pricing_prefix(conn, candidate)? {
+                return Ok(Some(row));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+pub(crate) fn is_placeholder_pricing_model(model_id: &str) -> bool {
+    let normalized = model_id.trim().to_ascii_lowercase();
+    normalized.is_empty() || matches!(normalized.as_str(), "unknown" | "null" | "none")
+}
+
+fn query_model_pricing_exact(
+    conn: &Connection,
+    model_id: &str,
+) -> Result<Option<(String, String, String, String)>, AppError> {
+    conn.query_row(
+        "SELECT input_cost_per_million, output_cost_per_million,
+                cache_read_cost_per_million, cache_creation_cost_per_million
+         FROM model_pricing
+         WHERE model_id = ?1",
+        [model_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(|e| AppError::Database(format!("????????: {e}")))
+}
+
+fn query_model_pricing_prefix(
+    conn: &Connection,
+    model_id: &str,
+) -> Result<Option<(String, String, String, String)>, AppError> {
+    let pattern = format!("{model_id}-%");
+    conn.query_row(
+        "SELECT input_cost_per_million, output_cost_per_million,
+                cache_read_cost_per_million, cache_creation_cost_per_million
+         FROM model_pricing
+         WHERE model_id LIKE ?1
+         ORDER BY LENGTH(model_id) ASC
+         LIMIT 1",
+        [pattern],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(|e| AppError::Database(format!("??????????: {e}")))
+}
+
+fn model_pricing_candidates(model_id: &str) -> Vec<String> {
+    let cleaned = clean_model_id_for_pricing(model_id);
+    if is_placeholder_pricing_model(&cleaned) {
+        return Vec::new();
+    }
+
+    let mut candidates = Vec::new();
+    let mut queue = vec![cleaned];
+
+    while let Some(candidate) = queue.pop() {
+        if !push_unique_candidate(&mut candidates, candidate.clone()) {
+            continue;
+        }
+
+        if let Some(stripped) = strip_known_model_namespace(&candidate) {
+            queue.push(stripped);
+        }
+        if let Some(stripped) = strip_claude_desktop_non_anthropic_prefix(&candidate) {
+            queue.push(stripped);
+        }
+        if let Some(stripped) = strip_bedrock_model_version_suffix(&candidate) {
+            queue.push(stripped);
+        }
+        if let Some(stripped) = strip_model_date_suffix(&candidate) {
+            queue.push(stripped);
+        }
+        if let Some(stripped) = strip_reasoning_effort_suffix(&candidate) {
+            queue.push(stripped);
+        }
+        if candidate.starts_with("claude-") && candidate.contains('.') {
+            queue.push(candidate.replace('.', "-"));
+        }
+    }
+
+    candidates
+}
+
+fn clean_model_id_for_pricing(model_id: &str) -> String {
+    let normalized = model_id
         .rsplit_once('/')
         .map_or(model_id, |(_, r)| r)
         .split(':')
@@ -1488,31 +1633,157 @@ pub(crate) fn find_model_pricing_row(
         .replace('@', "-")
         .to_ascii_lowercase();
 
-    // 精确匹配清洗后的名称
-    let exact = conn
-        .query_row(
-            "SELECT input_cost_per_million, output_cost_per_million,
-                    cache_read_cost_per_million, cache_creation_cost_per_million
-             FROM model_pricing
-             WHERE model_id = ?1",
-            [&cleaned],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(|e| AppError::Database(format!("查询模型定价失败: {e}")))?;
+    normalized
+        .trim_end_matches(crate::claude_desktop_config::ONE_M_CONTEXT_MARKER)
+        .trim()
+        .to_string()
+}
 
-    if exact.is_none() {
-        log::debug!("模型 {model_id}（清洗后: {cleaned}）未找到定价信息，成本将记录为 0");
+fn push_unique_candidate(candidates: &mut Vec<String>, candidate: String) -> bool {
+    if candidate.is_empty() || candidates.iter().any(|existing| existing == &candidate) {
+        return false;
+    }
+    candidates.push(candidate);
+    true
+}
+
+fn strip_known_model_namespace(model_id: &str) -> Option<String> {
+    if let Some(pos) = model_id.rfind("claude-") {
+        if pos > 0 {
+            return Some(model_id[pos..].to_string());
+        }
     }
 
-    Ok(exact)
+    for marker in [
+        "openai.",
+        "anthropic.",
+        "google.",
+        "moonshot.",
+        "moonshotai.",
+        "bedrock.",
+        "global.",
+    ] {
+        if let Some(stripped) = model_id.strip_prefix(marker) {
+            return Some(stripped.to_string());
+        }
+    }
+
+    None
+}
+
+fn strip_claude_desktop_non_anthropic_prefix(model_id: &str) -> Option<String> {
+    const NON_ANTHROPIC_MARKERS: &[&str] = &[
+        "abab",
+        "ark-code",
+        "arctic",
+        "astron",
+        "codex",
+        "command-r",
+        "deepseek",
+        "doubao",
+        "ernie",
+        "gemini",
+        "gemma",
+        "glm",
+        "gpt",
+        "grok",
+        "hermes",
+        "hy3",
+        "hunyuan",
+        "jamba",
+        "kimi",
+        "lfm",
+        "llama",
+        "longcat",
+        "mercury",
+        "mimo",
+        "minimax",
+        "mistral",
+        "mixtral",
+        "moonshot",
+        "nemotron",
+        "nova-",
+        "openai",
+        "qianfan",
+        "qwen",
+        "seed-",
+        "solar",
+        "stepfun",
+    ];
+
+    let rest = model_id.strip_prefix("claude-")?;
+    NON_ANTHROPIC_MARKERS
+        .iter()
+        .any(|marker| rest.starts_with(marker))
+        .then(|| rest.to_string())
+}
+
+fn strip_bedrock_model_version_suffix(model_id: &str) -> Option<String> {
+    let (base, suffix) = model_id.rsplit_once("-v")?;
+    (!base.is_empty() && !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
+        .then(|| base.to_string())
+}
+
+fn strip_model_date_suffix(model_id: &str) -> Option<String> {
+    let bytes = model_id.as_bytes();
+    if bytes.len() > 11 {
+        let start = bytes.len() - 11;
+        let suffix = &bytes[start..];
+        let is_iso_date = suffix[0] == b'-'
+            && suffix[1..5].iter().all(|b| b.is_ascii_digit())
+            && suffix[5] == b'-'
+            && suffix[6..8].iter().all(|b| b.is_ascii_digit())
+            && suffix[8] == b'-'
+            && suffix[9..11].iter().all(|b| b.is_ascii_digit());
+        if is_iso_date {
+            return Some(model_id[..start].to_string());
+        }
+    }
+
+    let (base, suffix) = model_id.rsplit_once('-')?;
+    (!base.is_empty() && suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()))
+        .then(|| base.to_string())
+}
+
+fn strip_reasoning_effort_suffix(model_id: &str) -> Option<String> {
+    for suffix in ["-minimal", "-low", "-medium", "-high", "-xhigh"] {
+        if let Some(stripped) = model_id.strip_suffix(suffix) {
+            if !stripped.is_empty() {
+                return Some(stripped.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn should_try_pricing_prefix_match(model_id: &str) -> bool {
+    let dash_count = model_id.matches('-').count();
+
+    if model_id.starts_with("claude-") {
+        return dash_count >= 3;
+    }
+
+    if ["o1", "o3", "o4", "o5"]
+        .iter()
+        .any(|prefix| model_id.starts_with(prefix))
+    {
+        return dash_count >= 1;
+    }
+
+    const PREFIX_MATCH_FAMILIES: &[&str] = &[
+        "gpt-",
+        "gemini-",
+        "deepseek-",
+        "qwen-",
+        "glm-",
+        "kimi-",
+        "minimax-",
+    ];
+
+    PREFIX_MATCH_FAMILIES
+        .iter()
+        .any(|prefix| model_id.starts_with(prefix))
+        && dash_count >= 2
 }
 
 #[cfg(test)]
@@ -1669,6 +1940,81 @@ mod tests {
         assert_eq!(input_cost, "5.000000");
         assert_eq!(output_cost, "30.000000");
         assert_eq!(total_cost, "35.000000");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_backfill_missing_usage_costs_falls_back_to_request_model() -> Result<(), AppError> {
+        let db = Database::memory()?;
+
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model, request_model,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd,
+                    total_cost_usd, latency_ms, status_code, created_at, data_source
+                ) VALUES (
+                    'codex-request-model-fallback', '_codex_session', 'codex', 'unknown', 'gpt-5.5',
+                    1000000, 0, 0, 0,
+                    '0', '0', '0', '0',
+                    '0', 100, 200, 1000, 'codex_session'
+                )",
+                [],
+            )?;
+        }
+
+        assert_eq!(db.backfill_missing_usage_costs()?, 1);
+
+        let conn = lock_conn!(db.conn);
+        let total_cost: String = conn.query_row(
+            "SELECT total_cost_usd
+             FROM proxy_request_logs WHERE request_id = 'codex-request-model-fallback'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(total_cost, "5.000000");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_backfill_missing_usage_costs_keeps_claude_fresh_input() -> Result<(), AppError> {
+        let db = Database::memory()?;
+
+        {
+            let conn = lock_conn!(db.conn);
+            insert_usage_log(
+                &conn,
+                "claude-cache-fresh-input",
+                "claude",
+                "_session",
+                "claude-haiku-4-5",
+                "session_log",
+                1000,
+                100,
+                0,
+                200,
+                0,
+                200,
+                "0",
+            )?;
+        }
+
+        assert_eq!(db.backfill_missing_usage_costs()?, 1);
+
+        let conn = lock_conn!(db.conn);
+        let (input_cost, cache_read_cost, total_cost): (String, String, String) = conn.query_row(
+            "SELECT input_cost_usd, cache_read_cost_usd, total_cost_usd
+             FROM proxy_request_logs WHERE request_id = 'claude-cache-fresh-input'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(input_cost, "0.000100");
+        assert_eq!(cache_read_cost, "0.000020");
+        assert_eq!(total_cost, "0.000120");
 
         Ok(())
     }
@@ -2604,6 +2950,65 @@ mod tests {
         // 测试不存在的模型
         let result = find_model_pricing_row(&conn, "unknown-model-123")?;
         assert!(result.is_none(), "不应该匹配不存在的模型");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_strip_model_date_suffix_is_utf8_safe() {
+        assert_eq!(
+            strip_model_date_suffix("模型-2026-05-14").as_deref(),
+            Some("模型")
+        );
+        assert_eq!(strip_model_date_suffix("abc🚀12345678"), None);
+    }
+
+    #[test]
+    fn test_prefix_pricing_does_not_match_short_base_model_to_variant() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let conn = lock_conn!(db.conn);
+
+        conn.execute("DELETE FROM model_pricing WHERE model_id LIKE 'gpt-5%'", [])?;
+        for (model_id, display_name) in [("gpt-5-mini", "GPT-5 Mini"), ("gpt-5-pro", "GPT-5 Pro")] {
+            conn.execute(
+                "INSERT INTO model_pricing (
+                    model_id, display_name, input_cost_per_million, output_cost_per_million,
+                    cache_read_cost_per_million, cache_creation_cost_per_million
+                ) VALUES (?1, ?2, '1', '2', '0', '0')",
+                params![model_id, display_name],
+            )?;
+        }
+
+        let result = find_model_pricing_row(&conn, "gpt-5")?;
+        assert!(
+            result.is_none(),
+            "缂哄皯 gpt-5 鍩虹瀹氫环鏃讹紝涓嶅簲鍓嶇紑璇尮閰嶅埌 gpt-5-mini/gpt-5-pro"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_model_pricing_matching_claude_desktop_variants() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let conn = lock_conn!(db.conn);
+
+        let cases = [
+            "OpenAI/GPT-5.5-2026-05-14",
+            "google/gemini-3-pro-preview-20260514",
+            "claude-haiku-4-5",
+            "claude-gpt-5.5",
+            "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "gpt-5.4@low",
+        ];
+
+        for model in cases {
+            let result = find_model_pricing_row(&conn, model)?;
+            assert!(result.is_some(), "expected pricing match for {model}");
+        }
+
+        let result = find_model_pricing_row(&conn, "kimi-for-coding")?;
+        assert!(result.is_none(), "kimi-for-coding 娌℃湁鍥哄畾 token 鍗曚环");
 
         Ok(())
     }
