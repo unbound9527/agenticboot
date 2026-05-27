@@ -537,7 +537,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: AgenticBoot ${{ github.ref_name }}
-          prerelease: true
+          prerelease: false
           body: |
             ## AgenticBoot ${{ github.ref_name }}
 
