@@ -1,6 +1,6 @@
 {
   "name": "agenticboot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI Developer Tool Manager — one-click install/uninstall for AI coding CLI tools and IDEs",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
