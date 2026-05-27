@@ -131,6 +131,33 @@ function buildDetectResults(installedIds: string[]) {
   }));
 }
 
+function expectCheckedToolIds(expectedCheckedIds: string[]) {
+  const expected = new Set(expectedCheckedIds);
+
+  TOOL_IDS.forEach((id) => {
+    const card = screen.getByText(TOOL_NAMES[id]).closest("[class*='rounded-lg']");
+    expect(card).not.toBeNull();
+
+    const checkbox = within(card as HTMLElement).queryByRole("checkbox");
+    if (!checkbox) {
+      return;
+    }
+
+    expect(checkbox).toHaveAttribute(
+      "data-state",
+      expected.has(id) ? "checked" : "unchecked",
+    );
+  });
+}
+
+function getCheckboxForTool(id: (typeof TOOL_IDS)[number]) {
+  const card = screen.getByText(TOOL_NAMES[id]).closest("[class*='rounded-lg']");
+  expect(card).not.toBeNull();
+  const checkbox = within(card as HTMLElement).queryByRole("checkbox");
+  expect(checkbox).not.toBeNull();
+  return checkbox as HTMLElement;
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -193,6 +220,11 @@ describe("Wizard install detection", () => {
       "placeholder",
       "D:\\AgenticTools",
     );
+
+    expectCheckedToolIds([
+      "claude-code-desktop",
+      "codex-desktop",
+    ]);
   });
 
   it("waits for the saved install root before starting initial detection", async () => {
@@ -336,11 +368,10 @@ describe("Wizard install detection", () => {
         await Promise.resolve();
       });
 
-      let checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(9);
-      checkboxes.forEach((checkbox) => {
-        expect(checkbox).toHaveAttribute("data-state", "checked");
-      });
+      expectCheckedToolIds([
+        "claude-code-desktop",
+        "codex-desktop",
+      ]);
 
       await act(async () => {
         defaultDetect.resolve(buildDetectResults(["claude-code-cli"]));
@@ -348,11 +379,10 @@ describe("Wizard install detection", () => {
         await Promise.resolve();
       });
 
-      checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(9);
-      checkboxes.forEach((checkbox) => {
-        expect(checkbox).toHaveAttribute("data-state", "checked");
-      });
+      expectCheckedToolIds([
+        "claude-code-desktop",
+        "codex-desktop",
+      ]);
       expect(screen.getByDisplayValue(savedRoot)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -417,8 +447,6 @@ describe("Wizard install detection", () => {
         await Promise.resolve();
       });
 
-      let checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(9);
       const refreshButton = screen.getByRole("button", { name: "重新检测" });
       expect(refreshButton).toBeDisabled();
 
@@ -438,11 +466,10 @@ describe("Wizard install detection", () => {
         await Promise.resolve();
       });
 
-      checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(9);
-      checkboxes.forEach((checkbox) => {
-        expect(checkbox).toHaveAttribute("data-state", "checked");
-      });
+      expectCheckedToolIds([
+        "claude-code-desktop",
+        "codex-desktop",
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -541,10 +568,10 @@ describe("Wizard install detection", () => {
     await waitFor(() => {
       expect(screen.getAllByRole("checkbox")).toHaveLength(8);
     });
-    fireEvent.click(screen.getByText("Codex (CLI)"));
+    fireEvent.click(screen.getByText(TOOL_NAMES["codex-desktop"]));
 
     await waitFor(() => {
-      const codexCheckbox = screen.getAllByRole("checkbox")[1];
+      const codexCheckbox = getCheckboxForTool("codex-desktop");
       expect(codexCheckbox).toHaveAttribute("data-state", "unchecked");
     });
 
@@ -561,11 +588,10 @@ describe("Wizard install detection", () => {
     });
 
     await waitFor(() => {
-      const checkboxes = screen.getAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(9);
-      checkboxes.forEach((checkbox) => {
-        expect(checkbox).toHaveAttribute("data-state", "checked");
-      });
+      expectCheckedToolIds([
+        "claude-code-desktop",
+        "codex-desktop",
+      ]);
     });
   });
 
@@ -596,10 +622,11 @@ describe("Wizard install detection", () => {
       );
     });
 
-    const toggleAllButton = await screen.findByRole("button", {
-      name: "全部取消",
+    const selectAllButton = await screen.findByRole("button", {
+      name: "全部勾选",
     });
-    fireEvent.click(toggleAllButton);
+    fireEvent.click(selectAllButton);
+    fireEvent.click(await screen.findByRole("button", { name: "全部取消" }));
     fireEvent.click(await screen.findByRole("button", { name: "全部勾选" }));
 
     await waitFor(() => {

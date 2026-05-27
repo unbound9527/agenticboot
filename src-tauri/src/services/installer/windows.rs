@@ -1,6 +1,8 @@
 use crate::services::command_util::hide_console;
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::tool_types::InstallLogLevel;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -8,6 +10,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const DETECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(6);
+static VERSION_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\bv?\d+\.\d+\.\d+(?:\.\d+)*\b").expect("valid version regex"));
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCommandOutput {
@@ -312,12 +316,7 @@ fn parse_nvm_version(name: &str) -> Vec<u32> {
 }
 
 fn extract_version_output(output: &str) -> Option<String> {
-    output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
-        .map(ToOwned::to_owned)
+    preferred_output_line(output.lines())
 }
 
 pub fn run_with_node_env(program: &Path, args: &[&str]) -> Option<std::process::Output> {
@@ -1588,12 +1587,28 @@ fn cli_shim_candidates(command_name: &str, version_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn first_non_empty_output_line(output: &Output) -> Option<String> {
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .chain(String::from_utf8_lossy(&output.stderr).lines())
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+    preferred_output_line(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .chain(String::from_utf8_lossy(&output.stderr).lines()),
+    )
+}
+
+fn preferred_output_line<'a>(lines: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut first_non_empty = None;
+    let mut last_version_like = None;
+
+    for line in lines.into_iter().map(str::trim).filter(|line| !line.is_empty()) {
+        if first_non_empty.is_none() {
+            first_non_empty = Some(line.to_string());
+        }
+
+        if VERSION_TOKEN_RE.is_match(line) {
+            last_version_like = Some(line.to_string());
+        }
+    }
+
+    last_version_like.or(first_non_empty)
 }
 
 pub fn run_detection_command_output(
@@ -1649,7 +1664,7 @@ fn run_detection_command_output_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::{
-        detect_windows_cli_version_with_shell, find_command_in_directory,
+        detect_windows_cli_version_with_shell, extract_version_output, find_command_in_directory,
         find_local_uninstaller_executable, find_node_on_system, list_nvm_version_directories,
         read_command_version, read_nvm_root_from_settings, resolve_managed_npm_command,
         resolve_npm_command_for_uninstall, resolve_npm_command_from_node_dir, run_command_checked,
@@ -1852,18 +1867,27 @@ mod tests {
     }
 
     #[test]
-    fn read_command_version_trims_first_non_empty_output_line() {
+    fn read_command_version_prefers_semver_line_over_noise() {
         let tmp = tempfile::tempdir().unwrap();
         let script = tmp.path().join("version.cmd");
         std::fs::write(
             &script,
-            "@echo off\r\n\recho.\r\necho opencode 1.2.3\r\necho trailing\r\n",
+            "@echo off\r\necho i18next is made possible by our own product, Locize\r\necho Hermes Agent v0.12.0 (2026.4.30)\r\necho trailing\r\n",
         )
         .unwrap();
 
         let version_output = read_command_version(&script, &[]);
         let version = version_output.as_deref().map(str::trim);
-        assert_eq!(version, Some("opencode 1.2.3"));
+        assert_eq!(version, Some("Hermes Agent v0.12.0 (2026.4.30)"));
+    }
+
+    #[test]
+    fn extract_version_output_prefers_version_line_over_trailing_marketing_text() {
+        let output = "Hermes Agent v0.12.0 (2026.4.30)\r\ni18next is made possible by our own product, Locize\r\n";
+
+        let version = extract_version_output(output);
+
+        assert_eq!(version.as_deref(), Some("Hermes Agent v0.12.0 (2026.4.30)"));
     }
 
     #[test]

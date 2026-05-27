@@ -183,7 +183,7 @@ export function ProviderCard({
     provider.meta?.providerType === PROVIDER_TYPES.GITHUB_COPILOT ||
     provider.meta?.usage_script?.templateType === "github_copilot";
   // Hermes v12+ overlay entries live under the `providers:` dict and are
-  // read-only here — writes have to go through Hermes Web UI.
+  // read-only here — writes have to go through Hermes Desktop.
   const isHermesReadOnly =
     appId === "hermes" && isHermesReadOnlyProvider(provider.settingsConfig);
   const isCodexOauth =
@@ -321,7 +321,7 @@ export function ProviderCard({
             <span
               className="inline-flex items-center bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium rounded"
               title={t("provider.managedByHermesHint", {
-                defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
+                defaultValue: "由 Hermes 管理，请在 Hermes Desktop 中编辑",
               })}
             >
               {t("provider.managedByHermes", {

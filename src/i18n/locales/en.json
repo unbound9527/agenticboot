@@ -142,7 +142,7 @@
     "configureUsage": "Configure usage query",
     "officialPartner": "Official Partner",
     "managedByHermes": "Hermes Managed",
-    "managedByHermesHint": "Defined in Hermes' providers: dict. Edit or remove it via Hermes Web UI.",
+    "managedByHermesHint": "Defined in Hermes' providers: dict. Edit or remove it via Hermes Desktop.",
     "openTerminal": "Open Terminal",
     "terminalOpened": "Terminal opened",
     "terminalOpenFailed": "Failed to open terminal",
@@ -1709,15 +1709,10 @@
       "rateLimitDelay": "Rate limit delay (seconds)",
       "rateLimitDelayHint": "Minimum delay in seconds between consecutive requests (optional). Leave empty for no limit."
     },
-    "webui": {
-      "open": "Open Hermes Web UI",
-      "offline": "Hermes Web UI is not running. Start it with `hermes dashboard` first.",
-      "openFailed": "Failed to open Hermes Web UI",
-      "launchConfirmTitle": "Hermes Dashboard is not running",
-      "launchConfirmMessage": "Open a terminal and start it now with `hermes dashboard`?\n\nThe browser will open automatically once startup completes.\n\nIf the terminal reports that `hermes` cannot be found or the web extras are missing, run first:\npip install hermes-agent[web]",
-      "launchConfirmAction": "Open terminal & launch",
-      "launching": "Started `hermes dashboard` in a terminal.",
-      "launchFailed": "Failed to open terminal"
+    "desktop": {
+      "open": "Open Hermes Desktop",
+      "notFound": "Hermes Desktop not found. Please install it first.",
+      "openFailed": "Failed to open Hermes Desktop"
     },
     "memory": {
       "title": "Memory",
@@ -1732,7 +1727,7 @@
       "saveSuccess": "Memory saved",
       "saveFailed": "Failed to save memory",
       "loadFailed": "Failed to read memory file",
-      "openConfig": "Adjust limits in Hermes Web UI",
+      "openConfig": "Open Hermes Desktop",
       "runtimeNote": "Changes apply on Hermes restart or new session."
     }
   },

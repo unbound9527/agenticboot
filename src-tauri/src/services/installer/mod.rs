@@ -561,7 +561,9 @@ impl InstallerService {
                     install_root: root_path.to_string_lossy().to_string(),
                     category,
                     status: "installed".to_string(),
+                    state_source: "managed".to_string(),
                     installed_at: Some(now),
+                    last_seen_at: Some(now),
                     updated_at: Some(now),
                 })
                 .map_err(|e| format!("保存安装记录失败: {e}"))?;
@@ -590,7 +592,9 @@ impl InstallerService {
                     install_root: root_path.to_string_lossy().to_string(),
                     category,
                     status: "error".to_string(),
+                    state_source: "managed".to_string(),
                     installed_at: None,
+                    last_seen_at: None,
                     updated_at: Some(now),
                 })
                 .ok();

@@ -8,12 +8,12 @@ import type {
 /**
  * Hermes Agent configuration API (CC Switch side).
  *
- * CC Switch intentionally keeps its Hermes surface minimal — deep configuration
+ * CC Switch keeps its Hermes surface minimal — deep configuration
  * (model, agent behavior, env vars, skills, cron, logs, analytics) lives in
- * the Hermes Web UI at http://127.0.0.1:9119. CC Switch only reads the `model`
- * section to highlight the active provider and launches the Hermes Web UI for
- * everything else. Writes to `model` happen implicitly via
- * `apply_switch_defaults` when the user switches providers.
+ * Hermes Desktop. CC Switch reads the `model` section to highlight the active
+ * provider and launches Hermes Desktop for everything else. Writes to `model`
+ * happen implicitly via `apply_switch_defaults` when the user switches
+ * providers.
  */
 export const hermesApi = {
   async getModelConfig(): Promise<HermesModelConfig | null> {
@@ -21,16 +21,12 @@ export const hermesApi = {
   },
 
   /**
-   * Probe the local Hermes Web UI and open it in the system browser.
-   * Optional `path` lets callers deep-link to specific pages like `/config`.
+   * Find and launch the Hermes Desktop application.
+   * Optional `path` is kept for API compatibility but is unused by the
+   * desktop app (no URL deep-linking).
    */
-  async openWebUI(path?: string): Promise<void> {
-    await invoke("open_hermes_web_ui", { path: path ?? null });
-  },
-
-  /** Open the preferred terminal and run `hermes dashboard` (non-blocking). */
-  async launchDashboard(): Promise<void> {
-    await invoke("launch_hermes_dashboard");
+  async openDesktop(path?: string): Promise<void> {
+    await invoke("open_hermes_desktop", { path: path ?? null });
   },
 
   /**

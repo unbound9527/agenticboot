@@ -38,7 +38,7 @@ interface ProviderActionsProps {
   isInFailoverQueue?: boolean;
   onToggleFailover?: (enabled: boolean) => void;
   isOfficialBlockedByProxy?: boolean;
-  // Hermes v12+ providers: dict overlay — edit/delete must go through Web UI
+  // Hermes v12+ providers: dict overlay — edit/delete must go through Hermes Desktop
   isReadOnly?: boolean;
   // OpenClaw: default model
   isDefaultModel?: boolean;
@@ -211,7 +211,7 @@ export function ProviderActions({
   const canDelete =
     !isReadOnly && (isOmo || isAdditiveMode ? true : !isCurrent);
   const readOnlyHint = t("provider.managedByHermesHint", {
-    defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
+    defaultValue: "由 Hermes 管理，请在 Hermes Desktop 中编辑",
   });
 
   return (

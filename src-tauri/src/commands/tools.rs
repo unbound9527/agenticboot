@@ -18,6 +18,10 @@ fn should_use_db_fallback(install_root: Option<&str>) -> bool {
 }
 
 fn cache_matches_install_root(record: &InstalledToolRecord, install_root: Option<&str>) -> bool {
+    if record.state_source == "external_detected" {
+        return true;
+    }
+
     match install_root {
         Some(root) => record.install_root == root,
         None => true,
@@ -28,6 +32,9 @@ fn can_reuse_detect_cache(record: &InstalledToolRecord, install_root: Option<&st
     match record.status.as_str() {
         "installed" | "not_installed" => true,
         "detected" => {
+            if record.state_source == "external_detected" {
+                return false;
+            }
             let Some(root) = install_root else {
                 return false;
             };
@@ -68,6 +75,26 @@ fn cache_status_for_detect_result(
     }
 }
 
+fn cache_state_source_for_detect_result(
+    previous: Option<&InstalledToolRecord>,
+    install_root: Option<&str>,
+    result: &DetectResult,
+) -> &'static str {
+    if previous.is_some_and(|record| record.status == "installed") {
+        return "managed";
+    }
+
+    let install_path = result.install_path.as_deref().unwrap_or_default();
+    if let Some(root) = install_root {
+        if !install_path.is_empty() && is_install_owned_by_root(Path::new(root), Path::new(install_path))
+        {
+            return "managed";
+        }
+    }
+
+    "external_detected"
+}
+
 fn persist_detect_result_cache(
     db: &Arc<Database>,
     tool_id: &str,
@@ -76,20 +103,15 @@ fn persist_detect_result_cache(
     result: &DetectResult,
 ) {
     let next_status = cache_status_for_detect_result(previous, result);
+    let now = chrono::Utc::now().timestamp();
     let plugin_meta = crate::plugin::get_plugin_by_id(tool_id).map(|plugin| plugin.metadata());
-    if next_status == "detected" {
-        let Some(root) = install_root else {
-            return;
-        };
-        let Some(path) = result.install_path.as_deref() else {
-            let _ = db.delete_installed_tool(tool_id);
-            return;
-        };
-        if !is_install_owned_by_root(Path::new(root), Path::new(path)) {
-            let _ = db.delete_installed_tool(tool_id);
-            return;
-        }
-    }
+    let state_source = if next_status == "not_installed" {
+        previous
+            .map(|record| record.state_source.as_str())
+            .unwrap_or("managed")
+    } else {
+        cache_state_source_for_detect_result(previous, install_root, result)
+    };
 
     let record = InstalledToolRecord {
         id: tool_id.to_string(),
@@ -108,8 +130,10 @@ fn persist_detect_result_cache(
             .or_else(|| plugin_meta.as_ref().map(|meta| meta.category.clone()))
             .unwrap_or_else(|| "tool".to_string()),
         status: next_status.to_string(),
+        state_source: state_source.to_string(),
         installed_at: previous.and_then(|record| record.installed_at),
-        updated_at: Some(chrono::Utc::now().timestamp()),
+        last_seen_at: result.installed.then_some(now),
+        updated_at: Some(now),
     };
 
     if let Err(error) = db.upsert_installed_tool(&record) {
@@ -257,6 +281,7 @@ pub fn get_installed_tools(
 
     Ok(records
         .into_iter()
+        .filter(|r| matches!(r.status.as_str(), "installed" | "detected"))
         .map(|r| InstalledTool {
             id: r.id,
             name: r.name,
@@ -265,7 +290,9 @@ pub fn get_installed_tools(
             install_root: r.install_root,
             category: r.category,
             status: r.status,
+            state_source: r.state_source,
             installed_at: r.installed_at,
+            last_seen_at: r.last_seen_at,
             updated_at: r.updated_at,
         })
         .collect())
@@ -413,8 +440,12 @@ pub async fn check_tool_updates(
 
 #[cfg(test)]
 mod tests {
-    use super::{can_reuse_detect_cache, detect_tools_sync, should_use_db_fallback};
+    use super::{
+        can_reuse_detect_cache, detect_tools_sync, persist_detect_result_cache,
+        should_use_db_fallback,
+    };
     use crate::database::{Database, InstalledToolRecord};
+    use crate::tool_types::DetectResult;
     use std::sync::Arc;
 
     #[test]
@@ -438,7 +469,9 @@ mod tests {
             install_root: "D:\\Tools".into(),
             category: "tool".into(),
             status: "installed".into(),
+            state_source: "managed".into(),
             installed_at: Some(1),
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed installed tool");
@@ -466,7 +499,9 @@ mod tests {
             install_root: "D:\\Tools".into(),
             category: "tool".into(),
             status: "detected".into(),
+            state_source: "external_detected".into(),
             installed_at: None,
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed detected tool");
@@ -496,7 +531,9 @@ mod tests {
             install_root: "D:\\AgenticTools".into(),
             category: "tool".into(),
             status: "detected".into(),
+            state_source: "managed".into(),
             installed_at: None,
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed detected cache");
@@ -534,7 +571,9 @@ mod tests {
             install_root: "D:\\AgenticTools".into(),
             category: "tool".into(),
             status: "detected".into(),
+            state_source: "external_detected".into(),
             installed_at: None,
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed detected cache");
@@ -551,5 +590,30 @@ mod tests {
         assert!(!results[0].installed);
         assert_eq!(results[0].version, None);
         assert_eq!(results[0].install_path, None);
+    }
+
+    #[test]
+    fn persist_detect_result_cache_keeps_external_detected_record_for_unmanaged_path() {
+        let db = Arc::new(Database::memory().expect("create db"));
+        let result = DetectResult {
+            installed: true,
+            version: Some("1.2.3".into()),
+            install_path: Some("C:\\Users\\me\\AppData\\Roaming\\npm".into()),
+        };
+
+        persist_detect_result_cache(
+            &db,
+            "codex-cli",
+            Some("D:\\AgenticTools"),
+            None,
+            &result,
+        );
+
+        let cached = db
+            .get_installed_tool("codex-cli")
+            .expect("load cached tool")
+            .expect("cached tool exists");
+        assert_eq!(cached.status, "detected");
+        assert_eq!(cached.install_path, "C:\\Users\\me\\AppData\\Roaming\\npm");
     }
 }

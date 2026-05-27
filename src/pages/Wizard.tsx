@@ -22,6 +22,11 @@ import type { DetectResult, InstallPlan, ToolCatalogItem } from "@/types/tools";
 
 const DEFAULT_ROOT = "D:\\AgenticTools";
 const INSTALL_ROOT_BOOTSTRAP_TIMEOUT_MS = 500;
+const DEFAULT_SELECTED_TOOL_IDS = [
+  "claude-code-desktop",
+  "codex-desktop",
+] as const;
+const DEFAULT_SELECTED_TOOL_ID_SET = new Set<string>(DEFAULT_SELECTED_TOOL_IDS);
 
 interface WizardProps {
   onComplete: () => void;
@@ -43,7 +48,7 @@ function buildSelectionFromDetection(
   const selected =
     requestedToolIds && requestedToolIds.length > 0
       ? available.filter((id) => new Set(requestedToolIds).has(id))
-      : available;
+      : available.filter((id) => DEFAULT_SELECTED_TOOL_ID_SET.has(id));
 
   return {
     detected,

@@ -18,7 +18,9 @@ pub struct InstalledToolRecord {
     pub install_root: String,
     pub category: String,
     pub status: String,
+    pub state_source: String,
     pub installed_at: Option<i64>,
+    pub last_seen_at: Option<i64>,
     pub updated_at: Option<i64>,
 }
 
@@ -28,7 +30,7 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, version, install_path, install_root, category, status, installed_at, updated_at
+                "SELECT id, name, version, install_path, install_root, category, status, state_source, installed_at, last_seen_at, updated_at
                  FROM installed_tools ORDER BY category, name",
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -43,8 +45,10 @@ impl Database {
                     install_root: row.get(4)?,
                     category: row.get(5)?,
                     status: row.get(6)?,
-                    installed_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    state_source: row.get(7)?,
+                    installed_at: row.get(8)?,
+                    last_seen_at: row.get(9)?,
+                    updated_at: row.get(10)?,
                 })
             })
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -61,7 +65,7 @@ impl Database {
         let conn = lock_conn!(self.conn);
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, version, install_path, install_root, category, status, installed_at, updated_at
+                "SELECT id, name, version, install_path, install_root, category, status, state_source, installed_at, last_seen_at, updated_at
                  FROM installed_tools WHERE id = ?1",
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -79,8 +83,10 @@ impl Database {
                 install_root: row.get(4)?,
                 category: row.get(5)?,
                 status: row.get(6)?,
-                installed_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                state_source: row.get(7)?,
+                installed_at: row.get(8)?,
+                last_seen_at: row.get(9)?,
+                updated_at: row.get(10)?,
             }))
         } else {
             Ok(None)
@@ -92,8 +98,8 @@ impl Database {
         let conn = lock_conn!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO installed_tools
-             (id, name, version, install_path, install_root, category, status, installed_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, name, version, install_path, install_root, category, status, state_source, installed_at, last_seen_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 record.id,
                 record.name,
@@ -102,7 +108,9 @@ impl Database {
                 record.install_root,
                 record.category,
                 record.status,
+                record.state_source,
                 record.installed_at,
+                record.last_seen_at,
                 record.updated_at,
             ],
         )
@@ -172,7 +180,9 @@ mod tests {
             install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "error".into(),
+            state_source: "managed".into(),
             installed_at: None,
+            last_seen_at: None,
             updated_at: Some(1),
         })
         .expect("seed error record");
@@ -191,7 +201,9 @@ mod tests {
             install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "installed".into(),
+            state_source: "managed".into(),
             installed_at: Some(1),
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed installed record");
@@ -210,7 +222,9 @@ mod tests {
             install_root: "D:\\AgenticTools".into(),
             category: "ai-cli".into(),
             status: "detected".into(),
+            state_source: "external_detected".into(),
             installed_at: None,
+            last_seen_at: Some(1),
             updated_at: Some(1),
         })
         .expect("seed detected record");

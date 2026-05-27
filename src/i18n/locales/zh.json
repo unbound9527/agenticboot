@@ -142,7 +142,7 @@
     "configureUsage": "配置用量查询",
     "officialPartner": "官方合作伙伴",
     "managedByHermes": "Hermes 托管",
-    "managedByHermesHint": "该条目定义在 Hermes 的 providers: dict，请在 Hermes Web UI 中编辑或删除。",
+    "managedByHermesHint": "该条目定义在 Hermes 的 providers: dict，请在 Hermes Desktop 中编辑或删除。",
     "openTerminal": "打开终端",
     "terminalOpened": "终端已打开",
     "terminalOpenFailed": "打开终端失败",
@@ -1709,15 +1709,10 @@
       "rateLimitDelay": "请求间隔（秒）",
       "rateLimitDelayHint": "连续请求间的最小间隔秒数（可选）。留空表示无限制。"
     },
-    "webui": {
-      "open": "打开 Hermes Web UI",
-      "offline": "Hermes Web UI 未启动，请先运行 `hermes dashboard` 启动服务。",
-      "openFailed": "打开 Hermes Web UI 失败",
-      "launchConfirmTitle": "Hermes Dashboard 未启动",
-      "launchConfirmMessage": "是否打开终端并运行 `hermes dashboard` 启动服务？\n\n启动完成后会自动打开浏览器。\n\n若终端提示找不到 hermes 或缺少 web 依赖，请先运行：\npip install hermes-agent[web]",
-      "launchConfirmAction": "打开终端并启动",
-      "launching": "已在终端启动 hermes dashboard",
-      "launchFailed": "打开终端失败"
+    "desktop": {
+      "open": "打开 Hermes Desktop",
+      "notFound": "未找到 Hermes Desktop，请先安装。",
+      "openFailed": "打开 Hermes Desktop 失败"
     },
     "memory": {
       "title": "记忆管理",
@@ -1732,7 +1727,7 @@
       "saveSuccess": "记忆已保存",
       "saveFailed": "保存记忆失败",
       "loadFailed": "读取记忆文件失败",
-      "openConfig": "在 Hermes Web UI 调整上限",
+      "openConfig": "打开 Hermes Desktop",
       "runtimeNote": "更改将在 Hermes 下次启动或新建会话时生效。"
     }
   },

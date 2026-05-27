@@ -132,7 +132,9 @@ export interface InstalledTool {
   installRoot: string;
   category: 'tool' | 'ai-cli' | 'ai-ide' | 'local-model' | 'dependency';
   status: 'not_installed' | 'installing' | 'installed' | 'detected' | 'error';
+  stateSource?: 'managed' | 'external_detected';
   installedAt?: number;
+  lastSeenAt?: number;
   updatedAt?: number;
 }
 

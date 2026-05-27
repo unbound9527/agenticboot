@@ -180,7 +180,9 @@ pub struct InstalledTool {
     pub install_root: String,
     pub category: String,
     pub status: String,
+    pub state_source: String,
     pub installed_at: Option<i64>,
+    pub last_seen_at: Option<i64>,
     pub updated_at: Option<i64>,
 }
 

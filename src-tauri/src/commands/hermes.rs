@@ -1,14 +1,12 @@
-use std::time::Duration;
-use tauri::{AppHandle, State};
-use tauri_plugin_opener::OpenerExt;
+use std::process::Command;
 
 use crate::hermes_config;
 use crate::store::AppState;
 
-/// Error string returned when `open_hermes_web_ui` cannot reach the Hermes
-/// FastAPI server. Kept in sync with the `HERMES_WEB_OFFLINE_ERROR` constant
+/// Error string returned when the Hermes Desktop executable cannot be found
+/// or launched. Kept in sync with the `HERMES_DESKTOP_NOT_FOUND_ERROR` constant
 /// in `src/hooks/useHermes.ts` so the frontend can branch on it.
-const HERMES_WEB_OFFLINE_ERROR: &str = "hermes_web_offline";
+const HERMES_DESKTOP_NOT_FOUND_ERROR: &str = "hermes_desktop_not_found";
 
 // ============================================================================
 // Hermes Provider Commands
@@ -19,7 +17,7 @@ const HERMES_WEB_OFFLINE_ERROR: &str = "hermes_web_offline";
 /// Hermes uses additive mode — users may already have providers
 /// configured in config.yaml.
 #[tauri::command]
-pub fn import_hermes_providers_from_live(state: State<'_, AppState>) -> Result<usize, String> {
+pub fn import_hermes_providers_from_live(state: tauri::State<'_, AppState>) -> Result<usize, String> {
     crate::services::provider::import_hermes_providers_from_live(state.inner())
         .map_err(|e| e.to_string())
 }
@@ -79,65 +77,98 @@ pub fn set_hermes_memory_enabled(
 }
 
 // ============================================================================
-// Hermes Web UI launcher
+// Hermes Desktop launcher
 // ============================================================================
 
-/// Probe the local Hermes Web UI (FastAPI) and open it in the system browser.
+/// Find the Hermes Desktop executable and launch it.
 ///
-/// Port discovery priority:
-///   1. `HERMES_WEB_PORT` environment variable
-///   2. Default 9119
+/// Search order:
+///   1. `HERMES_DESKTOP_PATH` environment variable
+///   2. Standard OS-specific install locations
 ///
-/// Hermes wraps all `/api/*` routes in a Bearer-token middleware, so a GET
-/// against `/api/status` returning **either 200 or 401** confirms the server
-/// is live. The session token lives only in the Hermes process memory and is
-/// injected into the returned HTML via `window.__HERMES_SESSION_TOKEN__`, so
-/// there is no need (and no way) for CC Switch to inject it — we just open
-/// the URL and let Hermes handle auth.
+/// On Windows the app is launched detached so CC Switch stays responsive.
 #[tauri::command]
-pub async fn open_hermes_web_ui(app: AppHandle, path: Option<String>) -> Result<(), String> {
-    let port = std::env::var("HERMES_WEB_PORT")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u16>().ok())
-        .unwrap_or(9119);
-
-    let base = format!("http://127.0.0.1:{port}");
-
-    // Probe /api/status with a short timeout. Hermes returns 200 when open or
-    // 401 when the session token is required — either way the server is live.
-    // Only a connection error / timeout means the server isn't running.
-    let probe_url = format!("{base}/api/status");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(1200))
-        .no_proxy()
-        .build()
-        .map_err(|e| format!("failed to build probe client: {e}"))?;
-
-    match client.get(&probe_url).send().await {
-        Ok(_) => {}
-        Err(_) => return Err(HERMES_WEB_OFFLINE_ERROR.to_string()),
+pub async fn open_hermes_desktop(
+    _path: Option<String>,
+) -> Result<(), String> {
+    // 1) Environment variable override.
+    if let Ok(custom_path) = std::env::var("HERMES_DESKTOP_PATH") {
+        let exe = std::path::PathBuf::from(&custom_path);
+        if exe.exists() {
+            return launch_hermes_desktop_executable(&exe);
+        }
+        return Err(format!(
+            "HERMES_DESKTOP_PATH is set but the file does not exist: {custom_path}"
+        ));
     }
 
-    let target = match path.as_deref() {
-        Some(p) if p.starts_with('/') => format!("{base}{p}"),
-        Some(p) if !p.is_empty() => format!("{base}/{p}"),
-        _ => format!("{base}/"),
-    };
+    // 2) Standard OS-specific locations.
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(exe) = find_hermes_desktop_system_wide() {
+            return launch_hermes_desktop_executable(&exe);
+        }
+    }
 
-    app.opener()
-        .open_url(&target, None::<String>)
-        .map_err(|e| format!("failed to open Hermes Web UI: {e}"))
+    #[cfg(target_os = "macos")]
+    {
+        let app_path = std::path::PathBuf::from("/Applications/Hermes Desktop.app");
+        if app_path.exists() {
+            return launch_hermes_desktop_executable(&app_path);
+        }
+    }
+
+    Err(HERMES_DESKTOP_NOT_FOUND_ERROR.to_string())
 }
 
-/// Open the preferred terminal and run `hermes dashboard`. Non-blocking —
-/// callers should reinvoke `open_hermes_web_ui` once the server is ready,
-/// since Hermes startup can take several seconds and may fail outright if
-/// the `hermes-agent[web]` extras are missing.
-#[tauri::command]
-pub async fn launch_hermes_dashboard() -> Result<(), String> {
-    tokio::task::spawn_blocking(|| {
-        crate::commands::misc::launch_terminal_running("hermes dashboard", "hermes_dashboard")
-    })
-    .await
-    .map_err(|e| format!("launch task join error: {e}"))?
+/// Try to find the Hermes Desktop executable in standard system locations.
+#[cfg(target_os = "windows")]
+fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
+    let mut bases = Vec::new();
+
+    if let Some(local_app_data) = dirs::data_local_dir() {
+        bases.push(local_app_data.join("Programs").join("hermes-desktop"));
+        bases.push(local_app_data.join("hermes-desktop"));
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let pf: std::path::PathBuf = program_files.clone().into();
+        bases.push(pf.join("Hermes Desktop"));
+        bases.push(pf.join("hermes-desktop"));
+    }
+
+    for base in &bases {
+        if let Some(exe) = find_hermes_desktop_exe_in_dir(base) {
+            return Some(exe);
+        }
+    }
+    None
+}
+
+/// Check a directory for the Hermes Desktop executable.
+fn find_hermes_desktop_exe_in_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    for name in &["Hermes Desktop.exe", "hermes-desktop.exe"] {
+        let exe = dir.join(name);
+        if exe.exists() {
+            return Some(exe);
+        }
+    }
+    None
+}
+
+/// Launch the Hermes Desktop executable detached from CC Switch.
+#[cfg(target_os = "windows")]
+fn launch_hermes_desktop_executable(exe: &std::path::Path) -> Result<(), String> {
+    let mut cmd = Command::new(exe);
+    crate::services::command_util::hide_console(&mut cmd);
+    cmd.spawn()
+        .map_err(|e| format!("failed to launch Hermes Desktop: {e}"))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn launch_hermes_desktop_executable(exe: &std::path::Path) -> Result<(), String> {
+    Command::new(exe)
+        .spawn()
+        .map_err(|e| format!("failed to launch Hermes Desktop: {e}"))?;
+    Ok(())
 }

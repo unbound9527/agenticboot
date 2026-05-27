@@ -22,27 +22,11 @@ import {
   useUninstallTool,
 } from "@/hooks/useTools";
 import { toolsApi } from "@/lib/api/tools";
-import type { DetectResult, InstalledTool, ToolCatalogItem } from "@/types/tools";
+import type { InstalledTool, ToolCatalogItem } from "@/types/tools";
 
 interface ManagerProps {
   onInstallMore?: () => void;
   onToolStateChanged?: () => void;
-}
-
-function toExternalInstalledTool(
-  meta: ToolCatalogItem,
-  detect: DetectResult,
-  fallbackRoot: string,
-): InstalledTool {
-  return {
-    id: meta.id,
-    name: meta.name,
-    version: detect.version,
-    installPath: detect.installPath ?? "",
-    installRoot: detect.installPath ?? fallbackRoot,
-    category: meta.category,
-    status: "detected",
-  };
 }
 
 function canAutoUninstallTool(
@@ -69,6 +53,10 @@ function canAutoUninstallTool(
   }
 
   return false;
+}
+
+function isInstalledToolVisible(tool: InstalledTool) {
+  return tool.status === "installed" || tool.status === "detected";
 }
 
 function buildPendingInstallProgress(tool: ToolCatalogItem) {
@@ -126,9 +114,6 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const [openConsoleToolId, setOpenConsoleToolId] = useState<
     string | null
   >(null);
-  const [detectedTools, setDetectedTools] = useState<
-    Record<string, DetectResult>
-  >({});
   const [isDetecting, setIsDetecting] = useState(false);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [uninstallingToolIds, setUninstallingToolIds] = useState<Set<string>>(
@@ -169,9 +154,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     appendOptimisticEntry,
     markSessionError,
   } = useInstallSessions();
-  const managedInstalledTools = installedTools.filter(
-    (tool) => tool.status === "installed",
-  );
+  const visibleInstalledTools = installedTools.filter(isInstalledToolVisible);
   const allToolMetaById = useMemo(
     () => new Map(visibleTools.map((tool) => [tool.id, tool])),
     [visibleTools],
@@ -198,30 +181,20 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     (forceRefresh = false) => {
       const ids = visibleTools.map((tool) => tool.id);
       if (ids.length === 0) {
-        setDetectedTools({});
         setIsDetecting(false);
         return Promise.resolve();
       }
       setIsDetecting(true);
-      const detectPromise = toolsApi.detectTools(
-        ids,
-        effectiveInstallRoot || undefined,
-        forceRefresh,
-      );
-
-      return detectPromise
-        .then((results) => {
-          const next: Record<string, DetectResult> = {};
-          results.forEach((result, index) => {
-            next[ids[index]] = result;
-          });
-          setDetectedTools(next);
+      return toolsApi
+        .detectTools(ids, effectiveInstallRoot || undefined, forceRefresh)
+        .then(async () => {
+          await queryClient.invalidateQueries({ queryKey: ["installed-tools"] });
         })
         .finally(() => {
           setIsDetecting(false);
         });
     },
-    [effectiveInstallRoot, visibleTools],
+    [effectiveInstallRoot, queryClient, visibleTools],
   );
 
   useEffect(() => {
@@ -229,7 +202,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
     const timer = setTimeout(() => {
       refreshDetectedTools().catch(() => {
         if (!cancelled) {
-          setDetectedTools({});
+          void queryClient.invalidateQueries({ queryKey: ["installed-tools"] });
         }
       });
     }, 300);
@@ -238,29 +211,9 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [refreshDetectedTools]);
+  }, [queryClient, refreshDetectedTools]);
 
-  const managedInstalledIds = new Set(
-    managedInstalledTools.map((tool) => tool.id),
-  );
-  const detectedInstalledIds = new Set(
-    Object.entries(detectedTools)
-      .filter(([, result]) => result.installed)
-      .map(([toolId]) => toolId),
-  );
-  const installedIds = new Set([
-    ...managedInstalledIds,
-    ...detectedInstalledIds,
-  ]);
-
-  const mergedInstalledTools: InstalledTool[] = [
-    ...managedInstalledTools,
-    ...visibleTools.filter((meta) => !managedInstalledIds.has(meta.id))
-      .filter((meta) => detectedTools[meta.id]?.installed)
-      .map((meta) =>
-        toExternalInstalledTool(meta, detectedTools[meta.id], effectiveInstallRoot),
-      ),
-  ];
+  const installedIds = new Set(visibleInstalledTools.map((tool) => tool.id));
 
   const notInstalled = visibleTools.filter(
     (meta) => !installedIds.has(meta.id),
@@ -516,7 +469,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-4 w-full">
           <TabsTrigger value="installed" className="flex-1 text-[13px]">
-            {t("tools.installedTab", "已安装")} ({mergedInstalledTools.length})
+            {t("tools.installedTab", "已安装")} ({visibleInstalledTools.length})
           </TabsTrigger>
           <TabsTrigger value="available" className="flex-1 text-[13px]">
             {t("tools.availableTab", "未安装")} ({notInstalled.length})
@@ -524,7 +477,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
         </TabsList>
 
         <TabsContent value="installed" className="space-y-2">
-          {mergedInstalledTools.length === 0 && (
+          {visibleInstalledTools.length === 0 && (
             <div className="py-10 text-center text-muted-foreground">
               <p className="text-[14px]">
                 {t("tools.noToolsInstalled", "暂无已安装工具")}
@@ -538,7 +491,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
               </Button>
             </div>
           )}
-          {mergedInstalledTools.map((tool) => {
+          {visibleInstalledTools.map((tool) => {
             const meta = allToolMetaById.get(tool.id);
             const canUninstall = canAutoUninstallTool(tool, meta);
             const canLaunch =
@@ -578,7 +531,14 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 }
                 onUninstall={
                   canUninstall
-                    ? () => handleUninstall(tool.id, tool.installRoot)
+                    ? () =>
+                        handleUninstall(
+                          tool.id,
+                          tool.stateSource === "external_detected" &&
+                            tool.installPath.trim()
+                            ? tool.installPath
+                            : tool.installRoot,
+                        )
                     : undefined
                 }
                 onUpdate={

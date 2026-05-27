@@ -116,7 +116,7 @@ function AppButton({
       size="sm"
       variant={active ? "default" : "ghost"}
       className={cn(
-        "w-[90px] gap-1.5",
+        "min-w-[90px] gap-1.5",
         active
           ? "shadow-sm"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",

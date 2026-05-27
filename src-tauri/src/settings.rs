@@ -27,7 +27,7 @@ fn default_true() -> bool {
 pub struct VisibleApps {
     #[serde(default = "default_true")]
     pub claude: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true", rename = "claude-desktop")]
     pub claude_desktop: bool,
     #[serde(default = "default_true")]
     pub codex: bool,

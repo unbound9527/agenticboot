@@ -123,7 +123,9 @@ impl Database {
             install_root TEXT NOT NULL,
             category TEXT NOT NULL DEFAULT 'tool',
             status TEXT NOT NULL DEFAULT 'not_installed',
+            state_source TEXT NOT NULL DEFAULT 'managed',
             installed_at INTEGER,
+            last_seen_at INTEGER,
             updated_at INTEGER
         )",
             [],
@@ -357,6 +359,13 @@ impl Database {
             "in_failover_queue",
             "BOOLEAN NOT NULL DEFAULT 0",
         )?;
+        Self::add_column_if_missing(
+            conn,
+            "installed_tools",
+            "state_source",
+            "TEXT NOT NULL DEFAULT 'managed'",
+        )?;
+        Self::add_column_if_missing(conn, "installed_tools", "last_seen_at", "INTEGER")?;
 
         // 删除旧的 failover_queue 表（如果存在）
         let _ = conn.execute("DROP INDEX IF EXISTS idx_failover_queue_order", []);
@@ -459,7 +468,9 @@ impl Database {
                             install_root TEXT NOT NULL,
                             category TEXT NOT NULL DEFAULT 'tool',
                             status TEXT NOT NULL DEFAULT 'not_installed',
+                            state_source TEXT NOT NULL DEFAULT 'managed',
                             installed_at INTEGER,
+                            last_seen_at INTEGER,
                             updated_at INTEGER
                         )",
                             [],

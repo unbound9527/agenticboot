@@ -473,7 +473,7 @@ fn denormalize_provider_models_for_read(config: &mut serde_json::Value) {
 
 /// Marker field injected on provider payloads sourced from Hermes v12+
 /// `providers:` dict. CC Switch treats those as read-only — writes have to
-/// go through Hermes' own Web UI to keep its overlay semantics intact.
+/// go through Hermes Desktop to keep its overlay semantics intact.
 pub const PROVIDER_SOURCE_FIELD: &str = "_cc_source";
 pub const PROVIDER_SOURCE_CUSTOM_LIST: &str = "custom_providers";
 pub const PROVIDER_SOURCE_DICT: &str = "providers_dict";
@@ -607,7 +607,7 @@ fn ensure_provider_writable(
 ) -> Result<(), AppError> {
     if is_dict_only_provider(config, name) {
         return Err(AppError::Config(format!(
-            "Provider '{name}' is managed by Hermes' 'providers:' dict — {verb} via Hermes Web UI"
+            "Provider '{name}' is managed by Hermes' 'providers:' dict — {verb} via Hermes Desktop"
         )));
     }
     Ok(())
@@ -714,7 +714,7 @@ pub fn set_provider(
     {
         // Forward-compat: carry over any on-disk fields the UI payload didn't
         // include. Hermes keeps evolving (e.g. `request_timeout_seconds`,
-        // `key_env`), and users may set those via Hermes Web UI — without
+        // `key_env`), and users may set those via Hermes Desktop — without
         // this merge, a CC Switch edit to an unrelated field would silently
         // strip them on write-back.
         if let (Some(existing_map), serde_yaml::Value::Mapping(new_map)) =
@@ -882,7 +882,7 @@ pub(crate) fn json_to_yaml(json: &serde_json::Value) -> Result<serde_yaml::Value
 // Hermes Agent persists two memory blobs on disk:
 //   - `MEMORY.md` — agent's personal notes, snapshotted into the system prompt
 //   - `USER.md`   — user profile, same treatment
-// Entries are separated by a `§` on its own line. Hermes' own Web UI only
+// Entries are separated by a `§` on its own line. Hermes Desktop only
 // exposes on/off toggles and character budgets — it has no content editor.
 // CC Switch fills that gap by reading/writing the whole file as a markdown
 // blob. Character budgets (`memory_char_limit`, `user_char_limit`) and enable
@@ -1326,7 +1326,7 @@ model:
     fn set_provider_preserves_unknown_fields_on_update() {
         // Hermes keeps adding provider-level fields (e.g.
         // `request_timeout_seconds`, `key_env`). Users may set those via
-        // Hermes Web UI; a later CC Switch edit must not strip them — set_provider
+        // Hermes Desktop; a later CC Switch edit must not strip them — set_provider
         // carries over any existing on-disk fields that the UI payload didn't
         // submit.
         with_test_home(|| {
@@ -1854,7 +1854,7 @@ custom_providers:
     #[serial]
     fn set_memory_enabled_preserves_other_fields() {
         // Flipping one toggle must preserve character budgets and external
-        // provider settings the user configured via Hermes Web UI — otherwise
+        // provider settings the user configured via Hermes Desktop — otherwise
         // a CC Switch toggle would silently wipe those fields.
         with_test_home(|| {
             let yaml = "\

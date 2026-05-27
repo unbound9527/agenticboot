@@ -13,11 +13,11 @@ import type { HermesMemoryKind } from "@/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /**
- * Error code returned by the Rust `open_hermes_web_ui` command when probing
- * `/api/status` fails. Must match the string constant in
- * `src-tauri/src/commands/hermes.rs`.
+ * Error code returned by the Rust `open_hermes_desktop` command when the
+ * Hermes Desktop executable cannot be found. Must match the string constant
+ * in `src-tauri/src/commands/hermes.rs`.
  */
-export const HERMES_WEB_OFFLINE_ERROR = "hermes_web_offline";
+export const HERMES_DESKTOP_NOT_FOUND_ERROR = "hermes_desktop_not_found";
 
 /**
  * Centralized query keys for all Hermes-related queries.
@@ -143,32 +143,26 @@ export function useToggleHermesMemoryEnabled() {
 }
 
 /**
- * Returns a handler that probes the local Hermes Web UI, opens it in the
- * system browser, and surfaces a localized toast on failure. When
- * `onOffline` is provided, it replaces the default offline toast —
- * callers can use this to open a launch-dashboard confirm dialog instead.
+ * Returns a handler that finds and launches Hermes Desktop, surfacing a
+ * localized toast on failure.
  */
-export function useOpenHermesWebUI(onOffline?: () => void) {
+export function useOpenHermesDesktop() {
   const { t } = useTranslation();
   return useCallback(
     async (path?: string) => {
       try {
-        await hermesApi.openWebUI(path);
+        await hermesApi.openDesktop(path);
       } catch (error) {
         const detail = extractErrorMessage(error);
-        if (detail === HERMES_WEB_OFFLINE_ERROR) {
-          if (onOffline) {
-            onOffline();
-          } else {
-            toast.error(t("hermes.webui.offline"));
-          }
+        if (detail === HERMES_DESKTOP_NOT_FOUND_ERROR) {
+          toast.error(t("hermes.desktop.notFound"));
         } else {
-          toast.error(t("hermes.webui.openFailed"), {
+          toast.error(t("hermes.desktop.openFailed"), {
             description: detail || undefined,
           });
         }
       }
     },
-    [t, onOffline],
+    [t],
   );
 }

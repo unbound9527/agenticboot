@@ -1,11 +1,12 @@
 // 工具图标映射组件
 
-import { Terminal, Monitor, Wrench, Globe } from 'lucide-react';
+import { Terminal, Monitor, Wrench } from 'lucide-react';
 import ClaudeSvg from '@/icons/extracted/claude.svg?url';
 import OpenAISvg from '@/icons/extracted/openai.svg?url';
 import GeminiSvg from '@/icons/extracted/gemini.svg?url';
 import OpenClawSvg from '@/icons/extracted/claw.svg?url';
 import OpenCodeSvg from '@/icons/extracted/opencode-logo-light.svg?url';
+import HermesPng from '@/icons/extracted/hermes.png';
 
 interface ToolIconProps {
   toolId: string;
@@ -51,11 +52,7 @@ export function ToolIcon({ toolId, size = 20, className = '', spinning = false }
     case 'openclaw':
       return <img src={OpenClawSvg} width={size} height={size} className={cls} alt="OpenClaw" />;
     case 'hermes':
-      return (
-        <div className={`${cls} bg-indigo-500/10`} style={{ width: size + 8, height: size + 8 }}>
-          <Globe className="w-4 h-4 text-indigo-500" />
-        </div>
-      );
+      return <img src={HermesPng} width={size} height={size} className={cls} alt="Hermes" />;
     case 'nodejs':
       return (
         <div className={`${cls} bg-green-500/10`} style={{ width: size + 8, height: size + 8 }}>

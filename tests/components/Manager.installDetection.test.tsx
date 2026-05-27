@@ -158,6 +158,27 @@ function buildDetectResultsWithInstallPaths(
   }));
 }
 
+function buildInstalledToolsRecords(
+  records: Array<{
+    id: (typeof TOOL_IDS)[number];
+    installPath: string;
+    installRoot?: string;
+    status?: "installed" | "detected";
+    stateSource?: "managed" | "external_detected";
+  }>,
+) {
+  return records.map((record) => ({
+    id: record.id,
+    name: TOOL_NAMES[record.id],
+    version: "1.0.0",
+    installPath: record.installPath,
+    installRoot: record.installRoot ?? "D:\\AgenticTools",
+    category: "tool",
+    status: record.status ?? "detected",
+    stateSource: record.stateSource ?? "external_detected",
+  }));
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -166,6 +187,10 @@ function createDeferred<T>() {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+async function confirmUninstall(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "卸载" }));
 }
 
 describe("Manager install detection", () => {
@@ -210,6 +235,16 @@ describe("Manager install detection", () => {
 
   it("shows externally detected tools as installed with an uninstall button", async () => {
     const user = userEvent.setup();
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "opencode-cli",
+            installPath: "C:\\Tools\\opencode-cli",
+          },
+        ]),
+      );
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <Manager />
@@ -230,6 +265,7 @@ describe("Manager install detection", () => {
     expect(openCodeCard).not.toBeNull();
     const uninstallButton = within(openCodeCard as HTMLElement).getByTitle("卸载");
     await user.click(uninstallButton);
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -239,9 +275,43 @@ describe("Manager install detection", () => {
     });
   });
 
+  it("shows cached externally detected tools before background detection finishes", async () => {
+    const deferredDetect = createDeferred<ReturnType<typeof buildDetectResults>>();
+    toolsApiMock.getInstalledTools.mockResolvedValue([
+      {
+        id: "opencode-cli",
+        name: "OpenCode (CLI)",
+        version: "1.0.0",
+        installPath: "C:\\Users\\me\\AppData\\Roaming\\npm",
+        installRoot: "D:\\AgenticTools",
+        category: "tool",
+        status: "detected",
+      },
+    ]);
+    toolsApiMock.detectTools.mockReturnValue(deferredDetect.promise);
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Manager />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("OpenCode (CLI)")).toBeInTheDocument();
+  });
+
   it("shows an uninstall button for externally detected Hermes", async () => {
     const user = userEvent.setup();
     toolsApiMock.detectTools.mockResolvedValue(buildDetectResults(["hermes"]));
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "hermes",
+            installPath: "C:\\Tools\\hermes",
+          },
+        ]),
+      );
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -263,6 +333,7 @@ describe("Manager install detection", () => {
     expect(hermesCard).not.toBeNull();
 
     await user.click(within(hermesCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -279,6 +350,18 @@ describe("Manager install detection", () => {
         hermes: "D:\\AgenticTools\\hermes",
       }),
     );
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "hermes",
+            installPath: "D:\\AgenticTools\\hermes",
+            installRoot: "D:\\AgenticTools",
+            stateSource: "managed",
+          },
+        ]),
+      );
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -300,11 +383,12 @@ describe("Manager install detection", () => {
     expect(hermesCard).not.toBeNull();
 
     await user.click(within(hermesCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
         "hermes",
-        "D:\\AgenticTools\\hermes",
+        "D:\\AgenticTools",
       );
     });
   });
@@ -316,6 +400,16 @@ describe("Manager install detection", () => {
         "opencode-cli": "C:\\Users\\me\\AppData\\Roaming\\npm",
       }),
     );
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "opencode-cli",
+            installPath: "C:\\Users\\me\\AppData\\Roaming\\npm",
+          },
+        ]),
+      );
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -337,6 +431,7 @@ describe("Manager install detection", () => {
     expect(openCodeCard).not.toBeNull();
 
     await user.click(within(openCodeCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -361,8 +456,18 @@ describe("Manager install detection", () => {
               version: undefined,
               installPath: undefined,
             },
-      ),
+        ),
     );
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "codex-desktop",
+            installPath: "",
+          },
+        ]),
+      );
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -385,6 +490,7 @@ describe("Manager install detection", () => {
 
     const uninstallButton = within(codexDesktopCard as HTMLElement).getByTitle("卸载");
     await user.click(uninstallButton);
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -422,6 +528,7 @@ describe("Manager install detection", () => {
     expect(codexCard).not.toBeNull();
     const uninstallButton = within(codexCard as HTMLElement).getByTitle("卸载");
     await user.click(uninstallButton);
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -462,6 +569,7 @@ describe("Manager install detection", () => {
     expect(codexCard).not.toBeNull();
 
     await user.click(within(codexCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenCalledWith(
@@ -490,6 +598,20 @@ describe("Manager install detection", () => {
     toolsApiMock.detectTools.mockResolvedValue(
       buildDetectResults(["codex-cli", "gemini-cli"]),
     );
+    toolsApiMock.getInstalledTools
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        buildInstalledToolsRecords([
+          {
+            id: "codex-cli",
+            installPath: "C:\\Tools\\codex-cli",
+          },
+          {
+            id: "gemini-cli",
+            installPath: "C:\\Tools\\gemini-cli",
+          },
+        ]),
+      );
     toolsApiMock.uninstallTool
       .mockReturnValueOnce(firstUninstall.promise)
       .mockReturnValueOnce(secondUninstall.promise);
@@ -510,7 +632,9 @@ describe("Manager install detection", () => {
     expect(geminiCard).not.toBeNull();
 
     await user.click(within(codexCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
     await user.click(within(geminiCard as HTMLElement).getByTitle("卸载"));
+    await confirmUninstall(user);
 
     await waitFor(() => {
       expect(toolsApiMock.uninstallTool).toHaveBeenNthCalledWith(
