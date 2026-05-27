@@ -1,3 +1,4 @@
+import { Monitor } from "lucide-react";
 import type { AppId } from "@/lib/api";
 import type { VisibleApps } from "@/types";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -73,11 +74,22 @@ export function AppSwitcher({
             compact ? "w-8 px-0 justify-center" : ""
           )}
         >
-          <ProviderIcon
-            icon={appIconName[app]}
-            name={appDisplayName[app]}
-            size={iconSize}
-          />
+          {app === "claude-desktop" ? (
+            <span className="relative inline-flex items-center justify-center">
+              <ProviderIcon
+                icon={appIconName[app]}
+                name={appDisplayName[app]}
+                size={iconSize}
+              />
+              <Monitor className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-muted-foreground" />
+            </span>
+          ) : (
+            <ProviderIcon
+              icon={appIconName[app]}
+              name={appDisplayName[app]}
+              size={iconSize}
+            />
+          )}
           <span
             className={cn(
               "transition-all duration-200 whitespace-nowrap overflow-hidden",

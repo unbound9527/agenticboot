@@ -1,3 +1,4 @@
+import { Monitor } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ export function AppVisibilitySettings({
               onClick={() => handleToggle(app.id)}
               icon={app.icon}
               name={t(app.nameKey)}
+              appId={app.id}
             >
               {t(app.nameKey)}
             </AppButton>
@@ -97,6 +99,7 @@ interface AppButtonProps {
   onClick: () => void;
   icon: string;
   name: string;
+  appId: AppId;
   children: React.ReactNode;
 }
 
@@ -106,6 +109,7 @@ function AppButton({
   onClick,
   icon,
   name,
+  appId,
   children,
 }: AppButtonProps) {
   return (
@@ -122,7 +126,14 @@ function AppButton({
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
       )}
     >
-      <ProviderIcon icon={icon} name={name} size={14} />
+      {appId === "claude-desktop" ? (
+        <span className="relative inline-flex items-center justify-center">
+          <ProviderIcon icon={icon} name={name} size={14} />
+          <Monitor className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-muted-foreground" />
+        </span>
+      ) : (
+        <ProviderIcon icon={icon} name={name} size={14} />
+      )}
       {children}
     </Button>
   );
