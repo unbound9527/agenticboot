@@ -1,0 +1,29 @@
+{
+  "name": "agenticboot-promo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "record": "npx tsx scripts/record.ts",
+    "compose": "bash scripts/compose.sh"
+  },
+  "dependencies": {
+    "framer-motion": "^12.23.25",
+    "lucide-react": "^0.542.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "playwright": "^1.52.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.3.0",
+    "vite": "^7.3.0"
+  }
+}
