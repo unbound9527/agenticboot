@@ -2,14 +2,14 @@
 
 ## Supported Versions / 支持的版本
 
-Only the latest release of CC Switch receives security updates.
+Only the latest release of AgenticBoot receives security updates.
 
-仅最新版本的 CC Switch 会收到安全更新。
+仅最新版本的 AgenticBoot 会收到安全更新。
 
 | Version / 版本 | Supported / 是否支持 |
 |----------------|---------------------|
-| Latest 3.x     | ✅ Yes / 是          |
-| < 3.0          | ❌ No / 否           |
+| Latest 1.x     | ✅ Yes / 是          |
+| < 1.0          | ❌ No / 否           |
 
 ## Reporting a Vulnerability / 报告漏洞
 
@@ -17,9 +17,9 @@ Only the latest release of CC Switch receives security updates.
 
 **请不要通过公开的 GitHub Issue 报告安全漏洞。**
 
-Instead, please report them through [GitHub Security Advisories](https://github.com/farion1231/cc-switch/security/advisories/new).
+Instead, please report them through [GitHub Security Advisories](https://github.com/unbound9527/agenticboot/security/advisories/new).
 
-请通过 [GitHub 安全公告](https://github.com/farion1231/cc-switch/security/advisories/new) 进行报告。
+请通过 [GitHub 安全公告](https://github.com/unbound9527/agenticboot/security/advisories/new) 进行报告。
 
 When reporting, please include:
 
@@ -51,8 +51,14 @@ Reporters will be credited in the release notes unless they prefer to remain ano
 
 除非报告者希望匿名，否则将在发布说明中致谢。
 
+## Upstream Security / 上游安全
+
+AgenticBoot is a derivative of [CC Switch](https://github.com/farion1231/cc-switch). Security issues affecting the upstream project should be reported to their [security advisory](https://github.com/farion1231/cc-switch/security/advisories/new) as well.
+
+AgenticBoot 是 [CC Switch](https://github.com/farion1231/cc-switch) 的二开项目。影响上游项目的安全问题也应向上游的[安全公告](https://github.com/farion1231/cc-switch/security/advisories/new)报告。
+
 ## Security Updates / 安全更新
 
-Security fixes are released as patch versions and announced via [GitHub Releases](https://github.com/farion1231/cc-switch/releases). We recommend always updating to the latest version.
+Security fixes are released as patch versions and announced via [GitHub Releases](https://github.com/unbound9527/agenticboot/releases). We recommend always updating to the latest version.
 
-安全修复通过补丁版本发布，并通过 [GitHub Releases](https://github.com/farion1231/cc-switch/releases) 通知。建议始终更新到最新版本。
+安全修复通过补丁版本发布，并通过 [GitHub Releases](https://github.com/unbound9527/agenticboot/releases) 通知。建议始终更新到最新版本。
