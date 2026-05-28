@@ -601,6 +601,15 @@ pub fn get_openclaw_override_dir() -> Option<PathBuf> {
         .map(|p| resolve_override_path(p))
 }
 
+pub fn get_hermes_home_env_override() -> Option<PathBuf> {
+    std::env::var("HERMES_HOME")
+        .ok()
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(resolve_override_path)
+}
+
 pub fn get_hermes_override_dir() -> Option<PathBuf> {
     let settings = settings_store().read().ok()?;
     settings
@@ -608,6 +617,7 @@ pub fn get_hermes_override_dir() -> Option<PathBuf> {
         .as_ref()
         .map(|p| resolve_override_path(p))
 }
+
 
 // ===== 当前供应商管理函数 =====
 

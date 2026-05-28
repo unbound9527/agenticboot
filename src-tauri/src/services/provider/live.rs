@@ -828,7 +828,11 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             }
         }
         AppType::Hermes => {
-            crate::hermes_config::set_provider(&provider.id, provider.settings_config.clone())?;
+            let prepared = crate::hermes_config::prepare_provider_for_live(
+                &provider.id,
+                &provider.settings_config,
+            )?;
+            crate::hermes_config::set_provider(&provider.id, prepared)?;
             log::debug!("Hermes provider '{}' written to live config", provider.id);
         }
     }

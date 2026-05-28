@@ -166,6 +166,17 @@ impl ToolPlugin for OpenCodeCliPlugin {
         }
         Ok(())
     }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        install_windows_opencode_cli(target_dir, progress, context.npm_registry_source())
+    }
 }
 
 #[cfg(target_os = "windows")]

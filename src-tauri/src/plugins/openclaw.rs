@@ -173,6 +173,18 @@ impl ToolPlugin for OpenClawPlugin {
         }
         Ok(())
     }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        let _ = context.npm_registry_source();
+        run_openclaw_installer(&progress, Some(context.install_log()))
+    }
 }
 
 #[cfg(test)]

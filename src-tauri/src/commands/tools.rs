@@ -86,7 +86,8 @@ fn cache_state_source_for_detect_result(
 
     let install_path = result.install_path.as_deref().unwrap_or_default();
     if let Some(root) = install_root {
-        if !install_path.is_empty() && is_install_owned_by_root(Path::new(root), Path::new(install_path))
+        if !install_path.is_empty()
+            && is_install_owned_by_root(Path::new(root), Path::new(install_path))
         {
             return "managed";
         }
@@ -438,6 +439,22 @@ pub async fn check_tool_updates(
     .map_err(|e| format!("检测工具更新任务执行失败: {e}"))?
 }
 
+#[tauri::command]
+pub async fn update_tool(
+    tool_id: String,
+    root_path: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    log::info!(
+        "[Update] 开始更新工具: tool_id={}, root_path={}",
+        tool_id,
+        root_path
+    );
+    let service = InstallerService::new(Path::new(&root_path));
+    service.update_tool(&tool_id, &app_handle, &state.db).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -601,13 +618,7 @@ mod tests {
             install_path: Some("C:\\Users\\me\\AppData\\Roaming\\npm".into()),
         };
 
-        persist_detect_result_cache(
-            &db,
-            "codex-cli",
-            Some("D:\\AgenticTools"),
-            None,
-            &result,
-        );
+        persist_detect_result_cache(&db, "codex-cli", Some("D:\\AgenticTools"), None, &result);
 
         let cached = db
             .get_installed_tool("codex-cli")

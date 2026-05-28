@@ -144,10 +144,13 @@ export function useToggleHermesMemoryEnabled() {
 
 /**
  * Returns a handler that finds and launches Hermes Desktop, surfacing a
- * localized toast on failure.
+ * localized toast on failure. When Hermes Desktop cannot be found the
+ * optional `onNotFound` callback is invoked so the caller can, for example,
+ * navigate to the software manager for installation.
  */
-export function useOpenHermesDesktop() {
+export function useOpenHermesDesktop(opts?: { onNotFound?: () => void }) {
   const { t } = useTranslation();
+  const onNotFound = opts?.onNotFound;
   return useCallback(
     async (path?: string) => {
       try {
@@ -156,6 +159,7 @@ export function useOpenHermesDesktop() {
         const detail = extractErrorMessage(error);
         if (detail === HERMES_DESKTOP_NOT_FOUND_ERROR) {
           toast.error(t("hermes.desktop.notFound"));
+          onNotFound?.();
         } else {
           toast.error(t("hermes.desktop.openFailed"), {
             description: detail || undefined,
@@ -163,6 +167,6 @@ export function useOpenHermesDesktop() {
         }
       }
     },
-    [t],
+    [t, onNotFound],
   );
 }

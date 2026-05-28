@@ -260,4 +260,23 @@ describe("useDirectorySettings", () => {
     expect(result.current.resolvedDirs.opencode).toBe("/server/opencode");
     expect(result.current.resolvedDirs.openclaw).toBe("/server/openclaw");
   });
+
+  it("resets hermes directory to backend-resolved home instead of local .hermes fallback", async () => {
+    const { result } = renderHook(() =>
+      useDirectorySettings({
+        settings: createSettings({ hermesConfigDir: "/custom/hermes" }),
+        onUpdateSettings,
+      }),
+    );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.resetDirectory("hermes");
+    });
+
+    expect(onUpdateSettings).toHaveBeenCalledWith({
+      hermesConfigDir: undefined,
+    });
+    expect(result.current.resolvedDirs.hermes).toBe("/remote/hermes");
+  });
 });

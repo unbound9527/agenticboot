@@ -102,4 +102,23 @@ impl ToolPlugin for ClaudeCodeCliPlugin {
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         uninstall_npm_cli(target_dir, "@anthropic-ai/claude-code")
     }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        install_npm_cli_with_registry(
+            target_dir,
+            install_root,
+            "claude-code-cli",
+            "Claude Code (CLI)",
+            progress,
+            "@anthropic-ai/claude-code",
+            context.npm_registry_source(),
+        )
+    }
 }

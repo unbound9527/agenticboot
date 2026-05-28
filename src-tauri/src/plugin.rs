@@ -67,6 +67,17 @@ pub trait ToolPlugin: Send + Sync {
         self.install(target_dir, install_root, progress)
     }
 
+    /// 更新已安装工具（默认与安装行为一致，插件可按需覆盖）
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        self.install_with_context(target_dir, install_root, progress, context)
+    }
+
     fn uninstall(&self, target_dir: &Path) -> Result<(), String>;
 
     fn dependencies(&self) -> Vec<ToolDependency>;

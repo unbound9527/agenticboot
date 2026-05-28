@@ -658,7 +658,9 @@ function App() {
     };
   }, []);
 
-  const openHermesDesktop = useOpenHermesDesktop();
+  const openHermesDesktop = useOpenHermesDesktop({
+    onNotFound: () => setCurrentView("manager"),
+  });
 
   const handleOpenWebsite = async (url: string) => {
     try {

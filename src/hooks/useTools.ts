@@ -71,6 +71,19 @@ export function useExecuteInstallPlan() {
   });
 }
 
+export function useUpdateTool() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ toolId, rootPath }: { toolId: string; rootPath: string }) =>
+      toolsApi.updateTool(toolId, rootPath),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: TOOLS_KEY });
+      queryClient.invalidateQueries({ queryKey: UPDATES_KEY });
+    },
+  });
+}
+
 export function useUninstallTool() {
   const queryClient = useQueryClient();
 

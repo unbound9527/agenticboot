@@ -20,6 +20,7 @@ import {
   useToolCatalog,
   useToolUpdates,
   useUninstallTool,
+  useUpdateTool,
 } from "@/hooks/useTools";
 import { toolsApi } from "@/lib/api/tools";
 import type { InstalledTool, ToolCatalogItem } from "@/types/tools";
@@ -142,6 +143,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
   const { data: installRoot } = useInstallRoot();
   const { data: updates = [], refetch: refetchToolUpdates } = useToolUpdates();
   const uninstallTool = useUninstallTool();
+  const updateTool = useUpdateTool();
   const resolvePlan = useResolveInstallPlan();
   const executePlan = useExecuteInstallPlan();
   const { getToolProgress, getToolTargetProgress, resetProgress } =
@@ -321,6 +323,52 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
       resolvePlan,
       startOptimisticSession,
       t,
+    ],
+  );
+
+  const handleUpdate = useCallback(
+    async (toolId: string, rootPath: string) => {
+      const resolvedRoot = rootPath.trim();
+      if (!resolvedRoot) {
+        toast.error(t("tools.installRootRequired", "请先设置安装根目录"));
+        return;
+      }
+
+      setOpenConsoleToolId(toolId);
+      const toolName = allToolMetaById.get(toolId)?.name ?? toolId;
+      resetProgress();
+      setPendingActionToolIds((previous) => addToolId(previous, toolId));
+      startOptimisticSession(toolId, toolName, [
+        "System: Update requested.",
+        "System: Starting update...",
+      ]);
+      try {
+        await updateTool.mutateAsync({ toolId, rootPath: resolvedRoot });
+        toast.success(t("tools.updateSuccess", "更新成功"));
+        await queryClient.invalidateQueries({ queryKey: ["installed-tools"] });
+      } catch (err) {
+        markSessionError(
+          toolId,
+          toolName,
+          `System: Update request failed: ${String(err)}`,
+        );
+        toast.error(
+          t("tools.updateFailed", "更新失败: {{error}}", {
+            error: String(err),
+          }),
+        );
+      } finally {
+        setPendingActionToolIds((previous) => removeToolId(previous, toolId));
+      }
+    },
+    [
+      allToolMetaById,
+      markSessionError,
+      queryClient,
+      resetProgress,
+      startOptimisticSession,
+      t,
+      updateTool,
     ],
   );
 
@@ -543,10 +591,7 @@ export function Manager({ onInstallMore, onToolStateChanged }: ManagerProps) {
                 }
                 onUpdate={
                   updatesByToolId.has(tool.id)
-                    ? () =>
-                        handleSingleInstall(tool.id, tool.installRoot, {
-                          openConsole: true,
-                        })
+                    ? () => handleUpdate(tool.id, tool.installRoot)
                     : undefined
                 }
                 onShowConsole={() =>

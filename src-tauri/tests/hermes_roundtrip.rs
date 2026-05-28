@@ -9,6 +9,8 @@ fn with_temp_hermes_dir<F: FnOnce(&std::path::Path)>(f: F) {
     let guard = support::test_mutex().lock().expect("test mutex poisoned");
     let home = support::ensure_test_home();
     support::reset_test_fs();
+    let original_hermes_home = std::env::var_os("HERMES_HOME");
+    std::env::remove_var("HERMES_HOME");
 
     let hermes_dir = home.join(".hermes-roundtrip");
     let _ = std::fs::remove_dir_all(&hermes_dir);
@@ -24,6 +26,10 @@ fn with_temp_hermes_dir<F: FnOnce(&std::path::Path)>(f: F) {
 
     // Always restore settings and drop fixture dir, even on test failure.
     let _ = update_settings(AppSettings::default());
+    match original_hermes_home {
+        Some(value) => std::env::set_var("HERMES_HOME", value),
+        None => std::env::remove_var("HERMES_HOME"),
+    }
     let _ = std::fs::remove_dir_all(&hermes_dir);
     drop(guard);
 
@@ -121,4 +127,86 @@ fn get_providers_surfaces_rate_limit_delay_and_key_env() {
             "key_env not surfaced to DAO payload"
         );
     });
+}
+
+#[test]
+fn prepare_provider_for_live_moves_api_key_into_env_and_key_env() {
+    with_temp_hermes_dir(|dir| {
+        let prepared = hermes_config::prepare_provider_for_live(
+            "minimax",
+            &serde_json::json!({
+                "base_url": "https://api.minimaxi.com/v1",
+                "api_key": "sk-live",
+                "api_mode": "chat_completions"
+            }),
+        )
+        .expect("prepare_provider_for_live");
+
+        assert_eq!(
+            prepared.get("key_env").and_then(|v| v.as_str()),
+            Some("MINIMAX_API_KEY")
+        );
+        // api_key is kept inline for Hermes Desktop versions that don't
+        // resolve key_env → .env automatically.
+        assert_eq!(
+            prepared.get("api_key").and_then(|v| v.as_str()),
+            Some("sk-live"),
+            "api_key should be kept inline for backward compatibility"
+        );
+
+        let env_content = std::fs::read_to_string(dir.join(".env")).expect("read .env");
+        assert!(
+            env_content.contains("MINIMAX_API_KEY=sk-live"),
+            ".env should receive the provider key:\n{env_content}"
+        );
+    });
+}
+
+#[test]
+fn get_providers_rehydrates_api_key_from_env() {
+    with_temp_hermes_dir(|dir| {
+        let yaml = r#"custom_providers:
+  - name: minimax
+    base_url: https://api.minimaxi.com/v1
+    api_mode: chat_completions
+    key_env: MINIMAX_API_KEY
+"#;
+        std::fs::write(dir.join("config.yaml"), yaml).expect("seed config.yaml");
+        std::fs::write(dir.join(".env"), "MINIMAX_API_KEY=sk-from-env\n").expect("seed .env");
+
+        let providers = hermes_config::get_providers().expect("get_providers");
+        let entry = providers.get("minimax").expect("minimax missing");
+        assert_eq!(
+            entry.get("api_key").and_then(|v| v.as_str()),
+            Some("sk-from-env"),
+            "api_key should be rehydrated from key_env for editor flows"
+        );
+    });
+}
+
+#[test]
+fn hermes_home_env_beats_saved_override() {
+    let guard = support::test_mutex().lock().expect("test mutex poisoned");
+    let home = support::ensure_test_home();
+    support::reset_test_fs();
+
+    let saved_dir = home.join(".hermes-saved");
+    let env_dir = home.join(".hermes-env");
+    std::fs::create_dir_all(&saved_dir).expect("create saved dir");
+    std::fs::create_dir_all(&env_dir).expect("create env dir");
+
+    update_settings(AppSettings {
+        hermes_config_dir: Some(saved_dir.to_string_lossy().into_owned()),
+        ..AppSettings::default()
+    })
+    .expect("set saved hermes override");
+
+    std::env::set_var("HERMES_HOME", &env_dir);
+
+    let resolved = hermes_config::get_hermes_dir();
+    assert_eq!(resolved, env_dir, "HERMES_HOME should take precedence");
+
+    std::env::remove_var("HERMES_HOME");
+    let _ = update_settings(AppSettings::default());
+    drop(guard);
 }

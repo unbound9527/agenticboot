@@ -25,6 +25,16 @@ const CLAUDE_WINGET_ARGS: &[&str] = &[
 ];
 
 #[cfg(target_os = "windows")]
+const CLAUDE_WINGET_UPGRADE_ARGS: &[&str] = &[
+    "upgrade",
+    "--id",
+    "Anthropic.Claude",
+    "-e",
+    "--accept-package-agreements",
+    "--accept-source-agreements",
+];
+
+#[cfg(target_os = "windows")]
 fn emit_claude_progress(
     progress: &Sender<InstallProgress>,
     phase: &str,
@@ -125,48 +135,58 @@ where
 }
 
 #[cfg(target_os = "windows")]
-fn install_claude_desktop(
+fn run_claude_desktop_winget(
+    winget_args: &[&str],
     progress: &Sender<InstallProgress>,
     install_log: Option<&InstallLogEmitter>,
+    action_label: &str,
 ) -> Result<(), String> {
-    emit_claude_progress(
-        progress,
-        "starting",
-        5,
-        "Preparing Claude Code (Desktop) install...",
-    );
     emit_claude_progress(
         progress,
         "installing",
         15,
-        "Trying winget install for Claude Code (Desktop)...",
+        &format!("Trying winget {action_label} for Claude Code (Desktop)..."),
     );
 
-    if winget_exists() {
-        let winget_result = if let Some(install_log) = install_log {
-            install_log.emit_phase("installing", "Trying winget install for Claude desktop");
-            run_winget_with_logs(install_log, "installing", CLAUDE_WINGET_ARGS)
-        } else {
-            run_winget(CLAUDE_WINGET_ARGS)
-        };
-
-        if winget_result.is_ok() {
-            return Ok(());
-        }
-
+    if !winget_exists() {
         if let Some(install_log) = install_log {
             install_log.emit_phase(
                 "downloading",
-                "winget failed, falling back to the official Claude desktop installer",
+                "winget is unavailable, falling back to the official Claude desktop installer",
             );
         }
-    } else if let Some(install_log) = install_log {
+        return Err("winget not available".to_string());
+    }
+
+    let winget_result = if let Some(install_log) = install_log {
+        install_log.emit_phase(
+            "installing",
+            &format!("Trying winget {action_label} for Claude desktop"),
+        );
+        run_winget_with_logs(install_log, "installing", winget_args)
+    } else {
+        run_winget(winget_args)
+    };
+
+    if winget_result.is_ok() {
+        return Ok(());
+    }
+
+    if let Some(install_log) = install_log {
         install_log.emit_phase(
             "downloading",
-            "winget is unavailable, falling back to the official Claude desktop installer",
+            &format!("winget {action_label} failed, falling back to the official Claude desktop installer"),
         );
     }
 
+    Err(format!("winget {action_label} failed"))
+}
+
+#[cfg(target_os = "windows")]
+fn download_and_run_claude_installer(
+    progress: &Sender<InstallProgress>,
+    install_log: Option<&InstallLogEmitter>,
+) -> Result<(), String> {
     emit_claude_progress(
         progress,
         "downloading",
@@ -218,6 +238,46 @@ fn install_claude_desktop(
         },
         120,
     )
+}
+
+#[cfg(target_os = "windows")]
+fn install_claude_desktop(
+    progress: &Sender<InstallProgress>,
+    install_log: Option<&InstallLogEmitter>,
+) -> Result<(), String> {
+    emit_claude_progress(
+        progress,
+        "starting",
+        5,
+        "Preparing Claude Code (Desktop) install...",
+    );
+
+    if run_claude_desktop_winget(CLAUDE_WINGET_ARGS, progress, install_log, "install").is_ok() {
+        return Ok(());
+    }
+
+    download_and_run_claude_installer(progress, install_log)
+}
+
+#[cfg(target_os = "windows")]
+fn update_claude_desktop(
+    progress: &Sender<InstallProgress>,
+    install_log: Option<&InstallLogEmitter>,
+) -> Result<(), String> {
+    emit_claude_progress(
+        progress,
+        "starting",
+        5,
+        "Preparing Claude Code (Desktop) update...",
+    );
+
+    if run_claude_desktop_winget(CLAUDE_WINGET_UPGRADE_ARGS, progress, install_log, "upgrade")
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    download_and_run_claude_installer(progress, install_log)
 }
 
 impl ToolPlugin for ClaudeCodeDesktopPlugin {
@@ -314,6 +374,17 @@ impl ToolPlugin for ClaudeCodeDesktopPlugin {
         context: ToolInstallContext,
     ) -> Result<(), String> {
         install_claude_desktop(&progress, Some(context.install_log()))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        update_claude_desktop(&progress, Some(context.install_log()))
     }
 
     #[cfg(not(target_os = "windows"))]

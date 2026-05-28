@@ -1,4 +1,4 @@
-use crate::plugin::ToolPlugin;
+use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::services::installer::windows::{
     find_executable_in_dir, find_local_uninstaller_executable, find_uninstall_entry_ex,
     read_command_version, run_windows_uninstaller_with_common_args, WindowsUninstallEntry,
@@ -10,6 +10,18 @@ use log::debug;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
+
+#[cfg(target_os = "windows")]
+fn opencode_process_is_running() -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", "IMAGENAME eq OpenCode.exe", "/NH"])
+        .output()
+        .map(|output| {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.contains("OpenCode.exe")
+        })
+        .unwrap_or(false)
+}
 
 pub struct OpenCodeDesktopPlugin;
 
@@ -357,6 +369,21 @@ impl ToolPlugin for OpenCodeDesktopPlugin {
                 },
             )
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        // 检查 OpenCode 是否在运行，避免文件锁定导致更新失败
+        if opencode_process_is_running() {
+            return Err("OpenCode Desktop 正在运行，请先关闭应用再更新".into());
+        }
+        self.install_with_context(target_dir, install_root, progress, context)
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {

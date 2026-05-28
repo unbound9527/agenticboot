@@ -99,6 +99,10 @@ export const toolsApi = {
     return invoke("check_tool_updates");
   },
 
+  updateTool(toolId: string, rootPath: string): Promise<void> {
+    return invoke("update_tool", { toolId, rootPath });
+  },
+
   launchDesktopTool(installPath: string): Promise<void> {
     return invoke("launch_desktop_tool", { installPath });
   },

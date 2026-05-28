@@ -751,6 +751,208 @@ impl InstallerService {
 
         Ok(updates)
     }
+
+    /// 更新单个工具（调用 plugin.update_with_context，与安装链路独立）
+    async fn update_single_tool(
+        tool_id: String,
+        tool_name: String,
+        category: String,
+        app_handle: AppHandle,
+        db: Arc<Database>,
+        target_dir: PathBuf,
+        root_path: PathBuf,
+        npm_registry_source: NpmRegistrySource,
+    ) -> Result<(), String> {
+        let install_log =
+            InstallLogEmitter::new(app_handle.clone(), tool_id.clone(), tool_name.clone());
+        install_log.emit_session_started();
+        install_log.emit_phase("starting", "Preparing update");
+        let _ = app_handle.emit(
+            "install-progress",
+            InstallProgress {
+                tool_id: tool_id.clone(),
+                tool_name: tool_name.clone(),
+                phase: "starting".to_string(),
+                percent: 0,
+                message: "准备更新...".to_string(),
+            },
+        );
+
+        let plugin = get_plugin_by_id(&tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+        log::info!(
+            "[InstallerService] update_single_tool: {} -> {}",
+            tool_id,
+            plugin.metadata().name
+        );
+
+        let (tx, rx) = mpsc::channel::<InstallProgress>(32);
+        let install_target = target_dir.clone();
+        let install_tool_id = tool_id.clone();
+        let install_root = root_path.clone();
+
+        let progress_forwarder = tokio::spawn({
+            let progress_handle = app_handle.clone();
+            async move {
+                forward_install_progress_with(rx, move |progress| {
+                    let _ = progress_handle.emit("install-progress", progress);
+                })
+                .await;
+            }
+        });
+
+        let install_log_for_plugin = install_log.clone();
+        let update_result = tokio::task::spawn_blocking(move || {
+            plugin.update_with_context(
+                &install_target,
+                &install_root,
+                tx,
+                ToolInstallContext::new(install_log_for_plugin, npm_registry_source),
+            )
+        })
+        .await
+        .map_err(|e| format!("更新线程错误: {e}"))?;
+
+        progress_forwarder
+            .await
+            .map_err(|e| format!("更新进度转发线程错误: {e}"))?;
+
+        let post_plugin =
+            get_plugin_by_id(&tool_id).ok_or_else(|| format!("未知工具: {tool_id}"))?;
+
+        match update_result {
+            Ok(()) => {
+                let path_manager = PathManager::new(&root_path);
+                if matches!(post_plugin.install_strategy(), InstallStrategy::GlobalNpm) {
+                    if let Some(shim_name) = post_plugin.managed_shim_name() {
+                        path_manager.remove_windows_cli_shims(shim_name)?;
+                    }
+                }
+                let detect = post_plugin.detect(Some(&root_path));
+                let publish_managed_shims = should_publish_managed_shims(
+                    post_plugin.install_strategy(),
+                    &root_path,
+                    &detect,
+                );
+                let (version, install_path) =
+                    detect_successful_install(&tool_id, &target_dir, detect)?;
+
+                if publish_managed_shims {
+                    let exe_name = post_plugin
+                        .managed_shim_name()
+                        .ok_or_else(|| format!("{tool_id} does not declare a managed shim"))?;
+                    let candidates = post_plugin.managed_executable_candidates();
+                    let candidate_refs = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+                    let exe_path =
+                        find_managed_executable(&root_path, &tool_id, &candidate_refs)
+                            .ok_or_else(|| format!("更新完成后未找到 {} 的可执行文件", tool_id))?;
+                    path_manager.create_windows_cli_shims(&exe_name, &exe_path)?;
+                }
+
+                let now = chrono::Utc::now().timestamp();
+                db.upsert_installed_tool(&InstalledToolRecord {
+                    id: tool_id.clone(),
+                    name: tool_name.clone(),
+                    version,
+                    install_path,
+                    install_root: root_path.to_string_lossy().to_string(),
+                    category,
+                    status: "installed".to_string(),
+                    state_source: "managed".to_string(),
+                    installed_at: Some(now),
+                    last_seen_at: Some(now),
+                    updated_at: Some(now),
+                })
+                .map_err(|e| format!("保存更新记录失败: {e}"))?;
+
+                install_log.emit_result("complete", "Update completed", Some(0), true);
+                let _ = app_handle.emit(
+                    "install-progress",
+                    InstallProgress {
+                        tool_id: tool_id.clone(),
+                        tool_name: tool_name.clone(),
+                        phase: "complete".to_string(),
+                        percent: 100,
+                        message: "更新完成".to_string(),
+                    },
+                );
+                let _ = app_handle.emit("install-complete", &tool_id);
+                Ok(())
+            }
+            Err(e) => {
+                let now = chrono::Utc::now().timestamp();
+                db.upsert_installed_tool(&InstalledToolRecord {
+                    id: tool_id.clone(),
+                    name: tool_name.clone(),
+                    version: None,
+                    install_path: target_dir.to_string_lossy().to_string(),
+                    install_root: root_path.to_string_lossy().to_string(),
+                    category,
+                    status: "error".to_string(),
+                    state_source: "managed".to_string(),
+                    installed_at: None,
+                    last_seen_at: None,
+                    updated_at: Some(now),
+                })
+                .ok();
+
+                install_log.emit_result("error", e.clone(), None, false);
+                let _ = app_handle.emit(
+                    "install-progress",
+                    InstallProgress {
+                        tool_id: tool_id.clone(),
+                        tool_name: tool_name.clone(),
+                        phase: "error".to_string(),
+                        percent: 0,
+                        message: e.clone(),
+                    },
+                );
+                let _ = app_handle.emit(
+                    "install-error",
+                    serde_json::json!({
+                        "toolId": tool_id,
+                        "error": e
+                    }),
+                );
+
+                Err(format!("更新 {} 失败", tool_name))
+            }
+        }
+    }
+
+    /// 更新已安装工具（独立于安装流程，直接调用 update_single_tool）
+    pub async fn update_tool(
+        &self,
+        tool_id: &str,
+        app_handle: &AppHandle,
+        db: &Arc<Database>,
+    ) -> Result<(), String> {
+        let record = db
+            .get_installed_tool(tool_id)
+            .map_err(|e| format!("查询工具记录失败: {e}"))?
+            .ok_or_else(|| format!("未找到已安装的工具: {tool_id}"))?;
+
+        let target_dir = self.path_manager.get_tool_install_dir(tool_id);
+        let npm_registry_source = NpmRegistrySource::Mirror;
+
+        log::info!(
+            "[InstallerService] 开始更新工具: tool_id={}, tool_name={}, target_dir={}",
+            tool_id,
+            record.name,
+            target_dir.display()
+        );
+
+        Self::update_single_tool(
+            tool_id.to_string(),
+            record.name,
+            record.category,
+            app_handle.clone(),
+            Arc::clone(db),
+            target_dir,
+            self.root_path.clone(),
+            npm_registry_source,
+        )
+        .await
+    }
 }
 
 /// 根据工具 ID 推断可执行文件名

@@ -30,9 +30,11 @@
 //!     args: ["-y", "@modelcontextprotocol/server-filesystem"]
 //! ```
 
-use crate::config::{atomic_write, get_app_config_dir};
+use crate::config::{atomic_write, get_app_config_dir, write_text_file};
 use crate::error::AppError;
-use crate::settings::{effective_backup_retain_count, get_hermes_override_dir};
+use crate::settings::{
+    effective_backup_retain_count, get_hermes_home_env_override, get_hermes_override_dir,
+};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -46,11 +48,33 @@ use std::sync::{Mutex, OnceLock};
 
 /// 获取 Hermes 配置目录
 ///
-/// 默认路径: `~/.hermes/`
-/// 可通过 settings.hermes_config_dir 覆盖
+/// 解析优先级:
+/// 1. `HERMES_HOME` 环境变量
+/// 2. settings.hermes_config_dir 覆盖
+/// 3. `CC_SWITCH_TEST_HOME` 环境变量（测试隔离用，保持 `~/.hermes` 行为）
+/// 4. 平台默认路径:
+///    - Windows: `%LOCALAPPDATA%\hermes`（与 Hermes Desktop 默认一致）
+///    - macOS / Linux: `~/.hermes/`
 pub fn get_hermes_dir() -> PathBuf {
+    if let Some(env_dir) = get_hermes_home_env_override() {
+        return env_dir;
+    }
+
     if let Some(override_dir) = get_hermes_override_dir() {
         return override_dir;
+    }
+
+    // When running under test isolation (CC_SWITCH_TEST_HOME), use the
+    // test home dir so tests stay isolated from real user data.
+    if std::env::var("CC_SWITCH_TEST_HOME").is_ok() {
+        return crate::config::get_home_dir().join(".hermes");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local_app_data).join("hermes");
+        }
     }
 
     crate::config::get_home_dir().join(".hermes")
@@ -61,6 +85,31 @@ pub fn get_hermes_dir() -> PathBuf {
 /// 返回 `~/.hermes/config.yaml`
 pub fn get_hermes_config_path() -> PathBuf {
     get_hermes_dir().join("config.yaml")
+}
+
+/// Return the Hermes `.env` path living next to `config.yaml`.
+pub fn get_hermes_env_path() -> PathBuf {
+    get_hermes_dir().join(".env")
+}
+
+fn read_hermes_env() -> Result<HashMap<String, String>, AppError> {
+    let path = get_hermes_env_path();
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+    Ok(crate::gemini_config::parse_env_file(&content))
+}
+
+fn write_hermes_env_atomic(map: &HashMap<String, String>) -> Result<(), AppError> {
+    let path = get_hermes_env_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
+    }
+
+    let content = crate::gemini_config::serialize_env_file(map);
+    write_text_file(&path, &content)
 }
 
 fn hermes_write_lock() -> &'static Mutex<()> {
@@ -142,7 +191,10 @@ fn is_top_level_key_line(line: &str) -> bool {
     }
     if let Some(colon_pos) = line.find(':') {
         let after_colon = &line[colon_pos + 1..];
-        after_colon.is_empty() || after_colon.starts_with(' ') || after_colon.starts_with('\t')
+        after_colon.is_empty()
+            || after_colon.starts_with(' ')
+            || after_colon.starts_with('\t')
+            || after_colon.starts_with('\r')
     } else {
         false
     }
@@ -545,6 +597,120 @@ fn read_providers_dict_entries(config: &serde_yaml::Value) -> Vec<(String, serde
     out
 }
 
+fn default_provider_key_env(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            out.push('_');
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    let mut normalized = if trimmed.is_empty() {
+        "HERMES_PROVIDER".to_string()
+    } else {
+        trimmed.to_string()
+    };
+    while normalized.contains("__") {
+        normalized = normalized.replace("__", "_");
+    }
+    if !normalized
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+    {
+        normalized.insert_str(0, "HERMES_");
+    }
+    if !normalized.ends_with("_API_KEY") {
+        normalized.push_str("_API_KEY");
+    }
+    normalized
+}
+
+fn resolve_provider_key_env(name: &str, config: &serde_json::Value) -> String {
+    config
+        .get("key_env")
+        .or_else(|| config.get("api_key_env"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| default_provider_key_env(name))
+}
+
+fn hydrate_provider_api_key_from_env(
+    provider_name: &str,
+    config: &mut serde_json::Value,
+    env_map: &HashMap<String, String>,
+) {
+    let key_env = resolve_provider_key_env(provider_name, config);
+    let Some(obj) = config.as_object_mut() else {
+        return;
+    };
+    if obj
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+    {
+        return;
+    }
+    if let Some(api_key) = env_map.get(&key_env).filter(|s| !s.trim().is_empty()) {
+        obj.insert(
+            "api_key".to_string(),
+            serde_json::Value::String(api_key.clone()),
+        );
+    }
+}
+
+/// Move Hermes provider secrets into `<home>/.env` while keeping `api_key`
+/// inline in `config.yaml` as a fallback for Hermes Desktop versions that
+/// don't resolve `key_env` → `.env` automatically.
+///
+/// AgenticBoot writes Hermes providers as named custom providers. Hermes'
+/// runtime resolves those cleanly when `model.provider` uses the `custom:<id>`
+/// form and the provider entry carries a `key_env` pointer into `.env`.
+/// Keeping `api_key` in YAML as well ensures older Hermes Desktop versions
+/// still authenticate correctly.
+pub fn prepare_provider_for_live(
+    name: &str,
+    provider_config: &serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let mut prepared = provider_config.clone();
+    sanitize_hermes_provider_keys(&mut prepared);
+    let key_env = resolve_provider_key_env(name, &prepared);
+
+    let Some(obj) = prepared.as_object_mut() else {
+        return Ok(prepared);
+    };
+    obj.insert(
+        "key_env".to_string(),
+        serde_json::Value::String(key_env.clone()),
+    );
+    obj.remove("api_key_env");
+
+    let api_key_value = obj
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .map(str::to_string);
+
+    if let Some(ref key) = api_key_value {
+        if !key.is_empty() {
+            let mut env_map = read_hermes_env()?;
+            env_map.insert(key_env, key.clone());
+            write_hermes_env_atomic(&env_map)?;
+        } else {
+            let mut env_map = read_hermes_env()?;
+            env_map.remove(&key_env);
+            write_hermes_env_atomic(&env_map)?;
+        }
+    }
+
+    Ok(prepared)
+}
+
 /// Get all providers as a JSON map keyed by provider name.
 ///
 /// Unions two on-disk sources, matching upstream `get_compatible_custom_providers`:
@@ -557,6 +723,10 @@ fn read_providers_dict_entries(config: &serde_yaml::Value) -> Vec<(String, serde
 /// dict shape to the UI-friendly ordered array.
 pub fn get_providers() -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
     let config = read_hermes_config()?;
+    let env_map = read_hermes_env().unwrap_or_else(|err| {
+        log::warn!("Failed to read Hermes .env while listing providers: {err}");
+        HashMap::new()
+    });
     let mut map = serde_json::Map::new();
 
     if let Some(seq) = config.get("custom_providers").and_then(|v| v.as_sequence()) {
@@ -569,6 +739,7 @@ pub fn get_providers() -> Result<serde_json::Map<String, serde_json::Value>, App
                         // reveal stale `baseUrl` / `apiKey` fields.
                         sanitize_hermes_provider_keys(&mut json_val);
                         denormalize_provider_models_for_read(&mut json_val);
+                        hydrate_provider_api_key_from_env(name, &mut json_val, &env_map);
                         if let Some(obj) = json_val.as_object_mut() {
                             obj.insert(
                                 PROVIDER_SOURCE_FIELD.to_string(),
@@ -590,6 +761,7 @@ pub fn get_providers() -> Result<serde_json::Map<String, serde_json::Value>, App
             continue; // list wins over dict on duplicate names
         }
         denormalize_provider_models_for_read(&mut entry);
+        hydrate_provider_api_key_from_env(&name, &mut entry, &env_map);
         map.insert(name, entry);
     }
 
@@ -708,6 +880,10 @@ pub fn set_provider(
         }
     }
 
+    // Clone before moving yaml_val into providers — we need a copy for the
+    // `providers:` dict mirror below.
+    let provider_entry = yaml_val.clone();
+
     if let Some(existing) = providers
         .iter_mut()
         .find(|p| p.get("name").and_then(|n| n.as_str()) == Some(name))
@@ -730,7 +906,21 @@ pub fn set_provider(
     }
 
     let providers_value = serde_yaml::Value::Sequence(providers);
-    write_yaml_section_to_config_locked("custom_providers", &providers_value)
+    write_yaml_section_to_config_locked("custom_providers", &providers_value)?;
+
+    // Also mirror the entry into `providers:` dict so Hermes v23+ runtimes
+    // (which resolve API keys from `providers:` first) can find it.
+    let mut providers_dict = config
+        .get("providers")
+        .and_then(|v| v.as_mapping())
+        .cloned()
+        .unwrap_or_default();
+    providers_dict.insert(serde_yaml::Value::String(name.to_string()), provider_entry);
+    let providers_dict_value = serde_yaml::Value::Mapping(providers_dict);
+    let providers_outcome =
+        write_yaml_section_to_config_locked("providers", &providers_dict_value)?;
+
+    Ok(providers_outcome)
 }
 
 /// Remove a custom provider by name.
@@ -757,7 +947,23 @@ pub fn remove_provider(name: &str) -> Result<HermesWriteOutcome, AppError> {
     }
 
     let providers_value = serde_yaml::Value::Sequence(providers);
-    write_yaml_section_to_config_locked("custom_providers", &providers_value)
+    write_yaml_section_to_config_locked("custom_providers", &providers_value)?;
+
+    // Also remove from `providers:` dict if present there.
+    let mut providers_dict = config
+        .get("providers")
+        .and_then(|v| v.as_mapping())
+        .cloned()
+        .unwrap_or_default();
+    let removed = providers_dict
+        .remove(serde_yaml::Value::String(name.to_string()))
+        .is_some();
+    if removed {
+        let providers_dict_value = serde_yaml::Value::Mapping(providers_dict);
+        write_yaml_section_to_config_locked("providers", &providers_dict_value)?;
+    }
+
+    Ok(HermesWriteOutcome { backup_path: None })
 }
 
 // ============================================================================
@@ -786,21 +992,30 @@ pub fn set_model_config(model: &HermesModelConfig) -> Result<HermesWriteOutcome,
 
 /// Apply the top-level `model:` defaults when switching to a Hermes provider.
 ///
-/// `model.provider` is **always** updated to the new provider id — without
-/// this, switching to a provider whose settings lack a `models` list would
-/// leave the runtime routing requests to the previously active provider.
+/// `model.provider` is **always** updated to `custom:<provider-id>` — these
+/// AgenticBoot-managed Hermes entries live under `custom_providers:` / `providers:`,
+/// and the explicit `custom:` prefix avoids collisions with Hermes' canonical
+/// built-ins like `minimax`, `openrouter`, `deepseek`, or `nous`.
 ///
 /// `model.default` is only overwritten when the new provider declares at
 /// least one model; otherwise the previous default is preserved so users
 /// still have a runnable configuration (Hermes will surface a clear error
 /// if the default no longer belongs to the active provider).
 ///
-/// Existing fields in `model:` (`context_length` / `max_tokens` / `base_url`
-/// / `extra`) are preserved via struct-update.
+/// When switching to a *different* provider, provider-specific fields
+/// (`base_url` / `context_length` / `max_tokens`) are cleared to avoid
+/// leaking stale values (e.g. DeepSeek's base_url when switching to
+/// MiniMax).  When re-switching the *same* provider these fields are
+/// preserved so user customizations survive a model-only toggle.
 pub fn apply_switch_defaults(
     provider_id: &str,
     settings_config: &serde_json::Value,
 ) -> Result<HermesWriteOutcome, AppError> {
+    let target_provider = if provider_id.starts_with("custom:") {
+        provider_id.to_string()
+    } else {
+        format!("custom:{provider_id}")
+    };
     let first_model_id = settings_config
         .get("models")
         .and_then(|v| v.as_array())
@@ -811,9 +1026,30 @@ pub fn apply_switch_defaults(
         .filter(|s| !s.is_empty());
 
     let current = get_model_config()?.unwrap_or_default();
+    let is_same_provider = matches!(
+        current.provider.as_deref(),
+        Some(current_provider) if current_provider == provider_id || current_provider == target_provider
+    );
     let merged = HermesModelConfig {
         default: first_model_id.or(current.default.clone()),
-        provider: Some(provider_id.to_string()),
+        provider: Some(target_provider),
+        // When switching to a different provider, clear provider-specific
+        // fields so stale values from the old provider don't leak through.
+        base_url: if is_same_provider {
+            current.base_url.clone()
+        } else {
+            None
+        },
+        context_length: if is_same_provider {
+            current.context_length
+        } else {
+            None
+        },
+        max_tokens: if is_same_provider {
+            current.max_tokens
+        } else {
+            None
+        },
         ..current
     };
     set_model_config(&merged)
@@ -1424,6 +1660,54 @@ providers:
 
     #[test]
     #[serial]
+    fn prepare_provider_for_live_keeps_api_key_and_also_writes_env() {
+        with_test_home(|| {
+            let prepared = prepare_provider_for_live(
+                "minimax",
+                &serde_json::json!({
+                    "base_url": "https://api.minimaxi.com/v1",
+                    "api_key": "sk-live",
+                    "api_mode": "chat_completions"
+                }),
+            )
+            .unwrap();
+
+            assert_eq!(prepared["key_env"], "MINIMAX_API_KEY");
+            // api_key is kept inline for Hermes Desktop versions that don't
+            // resolve key_env → .env automatically.
+            assert_eq!(prepared["api_key"], "sk-live");
+
+            let env_content = fs::read_to_string(get_hermes_env_path()).unwrap();
+            assert!(env_content.contains("MINIMAX_API_KEY=sk-live"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn get_providers_hydrates_api_key_from_env_when_key_env_is_present() {
+        with_test_home(|| {
+            let config_path = get_hermes_config_path();
+            fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            fs::write(
+                &config_path,
+                "\
+custom_providers:
+  - name: minimax
+    base_url: https://api.minimaxi.com/v1
+    key_env: MINIMAX_API_KEY
+",
+            )
+            .unwrap();
+            fs::write(get_hermes_env_path(), "MINIMAX_API_KEY=sk-from-env\n").unwrap();
+
+            let provider = get_provider("minimax").unwrap().unwrap();
+            assert_eq!(provider["api_key"], "sk-from-env");
+            assert_eq!(provider["key_env"], "MINIMAX_API_KEY");
+        });
+    }
+
+    #[test]
+    #[serial]
     fn set_provider_rejects_dict_only_entries() {
         with_test_home(|| {
             let yaml = "\
@@ -1720,15 +2004,15 @@ custom_providers:
 
             let model = get_model_config().unwrap().unwrap();
             assert_eq!(model.default.as_deref(), Some("primary-model"));
-            assert_eq!(model.provider.as_deref(), Some("demo"));
+            assert_eq!(model.provider.as_deref(), Some("custom:demo"));
         });
     }
 
     #[test]
     #[serial]
-    fn apply_switch_defaults_preserves_user_context_length() {
+    fn apply_switch_defaults_clears_provider_specific_fields_on_new_provider() {
         with_test_home(|| {
-            // User previously set a custom context_length via the Model panel.
+            // User previously set custom fields via the Model panel for old-provider.
             let initial = HermesModelConfig {
                 default: Some("old-model".to_string()),
                 provider: Some("old-provider".to_string()),
@@ -1746,11 +2030,42 @@ custom_providers:
 
             let model = get_model_config().unwrap().unwrap();
             assert_eq!(model.default.as_deref(), Some("new-model"));
-            assert_eq!(model.provider.as_deref(), Some("new-provider"));
-            // User-customized fields must survive the switch.
+            assert_eq!(model.provider.as_deref(), Some("custom:new-provider"));
+            // Provider-specific fields must be cleared when switching to a
+            // different provider — otherwise stale values from the old
+            // provider (e.g. base_url) leak through.
+            assert_eq!(model.base_url, None);
+            assert_eq!(model.context_length, None);
+            assert_eq!(model.max_tokens, None);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn apply_switch_defaults_preserves_fields_on_same_provider() {
+        with_test_home(|| {
+            let initial = HermesModelConfig {
+                default: Some("old-model".to_string()),
+                provider: Some("same-provider".to_string()),
+                base_url: Some("https://custom.example.com".to_string()),
+                context_length: Some(131072),
+                max_tokens: Some(16384),
+                extra: HashMap::new(),
+            };
+            set_model_config(&initial).unwrap();
+
+            let settings = serde_json::json!({
+                "models": [{ "id": "new-model" }]
+            });
+            // Re-switch the same provider — fields should be preserved.
+            apply_switch_defaults("same-provider", &settings).unwrap();
+
+            let model = get_model_config().unwrap().unwrap();
+            assert_eq!(model.default.as_deref(), Some("new-model"));
+            assert_eq!(model.provider.as_deref(), Some("custom:same-provider"));
             assert_eq!(
                 model.base_url.as_deref(),
-                Some("https://user-override.example.com")
+                Some("https://custom.example.com")
             );
             assert_eq!(model.context_length, Some(131072));
             assert_eq!(model.max_tokens, Some(16384));
@@ -1779,7 +2094,7 @@ custom_providers:
             apply_switch_defaults("bare", &settings).unwrap();
 
             let model = get_model_config().unwrap().unwrap();
-            assert_eq!(model.provider.as_deref(), Some("bare"));
+            assert_eq!(model.provider.as_deref(), Some("custom:bare"));
             assert_eq!(model.default.as_deref(), Some("legacy-default"));
         });
     }
@@ -1802,7 +2117,7 @@ custom_providers:
 
             let model = get_model_config().unwrap().unwrap();
             // Provider always updates.
-            assert_eq!(model.provider.as_deref(), Some("edge"));
+            assert_eq!(model.provider.as_deref(), Some("custom:edge"));
             // First entry's id is whitespace-only → blank → fall back to old default
             // (we intentionally don't scan past the first entry for a default).
             assert_eq!(model.default.as_deref(), Some("prev-default"));

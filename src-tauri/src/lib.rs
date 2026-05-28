@@ -1351,6 +1351,7 @@ pub fn run() {
             commands::get_install_root,
             commands::set_install_root,
             commands::check_tool_updates,
+            commands::update_tool,
         ]);
 
     let app = builder

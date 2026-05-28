@@ -17,7 +17,9 @@ const HERMES_DESKTOP_NOT_FOUND_ERROR: &str = "hermes_desktop_not_found";
 /// Hermes uses additive mode — users may already have providers
 /// configured in config.yaml.
 #[tauri::command]
-pub fn import_hermes_providers_from_live(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+pub fn import_hermes_providers_from_live(
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
     crate::services::provider::import_hermes_providers_from_live(state.inner())
         .map_err(|e| e.to_string())
 }
@@ -85,11 +87,13 @@ pub fn set_hermes_memory_enabled(
 /// Search order:
 ///   1. `HERMES_DESKTOP_PATH` environment variable
 ///   2. Standard OS-specific install locations
+///   3. Managed install root (e.g. `D:\AgenticTools\hermes`)
 ///
 /// On Windows the app is launched detached so CC Switch stays responsive.
 #[tauri::command]
 pub async fn open_hermes_desktop(
     _path: Option<String>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     // 1) Environment variable override.
     if let Ok(custom_path) = std::env::var("HERMES_DESKTOP_PATH") {
@@ -118,6 +122,21 @@ pub async fn open_hermes_desktop(
         }
     }
 
+    // 3) Managed install root (where the software manager installs tools).
+    if let Ok(Some(install_root)) = state.db.get_install_root() {
+        let managed_dir = std::path::PathBuf::from(&install_root).join("hermes");
+        if let Some(exe) = find_hermes_desktop_exe_in_dir(&managed_dir) {
+            return launch_hermes_desktop_executable(&exe);
+        }
+        // Also check the root directly (user may have pointed it at the exe dir).
+        let root = std::path::PathBuf::from(&install_root);
+        if root != managed_dir {
+            if let Some(exe) = find_hermes_desktop_exe_in_dir(&root) {
+                return launch_hermes_desktop_executable(&exe);
+            }
+        }
+    }
+
     Err(HERMES_DESKTOP_NOT_FOUND_ERROR.to_string())
 }
 
@@ -128,12 +147,18 @@ fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
 
     if let Some(local_app_data) = dirs::data_local_dir() {
         bases.push(local_app_data.join("Programs").join("hermes-desktop"));
+        bases.push(local_app_data.join("Programs").join("hermes-agent"));
+        bases.push(local_app_data.join("Programs").join("Hermes Agent"));
         bases.push(local_app_data.join("hermes-desktop"));
+        bases.push(local_app_data.join("hermes-agent"));
+        bases.push(local_app_data.join("Hermes Agent"));
     }
     if let Some(program_files) = std::env::var_os("ProgramFiles") {
         let pf: std::path::PathBuf = program_files.clone().into();
         bases.push(pf.join("Hermes Desktop"));
+        bases.push(pf.join("Hermes Agent"));
         bases.push(pf.join("hermes-desktop"));
+        bases.push(pf.join("hermes-agent"));
     }
 
     for base in &bases {
@@ -146,7 +171,12 @@ fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
 
 /// Check a directory for the Hermes Desktop executable.
 fn find_hermes_desktop_exe_in_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    for name in &["Hermes Desktop.exe", "hermes-desktop.exe"] {
+    for name in &[
+        "hermes-agent.exe",
+        "Hermes Agent.exe",
+        "Hermes Desktop.exe",
+        "hermes-desktop.exe",
+    ] {
         let exe = dir.join(name);
         if exe.exists() {
             return Some(exe);

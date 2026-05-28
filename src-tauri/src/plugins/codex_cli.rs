@@ -122,4 +122,23 @@ impl ToolPlugin for CodexCliPlugin {
         }
         result
     }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        install_npm_cli_with_registry(
+            target_dir,
+            install_root,
+            "codex-cli",
+            "Codex (CLI)",
+            progress,
+            "@openai/codex",
+            context.npm_registry_source(),
+        )
+    }
 }

@@ -102,6 +102,25 @@ impl ToolPlugin for GeminiCliPlugin {
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {
         uninstall_npm_cli(target_dir, "@google/gemini-cli")
     }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        install_npm_cli_with_registry(
+            target_dir,
+            install_root,
+            "gemini-cli",
+            "Gemini CLI",
+            progress,
+            "@google/gemini-cli",
+            context.npm_registry_source(),
+        )
+    }
 }
 
 #[cfg(test)]

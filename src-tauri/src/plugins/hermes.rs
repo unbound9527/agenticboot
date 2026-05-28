@@ -1,38 +1,78 @@
 use crate::plugin::{ToolInstallContext, ToolPlugin};
-use crate::tool_types::{DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta};
+use crate::tool_types::{
+    DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta, ToolUpdateSource,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct HermesPlugin;
 
-/// Latest Hermes Desktop version used to construct download URLs.
-const HERMES_DESKTOP_VERSION: &str = "0.5.1";
+#[cfg(target_os = "windows")]
+fn hermes_process_is_running() -> bool {
+    for name in &[
+        "hermes-agent.exe",
+        "Hermes Agent.exe",
+        "Hermes Desktop.exe",
+        "hermes-desktop.exe",
+    ] {
+        let result = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("IMAGENAME eq {name}"), "/NH"])
+            .output();
+        if let Ok(output) = result {
+            if String::from_utf8_lossy(&output.stdout).contains(name) {
+                return true;
+            }
+        }
+    }
+    false
+}
 
-fn hermes_desktop_download_url(filename: &str) -> String {
+fn hermes_desktop_download_url(version: &str, filename: &str) -> String {
     format!(
         "https://github.com/fathah/hermes-desktop/releases/download/v{}/{}",
-        HERMES_DESKTOP_VERSION, filename
+        version, filename
     )
 }
 
+fn fetch_latest_hermes_version() -> Result<String, String> {
+    let output = Command::new("curl")
+        .args([
+            "-s",
+            "https://api.github.com/repos/fathah/hermes-desktop/releases/latest",
+        ])
+        .output()
+        .map_err(|e| format!("获取 Hermes 最新版本失败: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("\"tag_name\"") {
+            if let Some(v) = line.split(':').nth(1) {
+                let v = v.trim().trim_matches('"').trim_start_matches('v');
+                return Ok(v.to_string());
+            }
+        }
+    }
+    Err("无法解析 Hermes 最新版本号".to_string())
+}
+
 #[cfg(target_os = "windows")]
-fn hermes_desktop_asset_name() -> &'static str {
-    "hermes-desktop-0.5.1-setup.exe"
+fn hermes_desktop_asset_name(version: &str) -> String {
+    format!("hermes-desktop-{}-setup.exe", version)
 }
 
 #[cfg(target_os = "macos")]
-fn hermes_desktop_asset_name() -> &'static str {
+fn hermes_desktop_asset_name(version: &str) -> String {
     if cfg!(target_arch = "aarch64") {
-        "hermes-desktop-0.5.1-arm64-mac.zip"
+        format!("hermes-desktop-{}-arm64-mac.zip", version)
     } else {
-        "hermes-desktop-0.5.1-x64-mac.zip"
+        format!("hermes-desktop-{}-x64-mac.zip", version)
     }
 }
 
 #[cfg(target_os = "linux")]
-fn hermes_desktop_asset_name() -> &'static str {
-    "hermes-desktop-0.5.1.AppImage"
+fn hermes_desktop_asset_name(version: &str) -> String {
+    format!("hermes-desktop-{}.AppImage", version)
 }
 
 fn emit_progress(progress: &Sender<InstallProgress>, phase: &str, percent: u8, message: &str) {
@@ -112,8 +152,8 @@ fn hermes_windows_install_args(install_dir: &Path) -> [String; 2] {
 }
 
 #[cfg(target_os = "windows")]
-fn hermes_windows_installer_path() -> PathBuf {
-    crate::services::downloader::temp_path(hermes_desktop_asset_name())
+fn hermes_windows_installer_path(version: &str) -> PathBuf {
+    crate::services::downloader::temp_path(&hermes_desktop_asset_name(version))
 }
 
 // ---------------------------------------------------------------------------
@@ -174,11 +214,18 @@ impl ToolPlugin for HermesPlugin {
         #[cfg(target_os = "windows")]
         {
             use crate::services::installer::windows::find_uninstall_entry_ex;
-            if let Some(entry) =
-                find_uninstall_entry_ex(&["Hermes Agent", "Hermes Desktop", "hermes-agent", "hermes-desktop"], &[])
-            {
+            if let Some(entry) = find_uninstall_entry_ex(
+                &[
+                    "Hermes Agent",
+                    "Hermes Desktop",
+                    "hermes-agent",
+                    "hermes-desktop",
+                ],
+                &[],
+            ) {
                 let install_path = entry.install_location.or_else(|| {
-                    entry.display_icon
+                    entry
+                        .display_icon
                         .as_ref()
                         .and_then(|path| path.parent().map(PathBuf::from))
                 });
@@ -195,6 +242,13 @@ impl ToolPlugin for HermesPlugin {
 
     fn dependencies(&self) -> Vec<ToolDependency> {
         vec![]
+    }
+
+    fn update_source(&self) -> Option<ToolUpdateSource> {
+        Some(ToolUpdateSource {
+            kind: "github".into(),
+            id: "fathah/hermes-desktop".into(),
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -218,6 +272,21 @@ impl ToolPlugin for HermesPlugin {
         progress: Sender<InstallProgress>,
         context: ToolInstallContext,
     ) -> Result<(), String> {
+        install_hermes_desktop_windows(target_dir, install_root, &progress, Some(&context))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        target_dir: &Path,
+        install_root: &Path,
+        progress: Sender<InstallProgress>,
+        context: ToolInstallContext,
+    ) -> Result<(), String> {
+        // 检查 Hermes 是否在运行，避免文件锁定导致更新失败
+        if hermes_process_is_running() {
+            return Err("Hermes Desktop 正在运行，请先关闭应用再更新".into());
+        }
         install_hermes_desktop_windows(target_dir, install_root, &progress, Some(&context))
     }
 
@@ -272,9 +341,15 @@ impl ToolPlugin for HermesPlugin {
             };
 
             // Try registry uninstall string first.
-            if let Some(entry) =
-                find_uninstall_entry_ex(&["Hermes Agent", "Hermes Desktop", "hermes-agent", "hermes-desktop"], &[])
-            {
+            if let Some(entry) = find_uninstall_entry_ex(
+                &[
+                    "Hermes Agent",
+                    "Hermes Desktop",
+                    "hermes-agent",
+                    "hermes-desktop",
+                ],
+                &[],
+            ) {
                 if let Some(uninstall_string) = entry.uninstall_string {
                     let status = Command::new("cmd")
                         .args(["/C", &uninstall_string])
@@ -323,9 +398,10 @@ fn install_hermes_desktop_windows(
     progress: &Sender<InstallProgress>,
     context: Option<&ToolInstallContext>,
 ) -> Result<(), String> {
-    let asset_name = hermes_desktop_asset_name();
-    let download_url = hermes_desktop_download_url(asset_name);
-    let installer_path = hermes_windows_installer_path();
+    let version = fetch_latest_hermes_version()?;
+    let asset_name = hermes_desktop_asset_name(&version);
+    let download_url = hermes_desktop_download_url(&version, &asset_name);
+    let installer_path = hermes_windows_installer_path(&version);
 
     // --- Download ---
     emit_progress(
@@ -344,7 +420,8 @@ fn install_hermes_desktop_windows(
         );
     }
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
+    let rt =
+        tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
     rt.block_on(async {
         crate::services::downloader::download_file(&download_url, &installer_path, None).await
     })?;
@@ -397,18 +474,15 @@ fn install_hermes_desktop_macos(
     target_dir: &Path,
     progress: &Sender<InstallProgress>,
 ) -> Result<(), String> {
-    let asset_name = hermes_desktop_asset_name();
-    let download_url = hermes_desktop_download_url(asset_name);
-    let archive_path = target_dir.join(asset_name);
+    let version = fetch_latest_hermes_version()?;
+    let asset_name = hermes_desktop_asset_name(&version);
+    let download_url = hermes_desktop_download_url(&version, &asset_name);
+    let archive_path = target_dir.join(&asset_name);
 
-    emit_progress(
-        progress,
-        "downloading",
-        10,
-        "Downloading Hermes Desktop...",
-    );
+    emit_progress(progress, "downloading", 10, "Downloading Hermes Desktop...");
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
+    let rt =
+        tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
     rt.block_on(async {
         crate::services::downloader::download_file(&download_url, &archive_path, None).await
     })?;
@@ -432,8 +506,9 @@ fn install_hermes_desktop_linux(
     target_dir: &Path,
     progress: &Sender<InstallProgress>,
 ) -> Result<(), String> {
-    let asset_name = hermes_desktop_asset_name();
-    let download_url = hermes_desktop_download_url(asset_name);
+    let version = fetch_latest_hermes_version()?;
+    let asset_name = hermes_desktop_asset_name(&version);
+    let download_url = hermes_desktop_download_url(&version, &asset_name);
     let appimage_path = target_dir.join("hermes-desktop.AppImage");
 
     emit_progress(
@@ -443,7 +518,8 @@ fn install_hermes_desktop_linux(
         "Downloading Hermes Desktop AppImage...",
     );
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
+    let rt =
+        tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
     rt.block_on(async {
         crate::services::downloader::download_file(&download_url, &appimage_path, None).await
     })?;
@@ -457,12 +533,7 @@ fn install_hermes_desktop_linux(
     std::fs::set_permissions(&appimage_path, perms)
         .map_err(|e| format!("failed to make AppImage executable: {e}"))?;
 
-    emit_progress(
-        progress,
-        "complete",
-        100,
-        "Hermes Desktop AppImage ready",
-    );
+    emit_progress(progress, "complete", 100, "Hermes Desktop AppImage ready");
     Ok(())
 }
 
@@ -494,8 +565,8 @@ mod tests {
 
     #[test]
     fn hermes_desktop_download_url_contains_version() {
-        let url = hermes_desktop_download_url("test.exe");
-        assert!(url.contains(HERMES_DESKTOP_VERSION));
+        let url = hermes_desktop_download_url("1.2.3", "test.exe");
+        assert!(url.contains("1.2.3"));
         assert!(url.starts_with("https://github.com/fathah/hermes-desktop/releases/download/"));
     }
 
@@ -567,14 +638,17 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn hermes_windows_installer_downloads_to_temp_directory() {
-        let installer_path = hermes_windows_installer_path();
+        let version = "0.5.1";
+        let installer_path = hermes_windows_installer_path(version);
 
         assert_eq!(
             installer_path.file_name().and_then(|name| name.to_str()),
             Some("hermes-desktop-0.5.1-setup.exe")
         );
         assert!(
-            !installer_path.to_string_lossy().contains("\\AgenticTools\\hermes\\"),
+            !installer_path
+                .to_string_lossy()
+                .contains("\\AgenticTools\\hermes\\"),
             "installer should not live inside the managed install dir: {}",
             installer_path.display()
         );

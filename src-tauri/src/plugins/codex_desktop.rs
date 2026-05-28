@@ -1,4 +1,4 @@
-use crate::plugin::ToolPlugin;
+use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::services::installer::windows::{
     find_appx_install_location, find_executable_in_dir, find_local_uninstaller_executable,
     find_uninstall_entry_ex, read_command_version, run_windows_uninstaller_with_common_args,
@@ -130,6 +130,36 @@ impl ToolPlugin for CodexDesktopPlugin {
         _progress: Sender<InstallProgress>,
     ) -> Result<(), String> {
         Err("Codex desktop auto-install is currently supported only on Windows".into())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn update_with_context(
+        &self,
+        _target_dir: &Path,
+        _install_root: &Path,
+        progress: Sender<InstallProgress>,
+        _context: ToolInstallContext,
+    ) -> Result<(), String> {
+        let _ = progress.blocking_send(InstallProgress {
+            tool_id: "codex-desktop".into(),
+            tool_name: "Codex (Desktop)".into(),
+            phase: "installing".into(),
+            percent: 0,
+            message: "Updating Codex desktop app via Microsoft Store...".into(),
+        });
+
+        if !winget_exists() {
+            return Err("Codex desktop update requires winget / App Installer".into());
+        }
+
+        run_winget(&[
+            "upgrade",
+            "Codex",
+            "-s",
+            "msstore",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ])
     }
 
     fn uninstall(&self, target_dir: &Path) -> Result<(), String> {

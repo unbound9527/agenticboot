@@ -1598,7 +1598,11 @@ fn preferred_output_line<'a>(lines: impl IntoIterator<Item = &'a str>) -> Option
     let mut first_non_empty = None;
     let mut last_version_like = None;
 
-    for line in lines.into_iter().map(str::trim).filter(|line| !line.is_empty()) {
+    for line in lines
+        .into_iter()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         if first_non_empty.is_none() {
             first_non_empty = Some(line.to_string());
         }
