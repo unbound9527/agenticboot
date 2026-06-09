@@ -2,7 +2,6 @@ use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::tool_types::{
     DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta, ToolUpdateSource,
 };
-use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
@@ -10,9 +9,18 @@ use tokio::sync::mpsc::Sender;
 pub struct HermesPlugin;
 
 const HERMES_OFFICIAL_DESKTOP_PAGE: &str = "https://hermes-agent.nousresearch.com/desktop";
-#[cfg(target_os = "windows")]
 const HERMES_OFFICIAL_WINDOWS_ASSET_URL: &str =
     "https://hermes-assets.nousresearch.com/Hermes-Setup.exe";
+const HERMES_OFFICIAL_MACOS_ASSET_URL: &str =
+    "https://hermes-assets.nousresearch.com/Hermes-Setup.dmg";
+const HERMES_WINDOWS_INSTALLER_FILENAME: &str = "Hermes-Setup.exe";
+const HERMES_MACOS_INSTALLER_FILENAME: &str = "Hermes-Setup.dmg";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HermesDesktopArtifact {
+    url: &'static str,
+    filename: &'static str,
+}
 
 #[cfg(target_os = "windows")]
 fn hermes_process_is_running() -> bool {
@@ -34,60 +42,23 @@ fn hermes_process_is_running() -> bool {
     false
 }
 
-#[cfg(target_os = "windows")]
-fn hermes_desktop_download_url() -> &'static str {
-    HERMES_OFFICIAL_WINDOWS_ASSET_URL
-}
-
-#[cfg(target_os = "macos")]
-fn hermes_desktop_download_url() -> &'static str {
-    HERMES_OFFICIAL_DESKTOP_PAGE
-}
-
-#[cfg(target_os = "linux")]
-fn hermes_desktop_download_url() -> &'static str {
-    HERMES_OFFICIAL_DESKTOP_PAGE
-}
-
-fn parse_latest_hermes_version(html: &str) -> Option<String> {
-    static VERSION_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let regex = VERSION_RE.get_or_init(|| {
-        Regex::new(r"Hermes Agent v(\d+\.\d+\.\d+(?:\.\d+)*)")
-            .expect("Hermes desktop version regex should compile")
-    });
-    regex
-        .captures(html)
-        .and_then(|captures| captures.get(1))
-        .map(|value| value.as_str().to_string())
-}
-
-fn fetch_latest_hermes_version() -> Result<String, String> {
-    let output = Command::new("curl")
-        .args(["-fsSL", HERMES_OFFICIAL_DESKTOP_PAGE])
-        .output()
-        .map_err(|e| format!("获取 Hermes 最新版本失败: {e}"))?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    parse_latest_hermes_version(&text)
-        .ok_or_else(|| "无法解析 Hermes 最新版本号".to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn hermes_desktop_asset_name(version: &str) -> String {
-    format!("hermes-desktop-{}-setup.exe", version)
-}
-
-#[cfg(target_os = "macos")]
-fn hermes_desktop_asset_name(version: &str) -> String {
-    if cfg!(target_arch = "aarch64") {
-        format!("hermes-desktop-{}-arm64-mac.zip", version)
-    } else {
-        format!("hermes-desktop-{}-x64-mac.zip", version)
+fn hermes_desktop_download_artifact_for_os(os: &str) -> Result<HermesDesktopArtifact, String> {
+    match os {
+        "windows" => Ok(HermesDesktopArtifact {
+            url: HERMES_OFFICIAL_WINDOWS_ASSET_URL,
+            filename: HERMES_WINDOWS_INSTALLER_FILENAME,
+        }),
+        "macos" => Ok(HermesDesktopArtifact {
+            url: HERMES_OFFICIAL_MACOS_ASSET_URL,
+            filename: HERMES_MACOS_INSTALLER_FILENAME,
+        }),
+        "linux" => Err("Hermes Desktop official Linux direct binary is not available; use the official CLI installer flow instead".into()),
+        _ => Err(format!("Hermes Desktop auto-install is not supported on {os}")),
     }
 }
 
-#[cfg(target_os = "linux")]
-fn hermes_desktop_asset_name(version: &str) -> String {
-    format!("hermes-desktop-{}.AppImage", version)
+fn hermes_desktop_download_artifact() -> Result<HermesDesktopArtifact, String> {
+    hermes_desktop_download_artifact_for_os(std::env::consts::OS)
 }
 
 fn emit_progress(progress: &Sender<InstallProgress>, phase: &str, percent: u8, message: &str) {
@@ -167,8 +138,8 @@ fn hermes_windows_install_args(install_dir: &Path) -> [String; 2] {
 }
 
 #[cfg(target_os = "windows")]
-fn hermes_windows_installer_path(version: &str) -> PathBuf {
-    crate::services::downloader::temp_path(&hermes_desktop_asset_name(version))
+fn hermes_windows_installer_path(artifact: HermesDesktopArtifact) -> PathBuf {
+    crate::services::downloader::temp_path(artifact.filename)
 }
 
 // ---------------------------------------------------------------------------
@@ -413,9 +384,8 @@ fn install_hermes_desktop_windows(
     progress: &Sender<InstallProgress>,
     context: Option<&ToolInstallContext>,
 ) -> Result<(), String> {
-    let version = fetch_latest_hermes_version()?;
-    let download_url = hermes_desktop_download_url();
-    let installer_path = hermes_windows_installer_path(&version);
+    let artifact = hermes_desktop_download_artifact()?;
+    let installer_path = hermes_windows_installer_path(artifact);
 
     // --- Download ---
     emit_progress(
@@ -430,14 +400,14 @@ fn install_hermes_desktop_windows(
         ctx.install_log().emit_output(
             "downloading",
             crate::tool_types::InstallLogLevel::Info,
-            format!("Fetching {download_url}"),
+            format!("Fetching {}", artifact.url),
         );
     }
 
     let rt =
         tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
     rt.block_on(async {
-        crate::services::downloader::download_file(&download_url, &installer_path, None).await
+        crate::services::downloader::download_file(artifact.url, &installer_path, None).await
     })?;
 
     // --- Install ---
@@ -488,23 +458,28 @@ fn install_hermes_desktop_macos(
     target_dir: &Path,
     progress: &Sender<InstallProgress>,
 ) -> Result<(), String> {
-    let version = fetch_latest_hermes_version()?;
-    let asset_name = hermes_desktop_asset_name(&version);
-    let download_url = hermes_desktop_download_url();
-    let archive_path = target_dir.join(&asset_name);
+    let artifact = hermes_desktop_download_artifact()?;
+    let installer_path = target_dir.join(artifact.filename);
 
     emit_progress(progress, "downloading", 10, "Downloading Hermes Desktop...");
 
     let rt =
         tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
     rt.block_on(async {
-        crate::services::downloader::download_file(&download_url, &archive_path, None).await
+        crate::services::downloader::download_file(artifact.url, &installer_path, None).await
     })?;
 
-    emit_progress(progress, "extracting", 50, "Extracting Hermes Desktop...");
+    emit_progress(
+        progress,
+        "installing",
+        50,
+        "Opening Hermes Desktop installer...",
+    );
 
-    crate::services::downloader::extract_zip(&archive_path, target_dir)?;
-    std::fs::remove_file(&archive_path).ok();
+    Command::new("open")
+        .arg(&installer_path)
+        .spawn()
+        .map_err(|e| format!("failed to open Hermes Desktop installer: {e}"))?;
 
     emit_progress(
         progress,
@@ -520,35 +495,9 @@ fn install_hermes_desktop_linux(
     target_dir: &Path,
     progress: &Sender<InstallProgress>,
 ) -> Result<(), String> {
-    let version = fetch_latest_hermes_version()?;
-    let _asset_name = hermes_desktop_asset_name(&version);
-    let download_url = hermes_desktop_download_url();
-    let appimage_path = target_dir.join("hermes-desktop.AppImage");
-
-    emit_progress(
-        progress,
-        "downloading",
-        10,
-        "Downloading Hermes Desktop AppImage...",
-    );
-
-    let rt =
-        tokio::runtime::Runtime::new().map_err(|e| format!("failed to create runtime: {e}"))?;
-    rt.block_on(async {
-        crate::services::downloader::download_file(&download_url, &appimage_path, None).await
-    })?;
-
-    // Make AppImage executable.
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = std::fs::metadata(&appimage_path)
-        .map_err(|e| format!("failed to read AppImage metadata: {e}"))?
-        .permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&appimage_path, perms)
-        .map_err(|e| format!("failed to make AppImage executable: {e}"))?;
-
-    emit_progress(progress, "complete", 100, "Hermes Desktop AppImage ready");
-    Ok(())
+    let _ = target_dir;
+    let _ = progress;
+    hermes_desktop_download_artifact().map(|_| ())
 }
 
 // ============================================================================
@@ -578,12 +527,34 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
-    fn hermes_desktop_download_url_uses_official_windows_asset() {
+    fn hermes_desktop_download_artifact_uses_official_windows_asset() {
+        let artifact = hermes_desktop_download_artifact_for_os("windows").unwrap();
+
         assert_eq!(
-            hermes_desktop_download_url(),
+            artifact.url,
             "https://hermes-assets.nousresearch.com/Hermes-Setup.exe"
         );
+        assert_eq!(artifact.filename, "Hermes-Setup.exe");
+        assert_ne!(artifact.url, HERMES_OFFICIAL_DESKTOP_PAGE);
+    }
+
+    #[test]
+    fn hermes_desktop_download_artifact_uses_official_macos_asset() {
+        let artifact = hermes_desktop_download_artifact_for_os("macos").unwrap();
+
+        assert_eq!(
+            artifact.url,
+            "https://hermes-assets.nousresearch.com/Hermes-Setup.dmg"
+        );
+        assert_eq!(artifact.filename, "Hermes-Setup.dmg");
+        assert_ne!(artifact.url, HERMES_OFFICIAL_DESKTOP_PAGE);
+    }
+
+    #[test]
+    fn hermes_desktop_download_artifact_fails_closed_for_linux() {
+        let err = hermes_desktop_download_artifact_for_os("linux").unwrap_err();
+
+        assert!(err.contains("official Linux direct binary is not available"));
     }
 
     #[test]
@@ -593,24 +564,7 @@ mod tests {
             .expect("Hermes should declare an update source");
 
         assert_eq!(source.kind, "hermes-official");
-        assert_eq!(
-            source.id,
-            "https://hermes-agent.nousresearch.com/desktop"
-        );
-    }
-
-    #[test]
-    fn hermes_official_version_parser_reads_desktop_page_label() {
-        let html = r#"<main><p>Download Hermes Agent v0.16.0 for your OS</p></main>"#;
-
-        assert_eq!(parse_latest_hermes_version(html).as_deref(), Some("0.16.0"));
-    }
-
-    #[test]
-    fn hermes_official_version_parser_ignores_unscoped_versions() {
-        let html = r#"<main><p>Other product v9.9.9</p></main>"#;
-
-        assert_eq!(parse_latest_hermes_version(html), None);
+        assert_eq!(source.id, "https://hermes-agent.nousresearch.com/desktop");
     }
 
     #[test]
@@ -681,12 +635,12 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn hermes_windows_installer_downloads_to_temp_directory() {
-        let version = "0.5.1";
-        let installer_path = hermes_windows_installer_path(version);
+        let artifact = hermes_desktop_download_artifact_for_os("windows").unwrap();
+        let installer_path = hermes_windows_installer_path(artifact);
 
         assert_eq!(
             installer_path.file_name().and_then(|name| name.to_str()),
-            Some("hermes-desktop-0.5.1-setup.exe")
+            Some("Hermes-Setup.exe")
         );
         assert!(
             !installer_path
