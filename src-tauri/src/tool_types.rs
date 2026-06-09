@@ -44,6 +44,10 @@ pub struct ToolUpdateSource {
     pub id: String,
 }
 
+impl ToolUpdateSource {
+    pub const KIND_HERMES_OFFICIAL: &'static str = "hermes-official";
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolPlatformSupport {

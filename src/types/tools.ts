@@ -20,7 +20,7 @@ export interface ToolDependency {
 }
 
 export interface ToolUpdateSource {
-  kind: "npm" | "github" | string;
+  kind: "npm" | "github" | "hermes-official" | string;
   id: string;
 }
 

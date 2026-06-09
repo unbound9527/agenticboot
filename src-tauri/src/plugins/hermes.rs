@@ -2,11 +2,17 @@ use crate::plugin::{ToolInstallContext, ToolPlugin};
 use crate::tool_types::{
     DetectResult, InstallProgress, InstallStrategy, ToolDependency, ToolMeta, ToolUpdateSource,
 };
+use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc::Sender;
 
 pub struct HermesPlugin;
+
+const HERMES_OFFICIAL_DESKTOP_PAGE: &str = "https://hermes-agent.nousresearch.com/desktop";
+#[cfg(target_os = "windows")]
+const HERMES_OFFICIAL_WINDOWS_ASSET_URL: &str =
+    "https://hermes-assets.nousresearch.com/Hermes-Setup.exe";
 
 #[cfg(target_os = "windows")]
 fn hermes_process_is_running() -> bool {
@@ -28,32 +34,41 @@ fn hermes_process_is_running() -> bool {
     false
 }
 
-fn hermes_desktop_download_url(version: &str, filename: &str) -> String {
-    format!(
-        "https://github.com/fathah/hermes-desktop/releases/download/v{}/{}",
-        version, filename
-    )
+#[cfg(target_os = "windows")]
+fn hermes_desktop_download_url() -> &'static str {
+    HERMES_OFFICIAL_WINDOWS_ASSET_URL
+}
+
+#[cfg(target_os = "macos")]
+fn hermes_desktop_download_url() -> &'static str {
+    HERMES_OFFICIAL_DESKTOP_PAGE
+}
+
+#[cfg(target_os = "linux")]
+fn hermes_desktop_download_url() -> &'static str {
+    HERMES_OFFICIAL_DESKTOP_PAGE
+}
+
+fn parse_latest_hermes_version(html: &str) -> Option<String> {
+    static VERSION_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let regex = VERSION_RE.get_or_init(|| {
+        Regex::new(r"Hermes Agent v(\d+\.\d+\.\d+(?:\.\d+)*)")
+            .expect("Hermes desktop version regex should compile")
+    });
+    regex
+        .captures(html)
+        .and_then(|captures| captures.get(1))
+        .map(|value| value.as_str().to_string())
 }
 
 fn fetch_latest_hermes_version() -> Result<String, String> {
     let output = Command::new("curl")
-        .args([
-            "-s",
-            "https://api.github.com/repos/fathah/hermes-desktop/releases/latest",
-        ])
+        .args(["-fsSL", HERMES_OFFICIAL_DESKTOP_PAGE])
         .output()
         .map_err(|e| format!("获取 Hermes 最新版本失败: {e}"))?;
     let text = String::from_utf8_lossy(&output.stdout);
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with("\"tag_name\"") {
-            if let Some(v) = line.split(':').nth(1) {
-                let v = v.trim().trim_matches('"').trim_start_matches('v');
-                return Ok(v.to_string());
-            }
-        }
-    }
-    Err("无法解析 Hermes 最新版本号".to_string())
+    parse_latest_hermes_version(&text)
+        .ok_or_else(|| "无法解析 Hermes 最新版本号".to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -246,8 +261,8 @@ impl ToolPlugin for HermesPlugin {
 
     fn update_source(&self) -> Option<ToolUpdateSource> {
         Some(ToolUpdateSource {
-            kind: "github".into(),
-            id: "fathah/hermes-desktop".into(),
+            kind: ToolUpdateSource::KIND_HERMES_OFFICIAL.into(),
+            id: HERMES_OFFICIAL_DESKTOP_PAGE.into(),
         })
     }
 
@@ -399,8 +414,7 @@ fn install_hermes_desktop_windows(
     context: Option<&ToolInstallContext>,
 ) -> Result<(), String> {
     let version = fetch_latest_hermes_version()?;
-    let asset_name = hermes_desktop_asset_name(&version);
-    let download_url = hermes_desktop_download_url(&version, &asset_name);
+    let download_url = hermes_desktop_download_url();
     let installer_path = hermes_windows_installer_path(&version);
 
     // --- Download ---
@@ -476,7 +490,7 @@ fn install_hermes_desktop_macos(
 ) -> Result<(), String> {
     let version = fetch_latest_hermes_version()?;
     let asset_name = hermes_desktop_asset_name(&version);
-    let download_url = hermes_desktop_download_url(&version, &asset_name);
+    let download_url = hermes_desktop_download_url();
     let archive_path = target_dir.join(&asset_name);
 
     emit_progress(progress, "downloading", 10, "Downloading Hermes Desktop...");
@@ -507,8 +521,8 @@ fn install_hermes_desktop_linux(
     progress: &Sender<InstallProgress>,
 ) -> Result<(), String> {
     let version = fetch_latest_hermes_version()?;
-    let asset_name = hermes_desktop_asset_name(&version);
-    let download_url = hermes_desktop_download_url(&version, &asset_name);
+    let _asset_name = hermes_desktop_asset_name(&version);
+    let download_url = hermes_desktop_download_url();
     let appimage_path = target_dir.join("hermes-desktop.AppImage");
 
     emit_progress(
@@ -564,10 +578,39 @@ mod tests {
     }
 
     #[test]
-    fn hermes_desktop_download_url_contains_version() {
-        let url = hermes_desktop_download_url("1.2.3", "test.exe");
-        assert!(url.contains("1.2.3"));
-        assert!(url.starts_with("https://github.com/fathah/hermes-desktop/releases/download/"));
+    #[cfg(target_os = "windows")]
+    fn hermes_desktop_download_url_uses_official_windows_asset() {
+        assert_eq!(
+            hermes_desktop_download_url(),
+            "https://hermes-assets.nousresearch.com/Hermes-Setup.exe"
+        );
+    }
+
+    #[test]
+    fn hermes_update_source_uses_official_desktop_page() {
+        let source = HermesPlugin
+            .update_source()
+            .expect("Hermes should declare an update source");
+
+        assert_eq!(source.kind, "hermes-official");
+        assert_eq!(
+            source.id,
+            "https://hermes-agent.nousresearch.com/desktop"
+        );
+    }
+
+    #[test]
+    fn hermes_official_version_parser_reads_desktop_page_label() {
+        let html = r#"<main><p>Download Hermes Agent v0.16.0 for your OS</p></main>"#;
+
+        assert_eq!(parse_latest_hermes_version(html).as_deref(), Some("0.16.0"));
+    }
+
+    #[test]
+    fn hermes_official_version_parser_ignores_unscoped_versions() {
+        let html = r#"<main><p>Other product v9.9.9</p></main>"#;
+
+        assert_eq!(parse_latest_hermes_version(html), None);
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::plugin::{get_plugin_by_id, NpmRegistrySource, ToolInstallContext};
 use crate::services::installer::logging::InstallLogEmitter;
 use crate::services::installer::windows::find_managed_executable;
 use crate::tool_types::{
-    InstallPlan, InstallProgress, InstallStep, InstallStrategy, ToolUpdateInfo,
+    InstallPlan, InstallProgress, InstallStep, InstallStrategy, ToolUpdateInfo, ToolUpdateSource,
 };
 use path_manager::PathManager;
 use regex::Regex;
@@ -218,12 +218,41 @@ async fn fetch_latest_github_release_version(
         .map(|value| value.trim_start_matches('v').to_string())
 }
 
+fn parse_latest_hermes_official_version(html: &str) -> Option<String> {
+    static VERSION_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let regex = VERSION_RE.get_or_init(|| {
+        Regex::new(r"(?i)\bHermes\s+Agent\s+v(\d+\.\d+\.\d+(?:\.\d+)*)\b")
+            .expect("valid Hermes official version regex")
+    });
+    regex
+        .captures(html)
+        .and_then(|captures| captures.get(1))
+        .map(|value| value.as_str().to_string())
+}
+
+async fn fetch_latest_hermes_official_version(
+    client: &reqwest::Client,
+    page_url: &str,
+) -> Option<String> {
+    let response = client
+        .get(page_url)
+        .header("User-Agent", "AgenticBoot")
+        .send()
+        .await
+        .ok()?;
+    let html = response.text().await.ok()?;
+    parse_latest_hermes_official_version(&html)
+}
+
 async fn fetch_latest_tool_version(client: &reqwest::Client, tool_id: &str) -> Option<String> {
     let plugin = get_plugin_by_id(tool_id)?;
     let source = plugin.update_source()?;
     match source.kind.as_str() {
         "npm" => fetch_latest_npm_version(client, &source.id).await,
         "github" => fetch_latest_github_release_version(client, &source.id).await,
+        ToolUpdateSource::KIND_HERMES_OFFICIAL => {
+            fetch_latest_hermes_official_version(client, &source.id).await
+        }
         _ => None,
     }
 }
@@ -1182,9 +1211,37 @@ mod tests {
         assert_eq!(opencode_desktop.kind, "github");
         assert_eq!(opencode_desktop.id, "opencode-ai/opencode");
 
-        assert!(get_plugin_by_id("hermes")
+        let hermes = get_plugin_by_id("hermes")
             .and_then(|plugin| plugin.update_source())
-            .is_none());
+            .expect("hermes update source");
+        assert_eq!(hermes.kind, "hermes-official");
+        assert_eq!(
+            hermes.id,
+            "https://hermes-agent.nousresearch.com/desktop"
+        );
+    }
+
+    #[test]
+    fn hermes_official_update_source_parser_reads_visible_desktop_version() {
+        let html = r#"
+            <html>
+              <body>
+                <h1>Hermes Agent v0.16.0</h1>
+              </body>
+            </html>
+        "#;
+
+        assert_eq!(
+            super::parse_latest_hermes_official_version(html).as_deref(),
+            Some("0.16.0")
+        );
+    }
+
+    #[test]
+    fn hermes_official_update_source_parser_fails_closed_for_unscoped_versions() {
+        let html = r#"<html><body><h1>Download v0.16.0</h1></body></html>"#;
+
+        assert_eq!(super::parse_latest_hermes_official_version(html), None);
     }
 
     #[test]
