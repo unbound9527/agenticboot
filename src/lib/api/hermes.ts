@@ -6,14 +6,14 @@ import type {
 } from "@/types";
 
 /**
- * Hermes Agent configuration API (CC Switch side).
+ * Hermes Desktop configuration API used by AgenticBoot.
  *
- * CC Switch keeps its Hermes surface minimal — deep configuration
- * (model, agent behavior, env vars, skills, cron, logs, analytics) lives in
- * Hermes Desktop. CC Switch reads the `model` section to highlight the active
- * provider and launches Hermes Desktop for everything else. Writes to `model`
- * happen implicitly via `apply_switch_defaults` when the user switches
- * providers.
+ * AgenticBoot keeps its Hermes surface intentionally minimal: deep
+ * configuration (model, agent behavior, env vars, skills, cron, logs,
+ * analytics) lives in Hermes Desktop. AgenticBoot reads the `model` section to
+ * highlight the active provider and launches Hermes Desktop for everything
+ * else. Writes to `model` happen implicitly via `apply_switch_defaults` when
+ * the user switches providers.
  */
 export const hermesApi = {
   async getModelConfig(): Promise<HermesModelConfig | null> {
