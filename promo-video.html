@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AgenticBoot — AI 工具，一点就装</title>
+<style>
+/* ===== RESET & BASE ===== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#FFFAF5;}
+body{
+  font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  color:#2D3436;-webkit-font-smoothing:antialiased;
+}
+body.playing{background:#000;}
+#app{width:100vw;height:100vh;position:relative;overflow:hidden;}
+#stage{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:1920px;height:1080px;transform-origin:center center;
+}
+
+/* ===== SCENE CONTAINER ===== */
+.scene{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;overflow:hidden;
+  opacity:0;pointer-events:none;
+  transition:opacity 0.6s cubic-bezier(.25,.46,.45,.94),
+             transform 0.6s cubic-bezier(.25,.46,.45,.94);
+  transform:translateY(20px);
+}
+.scene.active{opacity:1;pointer-events:auto;transform:translateY(0);}
+.scene.exiting{opacity:0;transform:translateY(-20px);}
+
+/* ===== ENTRANCE PATTERN (auto-animate when scene becomes active) ===== */
+.entrance{
+  opacity:0;transform:translateY(24px);
+  transition:all 0.6s cubic-bezier(.25,.46,.45,.94);
+}
+.scene.active>.entrance,
+.scene.active .entrance{opacity:1;transform:translateY(0);}
+
+/* ===== TIMED REVEAL PATTERN (JS adds .show at specific scene time) ===== */
+.timed{
+  opacity:0;transform:translateY(20px);
+  transition:all 0.6s cubic-bezier(.25,.46,.45,.94);
+}
+.timed.show{opacity:1;transform:translateY(0);}
+.timed-pop{
+  opacity:0;transform:scale(0.8);
+  transition:all 0.5s cubic-bezier(.68,-.55,.27,1.55);
+}
+.timed-pop.show{opacity:1;transform:scale(1);}
+.timed-left{
+  opacity:0;transform:translateX(-60px);
+  transition:all 0.5s cubic-bezier(.25,.46,.45,.94);
+}
+.timed-left.show{opacity:1;transform:translateX(0);}
+.timed-right{
+  opacity:0;transform:translateX(60px);
+  transition:all 0.5s cubic-bezier(.25,.46,.45,.94);
+}
+.timed-right.show{opacity:1;transform:translateX(0);}
+
+/* Transition delay modifiers */
+.d1{transition-delay:0.1s}.d2{transition-delay:0.2s}.d3{transition-delay:0.3s}
+.d4{transition-delay:0.4s}.d5{transition-delay:0.5s}.d6{transition-delay:0.6s}
+.d7{transition-delay:0.7s}.d8{transition-delay:0.8s}.d9{transition-delay:0.9s}
+.d10{transition-delay:1s}.d12{transition-delay:1.2s}.d15{transition-delay:1.5s}
+.d20{transition-delay:2s}.d25{transition-delay:2.5s}.d30{transition-delay:3s}
+.d45{transition-delay:4.5s}.d50{transition-delay:5s}.d55{transition-delay:5.5s}
+.d80{transition-delay:8s}
+
+/* ===== BLOB ===== */
+.blob{
+  position:absolute;border-radius:50%;filter:blur(80px);pointer-events:none;
+  transform:translate(-50%,-50%);
+  animation:blobBreathe 15s ease-in-out infinite;
+}
+.blob.slow{animation-duration:20s;}
+@keyframes blobBreathe{
+  0%,100%{transform:translate(-50%,-50%) scale(1)}
+  50%{transform:translate(-45%,-55%) scale(1.15)}
+}
+
+/* ===== SCENE 0: COVER ===== */
+.s0-bg{position:absolute;inset:0;background:linear-gradient(135deg,#FF6B35 0%,#FFB563 50%,#FFFAF5 100%);}
+.s0-logo{
+  width:140px;height:140px;border-radius:24px;position:relative;z-index:10;margin-bottom:40px;
+  background:linear-gradient(135deg,#FF6B35,#FFB563);
+  box-shadow:0 20px 60px rgba(255,107,53,0.4);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;transform:scale(0.9);filter:blur(8px);
+  transition:all 1.2s ease-out;
+}
+.s0-logo svg{width:64px;height:64px;}
+.scene.active .s0-logo{opacity:1;transform:scale(1);filter:blur(0);}
+.s0-title{
+  position:relative;z-index:10;font-size:96px;font-weight:700;color:#fff;
+  letter-spacing:-1px;text-shadow:0 4px 20px rgba(0,0,0,0.15);
+  opacity:0;transform:translateY(30px);transition:all 0.8s ease-out 0.6s;
+}
+.scene.active .s0-title{opacity:1;transform:translateY(0);}
+.s0-sub{
+  position:relative;z-index:10;font-size:32px;color:rgba(255,255,255,0.9);
+  font-weight:500;margin-top:16px;
+  opacity:0;transform:translateY(16px);transition:all 0.6s ease-out 1.2s;
+}
+.scene.active .s0-sub{opacity:1;transform:translateY(0);}
+.s0-arrow{
+  position:absolute;bottom:64px;z-index:10;color:rgba(255,255,255,0.7);
+  opacity:0;transition:opacity 0.5s ease-out 2.2s;
+  animation:arrowBounce 1.5s ease-in-out 2.2s infinite;
+}
+.scene.active .s0-arrow{opacity:1;}
+@keyframes arrowBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
+
+/* ===== SCENE 1: DOUBAO ===== */
+.s1-icon{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.s1-icon .circle{
+  width:80px;height:80px;border-radius:16px;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:28px;font-weight:700;box-shadow:0 8px 25px rgba(0,0,0,0.15);
+}
+.s1-label{font-size:18px;color:#2D3436;}
+.s1-bar-section{opacity:0;transition:opacity 0.6s;}
+.s1-bar-section.show{opacity:1;}
+.s1-bar-row{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.s1-bar-label{font-size:20px;font-weight:500;color:#2D3436;text-align:center;}
+.s1-bar-group{display:flex;align-items:flex-end;justify-content:center;gap:96px;height:192px;}
+.s1-bar-col{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.s1-bar-val{font-size:18px;font-weight:500;}
+.s1-bar-val.muted{color:#9ca3af}.s1-bar-val.highlight{color:#FF6B35;font-weight:700;}
+.s1-bar{
+  width:128px;border-radius:12px 12px 0 0;height:0;
+  transition:height 0.8s cubic-bezier(.25,.46,.45,.94);
+}
+.s1-bar.muted{background:#d1d5db}.s1-bar.highlight{background:linear-gradient(180deg,#FF6B35,#FFB563);}
+.s1-bar.muted.show{height:27px}.s1-bar.muted.show.tall{height:21px}
+.s1-bar.highlight.show{height:165px}.s1-bar.highlight.show.tall2{height:162px}
+.s1-bar-hint{font-size:14px;}
+.s1-compare-row{display:flex;align-items:center;gap:80px;}
+.s1-compare-item{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.s1-compare-item svg{width:40px;height:40px;}
+.s1-big-stat{
+  position:absolute;bottom:96px;font-size:80px;font-weight:700;
+  background:linear-gradient(135deg,#FF6B35,#FFB563);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+
+/* ===== SCENE 2: REALITY ===== */
+.s2-bg{position:absolute;inset:0;background:linear-gradient(180deg,#e8ecf1 0%,#d5dbe3 100%);}
+.s2-wall{
+  width:176px;height:112px;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);
+  border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,0.08);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;color:#6b7280;font-weight:500;
+}
+.s2-wall-w{opacity:0;transform:translateY(-200px);transition:all 0.5s cubic-bezier(.68,-.55,.27,1.55);}
+.s2-wall-w.show{opacity:1;transform:translateY(0);}
+.s2-overlay{
+  position:absolute;inset:0;background:rgba(45,52,54,0.85);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  opacity:0;transition:opacity 0.8s;pointer-events:none;
+}
+.s2-overlay.show{opacity:1;}
+.s2-face{
+  width:128px;height:128px;border-radius:50%;background:rgba(255,255,255,0.1);
+  display:flex;align-items:center;justify-content:center;font-size:64px;
+}
+.s2-text{color:#fff;font-weight:700;text-align:center;}
+
+/* ===== SCENE 3: VISION ===== */
+.s3-bg{position:absolute;inset:0;background:linear-gradient(135deg,#FF6B35 0%,#FFB563 50%,#FFFAF5 100%);}
+.s3-phrase{text-align:center;color:#fff;text-shadow:0 4px 20px rgba(0,0,0,0.12);}
+.s3-line{
+  width:384px;height:2px;background:rgba(255,255,255,0.6);margin-top:32px;
+  transform:scaleX(0);transform-origin:left;transition:transform 1.5s ease-in-out;
+}
+.s3-line.show{transform:scaleX(1);}
+
+/* ===== SCENE 4: WHAT IS ===== */
+.s4-step-icon{
+  width:128px;height:128px;border-radius:24px;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 10px 35px rgba(0,0,0,0.12);
+}
+.s4-step-icon svg{width:48px;height:48px;}
+.s4-step-label{font-size:20px;font-weight:500;color:#2D3436;}
+.s4-arrow-line{flex:1;height:2px;background:#FF6B35;transform:scaleX(0);transform-origin:left;transition:transform 0.8s ease-in-out;}
+.s4-arrow-line.show{transform:scaleX(1);}
+.s4-arrow-tip{
+  width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;
+  border-left:10px solid #FF6B35;opacity:0;transform:translateX(-5px);
+  transition:all 0.4s ease-out 0.6s;
+}
+.s4-arrow-tip.show{opacity:1;transform:translateX(0);}
+.s4-wrap{display:flex;align-items:center;width:80px;opacity:0;transition:opacity 0.4s;}
+.s4-wrap.show{opacity:1;}
+
+/* ===== SCENE 5: CAPABILITIES ===== */
+.s5-card{
+  display:flex;align-items:center;gap:32px;width:800px;
+  background:#fff;border-radius:24px;padding:38px 48px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.06);
+}
+.s5-icon-box{
+  width:128px;height:128px;flex-shrink:0;border-radius:16px;
+  display:flex;align-items:center;justify-content:center;position:relative;
+}
+.s5-icon-box svg{width:48px;height:48px;}
+.s5-title{font-size:30px;font-weight:700;color:#2D3436;}
+.s5-desc{font-size:20px;color:rgba(45,52,54,0.6);margin-top:4px;}
+/* scan */
+.s5-scan{position:absolute;left:8px;right:8px;height:2px;background:rgba(255,107,53,0.4);animation:scanUpDown 2.5s ease-in-out infinite;}
+@keyframes scanUpDown{0%,100%{top:10%}50%{top:70%}}
+/* progress */
+.s5-progress{position:absolute;bottom:12px;left:12px;right:12px;height:8px;background:#FFB563;border-radius:4px;animation:s5fill 2s ease-in-out 0.5s infinite;}
+@keyframes s5fill{0%{width:0%}100%{width:100%}}
+/* dots */
+.s5-dots{display:flex;gap:4px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);}
+.s5-dots .d{width:12px;height:12px;border-radius:3px;opacity:0;animation:dotPop 0.4s ease-out forwards;}
+.s5-dots .d:nth-child(1){animation-delay:0s}.s5-dots .d:nth-child(2){animation-delay:0.3s}.s5-dots .d:nth-child(3){animation-delay:0.6s}
+@keyframes dotPop{0%{opacity:0;transform:translateY(20px)}100%{opacity:1;transform:translateY(0)}}
+/* log lines */
+.s5-logs{display:flex;flex-direction:column;gap:3px;position:absolute;right:16px;top:50%;transform:translateY(-50%);}
+.s5-logs .l{height:6px;border-radius:3px;background:#c4b5fd;width:0;animation:s5log 0.6s ease-out forwards;}
+.s5-logs .l:nth-child(1){animation-delay:0s;--tw:60px}.s5-logs .l:nth-child(2){animation-delay:0.5s;--tw:80px}.s5-logs .l:nth-child(3){animation-delay:1s;--tw:50px}
+@keyframes s5log{0%{width:0}100%{width:var(--tw)}}
+
+/* ===== SCENE 6: DEMO ===== */
+.s6-window{
+  background:#fff;border-radius:24px;overflow:hidden;
+  box-shadow:0 20px 80px rgba(0,0,0,0.1);width:660px;
+}
+.s6-titlebar{
+  height:48px;background:#f9fafb;display:flex;align-items:center;
+  padding:0 20px;gap:8px;border-bottom:1px solid #f3f4f6;
+}
+.s6-dot{width:12px;height:12px;border-radius:50%}
+.s6-dot.r{background:#f87171}.s6-dot.y{background:#fbbf24}.s6-dot.g{background:#4ade80}
+.s6-ttl{margin-left:16px;font-size:14px;color:#9ca3af;}
+.s6-body{padding:40px;}
+.s6-wiz-step{display:flex;align-items:center;gap:16px;}
+.s6-wiz-no{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+.s6-wiz-no.done{background:#26C9A5}.s6-wiz-no.current{background:#FF6B35;animation:pulse 1.5s ease-in-out infinite;}
+.s6-wiz-no svg{width:20px;height:20px;}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+.s6-wiz-label{font-size:20px;}
+.s6-wiz-label.done{color:#9ca3af}.s6-wiz-label.current{color:#2D3436;font-weight:500;}
+.s6-progress-bg{height:8px;background:#f3f4f6;border-radius:4px;margin-top:32px;overflow:hidden;}
+.s6-progress-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#FF6B35,#FFB563);width:0;transition:width 2s ease-out 0.5s;}
+.s6-progress-fill.show{width:66%;}
+.s6-mgr-row{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-radius:12px;background:#f9fafb;}
+.s6-mgr-name{font-size:18px;font-weight:500;color:#2D3436;}
+.s6-mgr-badge{font-size:14px;font-weight:500;padding:4px 12px;border-radius:9999px;}
+
+/* ===== SCENE 7: CC SWITCH ===== */
+.s7-box{
+  width:160px;height:160px;border-radius:24px;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:8px;
+}
+.s7-box svg{width:64px;height:64px;}
+.s7-col-label{font-size:30px;font-weight:700;}
+.s7-desc{font-size:18px;line-height:1.8;text-align:center;}
+.s7-col{display:flex;flex-direction:column;align-items:center;gap:24px;}
+.s7-arr-line{flex:1;height:2px;background:#FF6B35;transform:scaleX(0);transform-origin:left;transition:transform 0.8s ease-in-out;}
+.s7-arr-line.show{transform:scaleX(1);}
+.s7-arr-tip{width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:10px solid #FF6B35;opacity:0;transition:all 0.4s ease-out 0.6s;}
+.s7-arr-tip.show{opacity:1;}
+.s7-arr-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;opacity:0;transition:opacity 0.6s;}
+.s7-arr-wrap.show{opacity:1;}
+
+/* ===== SCENE 8: ROADMAP ===== */
+.s8-node{display:flex;flex-direction:column;align-items:center;width:300px;}
+.s8-row{display:flex;align-items:center;width:100%;}
+.s8-line{height:2px;flex:1;transform:scaleX(0);transform-origin:left;transition:transform 0.6s ease-out;}
+.s8-line.show{transform:scaleX(1);}
+.s8-dot{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;transform:scale(0);transition:transform 0.5s cubic-bezier(.68,-.55,.27,1.55);}
+.s8-dot.show{transform:scale(1);}
+.s8-dot.done{background:#26C9A5}.s8-dot.progress{background:#FF6B35;animation:pulse 1.5s ease-in-out infinite}
+.s8-dot.planned{background:transparent;border:2px dashed #d1d5db}
+.s8-dot svg{width:14px;height:14px;}
+.s8-label{font-size:18px;font-weight:500;color:#2D3436;margin-top:12px;text-align:center;}
+
+/* ===== SCENE 9: CTA ===== */
+.s9-bg{position:absolute;inset:0;background:linear-gradient(135deg,#FF6B35 0%,#FFB563 50%,#FFFAF5 100%);}
+.s9-logo{width:100px;height:100px;border-radius:24px;background:rgba(255,255,255,0.25);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;}
+.s9-logo svg{width:48px;height:48px;}
+.s9-title{font-size:64px;font-weight:700;color:#fff;text-shadow:0 4px 20px rgba(0,0,0,0.12);}
+.s9-url{font-size:24px;color:rgba(255,255,255,0.8);font-family:monospace;}
+.s9-star{display:flex;align-items:center;gap:12px;padding:14px 28px;background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border-radius:9999px;color:#fff;font-size:20px;font-weight:500;}
+.s9-star svg{width:24px;height:24px;}
+.s9-qr{width:128px;height:128px;background:rgba(255,255,255,0.2);backdrop-filter:blur(8px);border-radius:16px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:14px;}
+
+/* ===== MOBILE TOUCH OVERLAY ===== */
+.touch-hint{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:999;
+  display:flex;gap:12px;opacity:0;transition:opacity 0.4s;
+  pointer-events:none;
+}
+.touch-hint button{
+  width:48px;height:48px;border-radius:50%;border:none;
+  background:rgba(45,52,54,0.7);color:#fff;font-size:20px;
+  cursor:pointer;pointer-events:auto;
+  display:flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;
+}
+.touch-hint button:active{background:rgba(255,107,53,0.9);}
+@media(hover:none) and (pointer:coarse){
+  .touch-hint{opacity:1;}
+}
+@media(max-width:768px){
+  .touch-hint{bottom:12px;gap:8px;}
+  .touch-hint button{width:40px;height:40px;font-size:16px;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="stage">
+
+<!-- ===== SCENE 0: COVER (5s) ===== -->
+<div class="scene" id="scene0">
+  <div class="s0-bg"></div>
+  <div class="blob" style="width:700px;height:700px;top:45%;left:50%;background:#FFB563;opacity:0.35;"></div>
+  <div class="blob slow" style="width:400px;height:400px;top:55%;left:35%;background:#FF6B35;opacity:0.2;"></div>
+  <div class="s0-logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+  </div>
+  <h1 class="s0-title">AgenticBoot</h1>
+  <p class="s0-sub">AI 工具，一点就装</p>
+  <div class="s0-arrow">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+</div>
+
+<!-- ===== SCENE 1: DOUBAO VS DESKTOP AI (20s) ===== -->
+<div class="scene" id="scene1">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 128px;width:100%;height:100%;">
+    <!-- Part 1: AI icons -->
+    <div style="display:flex;gap:40px;margin-bottom:16px;">
+      <div class="s1-icon entrance d2"><div class="circle" style="background:#4A90D9;">豆</div><span class="s1-label">豆包</span></div>
+      <div class="s1-icon entrance d4"><div class="circle" style="background:#6C5CE7;">通</div><span class="s1-label">通义千问</span></div>
+      <div class="s1-icon entrance d6"><div class="circle" style="background:#00B894;">K</div><span class="s1-label">Kimi</span></div>
+    </div>
+    <p class="entrance d8" style="font-size:30px;color:#2D3436;font-weight:500;margin-bottom:20px;">它们让 AI 走进了日常生活</p>
+
+    <!-- Part 2: Bar charts (timed within scene) -->
+    <div class="s1-bar-section" data-show="3.2">
+      <p style="font-size:24px;color:#2D3436;text-align:center;margin-bottom:16px;">但有些事，豆包做不到</p>
+      <div class="s1-bar-row timed" data-show="3.8" style="margin-bottom:16px;">
+        <p class="s1-bar-label">整理 100 张照片</p>
+        <div class="s1-bar-group">
+          <div class="s1-bar-col"><span class="s1-bar-val muted">40min</span><div class="s1-bar muted"></div><span class="s1-bar-hint" style="color:#9ca3af;">仅用豆包</span></div>
+          <div class="s1-bar-col"><span class="s1-bar-val highlight">3min</span><div class="s1-bar highlight"></div><span class="s1-bar-hint" style="color:#FF6B35;font-weight:500;">搭配桌面AI</span></div>
+        </div>
+      </div>
+      <div class="s1-bar-row timed" data-show="5.5" style="margin-bottom:16px;">
+        <p class="s1-bar-label">处理 50 份文档/表格</p>
+        <div class="s1-bar-group">
+          <div class="s1-bar-col"><span class="s1-bar-val muted">60min</span><div class="s1-bar muted tall"></div><span class="s1-bar-hint" style="color:#9ca3af;">仅用豆包</span></div>
+          <div class="s1-bar-col"><span class="s1-bar-val highlight">5min</span><div class="s1-bar highlight tall2"></div><span class="s1-bar-hint" style="color:#FF6B35;font-weight:500;">搭配桌面AI</span></div>
+        </div>
+      </div>
+      <div class="s1-compare-row timed" data-show="6.5" style="margin-top:20px;">
+        <p style="font-size:20px;font-weight:500;color:#2D3436;">搭建本地自动化工作流</p>
+        <div class="s1-compare-item"><svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span style="font-size:14px;color:#9ca3af;">仅用豆包 — 无法触及本地</span></div>
+        <div class="s1-compare-item"><svg viewBox="0 0 24 24" fill="none" stroke="#26C9A5" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><span style="font-size:14px;color:#26C9A5;font-weight:500;">桌面AI — 直接操作</span></div>
+      </div>
+    </div>
+
+    <!-- Part 3: Big stat -->
+    <div class="s1-big-stat timed-pop" data-show="10">效率平均提升 90%+</div>
+  </div>
+</div>
+
+<!-- ===== SCENE 2: REALITY (15s) ===== -->
+<div class="scene" id="scene2">
+  <div class="s2-bg"></div>
+  <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:48px;">
+    <p class="entrance d2" style="font-size:30px;color:#2D3436;margin-bottom:48px;">想用 AI 桌面工具？先过这些关</p>
+    <div style="display:flex;gap:24px;">
+      <div class="s2-wall s2-wall-w timed" data-show="0.5">终端命令行</div>
+      <div class="s2-wall s2-wall-w timed" data-show="1.1">环境变量</div>
+      <div class="s2-wall s2-wall-w timed" data-show="1.7">PATH 配置</div>
+      <div class="s2-wall s2-wall-w timed" data-show="2.3">Node.js 版本</div>
+    </div>
+  </div>
+  <div class="s2-overlay timed" data-show="8">
+    <div class="s2-face timed-pop" data-show="8.5">😵</div>
+    <p class="s2-text timed" data-show="9.2" style="font-size:52px;margin-top:24px;">还没见到 AI</p>
+    <p class="s2-text timed" data-show="9.8" style="font-size:44px;margin-top:12px;color:rgba(255,255,255,0.7);">先被安装劝退</p>
+  </div>
+</div>
+
+<!-- ===== SCENE 3: VISION (12s) ===== -->
+<div class="scene" id="scene3">
+  <div class="s3-bg"></div>
+  <div class="blob" style="width:800px;height:800px;top:50%;left:50%;background:#FFB563;opacity:0.3;"></div>
+  <div style="position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;gap:32px;">
+    <p class="s3-phrase entrance d3" style="font-size:52px;font-weight:500;">让所有人</p>
+    <p class="s3-phrase entrance d25" style="font-size:52px;font-weight:500;">不管懂不懂技术</p>
+    <p class="s3-phrase entrance d50" style="font-size:64px;font-weight:700;">都能便捷使用 AI 工具</p>
+    <div class="s3-line timed" data-show="7"></div>
+  </div>
+</div>
+
+<!-- ===== SCENE 4: WHAT IS (13s) ===== -->
+<div class="scene" id="scene4">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:48px;">
+    <h2 class="entrance d1" style="font-size:52px;font-weight:700;color:#2D3436;">AgenticBoot 是什么？</h2>
+    <div style="display:flex;align-items:center;gap:24px;">
+      <div class="entrance d5" style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+        <div class="s4-step-icon" style="background:#FF6B35;"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+        <span class="s4-step-label">检测已有环境</span>
+      </div>
+      <!-- Arrow 1 -->
+      <div class="s4-wrap timed" data-show="0.8">
+        <div class="s4-arrow-line timed" data-show="0.8"></div>
+        <div class="s4-arrow-tip timed" data-show="0.8"></div>
+      </div>
+      <div class="entrance d17" style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+        <div class="s4-step-icon" style="background:#FFB563;"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+        <span class="s4-step-label">补齐缺失工具</span>
+      </div>
+      <!-- Arrow 2 -->
+      <div class="s4-wrap timed" data-show="2.0">
+        <div class="s4-arrow-line timed" data-show="2.0"></div>
+        <div class="s4-arrow-tip timed" data-show="2.0"></div>
+      </div>
+      <div class="entrance d29" style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+        <div class="s4-step-icon" style="background:#26C9A5;"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+        <span class="s4-step-label">统一管理</span>
+      </div>
+    </div>
+    <p class="entrance d45" style="font-size:30px;color:rgba(45,52,54,0.7);font-weight:500;">一个入口，搞定 AI 工具的安装与管理</p>
+  </div>
+</div>
+
+<!-- ===== SCENE 5: FOUR CAPABILITIES (25s) ===== -->
+<div class="scene" id="scene5">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:20px;">
+    <h2 class="entrance d1" style="font-size:52px;font-weight:700;color:#2D3436;margin-bottom:12px;">四大核心能力</h2>
+    <div class="s5-card timed-left" data-show="0.5">
+      <div class="s5-icon-box" style="background:rgba(255,107,53,0.08);"><svg viewBox="0 0 24 24" fill="none" stroke="#FF6B35" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div class="s5-scan"></div></div>
+      <div><h3 class="s5-title">智能检测</h3><p class="s5-desc">先检测已装工具，避免重复安装。已能用的直接复用。</p></div>
+    </div>
+    <div class="s5-card timed-left" data-show="3.0">
+      <div class="s5-icon-box" style="background:rgba(255,181,99,0.1);"><svg viewBox="0 0 24 24" fill="none" stroke="#FFB563" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><div class="s5-progress"></div></div>
+      <div><h3 class="s5-title">一键安装</h3><p class="s5-desc">点一下，剩下的交给我们。进度、状态全程可见。</p></div>
+    </div>
+    <div class="s5-card timed-left" data-show="5.5">
+      <div class="s5-icon-box" style="background:rgba(38,201,165,0.08);"><svg viewBox="0 0 24 24" fill="none" stroke="#26C9A5" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><div class="s5-dots"><div class="d" style="background:#26C9A5;"></div><div class="d" style="background:#26C9A5;"></div><div class="d" style="background:#26C9A5;"></div></div></div>
+      <div><h3 class="s5-title">统一管理</h3><p class="s5-desc">受管安装和系统已有安装，一个界面全看到。</p></div>
+    </div>
+    <div class="s5-card timed-left" data-show="8.0">
+      <div class="s5-icon-box" style="background:rgba(108,92,231,0.08);"><svg viewBox="0 0 24 24" fill="none" stroke="#6C5CE7" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><div class="s5-logs"><div class="l"></div><div class="l"></div><div class="l"></div></div></div>
+      <div><h3 class="s5-title">过程透明</h3><p class="s5-desc">安装过程不黑箱。实时日志，问题一眼定位。</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 6: DEMO (25s) ===== -->
+<div class="scene" id="scene6">
+  <div style="display:flex;align-items:center;justify-content:center;gap:64px;padding:0 80px;width:100%;height:100%;">
+    <!-- Left: Wizard -->
+    <div class="s6-window timed" data-show="0.3" style="transform:translateX(-40px);" data-reset-x="-40px">
+      <div class="s6-titlebar"><div class="s6-dot r"></div><div class="s6-dot y"></div><div class="s6-dot g"></div><span class="s6-ttl">装机向导</span></div>
+      <div class="s6-body">
+        <h3 style="font-size:24px;font-weight:700;color:#2D3436;margin-bottom:32px;">欢迎使用 AgenticBoot</h3>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="s6-wiz-step timed" data-show="0.6"><div class="s6-wiz-no done"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div><span class="s6-wiz-label done">检测环境</span></div>
+          <div class="s6-wiz-step timed" data-show="1.1"><div class="s6-wiz-no done"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div><span class="s6-wiz-label done">选择工具</span></div>
+          <div class="s6-wiz-step timed" data-show="1.6"><div class="s6-wiz-no current"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div><span class="s6-wiz-label current">一键安装</span></div>
+        </div>
+        <div class="s6-progress-bg"><div class="s6-progress-fill timed" data-show="1.5"></div></div>
+      </div>
+    </div>
+    <!-- Right: Manager -->
+    <div class="s6-window timed" data-show="0.6" style="transform:translateX(40px);" data-reset-x="40px">
+      <div class="s6-titlebar"><div class="s6-dot r"></div><div class="s6-dot y"></div><div class="s6-dot g"></div><span class="s6-ttl">软件管家</span></div>
+      <div class="s6-body">
+        <h3 style="font-size:24px;font-weight:700;color:#2D3436;margin-bottom:24px;">已安装 / 可安装</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div class="s6-mgr-row timed" data-show="1.0"><span class="s6-mgr-name">Claude Code</span><span class="s6-mgr-badge" style="background:rgba(38,201,165,0.12);color:#26C9A5;">已安装</span></div>
+          <div class="s6-mgr-row timed" data-show="1.3"><span class="s6-mgr-name">Codex CLI</span><span class="s6-mgr-badge" style="background:rgba(38,201,165,0.12);color:#26C9A5;">已安装</span></div>
+          <div class="s6-mgr-row timed" data-show="1.6"><span class="s6-mgr-name">Gemini CLI</span><span class="s6-mgr-badge" style="background:rgba(38,201,165,0.12);color:#26C9A5;">已安装</span></div>
+          <div class="s6-mgr-row timed" data-show="1.9"><span class="s6-mgr-name">OpenCode</span><span class="s6-mgr-badge" style="background:rgba(255,181,99,0.12);color:#FFB563;">可安装</span></div>
+          <div class="s6-mgr-row timed" data-show="2.2"><span class="s6-mgr-name">Hermes</span><span class="s6-mgr-badge" style="background:rgba(38,201,165,0.12);color:#26C9A5;">已安装</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 7: CC SWITCH (20s) ===== -->
+<div class="scene" id="scene7">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:64px;">
+    <div style="display:flex;align-items:center;gap:48px;">
+      <!-- Left -->
+      <div class="s7-col timed-left" data-show="0.3">
+        <div class="s7-box" style="background:#f3f4f6;box-shadow:0 8px 25px rgba(0,0,0,0.08);"><svg viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><path d="M8 10a4 4 0 004 4 4 4 0 004-4"/><path d="M8 17c0-2 1.8-4 4-4s4 2 4 4"/></svg></div>
+        <h3 class="s7-col-label" style="color:#6b7280;">CC Switch</h3>
+        <div class="s7-desc" style="color:#9ca3af;">成熟桌面框架<br>跨平台基础能力<br>工具生态积累</div>
+      </div>
+      <!-- Arrow -->
+      <div class="s7-arr-wrap timed" data-show="0.8">
+        <div style="display:flex;align-items:center;width:120px;">
+          <div class="s7-arr-line timed" data-show="0.8"></div>
+          <div class="s7-arr-tip timed" data-show="0.8"></div>
+        </div>
+        <span style="font-size:14px;color:rgba(45,52,54,0.4);">增量二开</span>
+      </div>
+      <!-- Right -->
+      <div class="s7-col timed-right" data-show="0.7">
+        <div class="s7-box" style="background:linear-gradient(135deg,#FF6B35,#FFB563);box-shadow:0 20px 60px rgba(255,107,53,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+        <h3 class="s7-col-label" style="color:#FF6B35;">AgenticBoot</h3>
+        <div class="s7-desc" style="color:#2D3436;">智能装机检测<br>统一工具管理<br>体验深度创新</div>
+      </div>
+    </div>
+    <p class="entrance d20" style="font-size:40px;font-weight:700;color:#2D3436;">站在成熟的肩膀上</p>
+    <p class="entrance d30" style="font-size:28px;color:rgba(45,52,54,0.6);margin-top:-48px;">把精力全部投入装机体验创新</p>
+  </div>
+</div>
+
+<!-- ===== SCENE 8: ROADMAP (10s) ===== -->
+<div class="scene" id="scene8">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:48px;">
+    <h2 class="entrance d1" style="font-size:52px;font-weight:700;color:#2D3436;">未来路线图</h2>
+    <div style="display:flex;align-items:flex-start;">
+      <div class="s8-node">
+        <div class="s8-row">
+          <div class="s8-dot done timed-pop" data-show="0.3"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="s8-line timed" data-show="0.5" style="background:#26C9A5;"></div>
+        </div>
+        <p class="s8-label timed" data-show="0.7">Windows 装机链路 ✅</p>
+      </div>
+      <div class="s8-node">
+        <div class="s8-row">
+          <div class="s8-line timed" data-show="1.3" style="background:rgba(255,107,53,0.3);"></div>
+          <div class="s8-dot progress timed-pop" data-show="1.1"></div>
+          <div class="s8-line timed" data-show="1.3" style="background:rgba(255,107,53,0.3);"></div>
+        </div>
+        <p class="s8-label timed" data-show="1.5">更多 AI 工具 + 体验打磨</p>
+      </div>
+      <div class="s8-node">
+        <div class="s8-row">
+          <div class="s8-line timed" data-show="2.1" style="background:#e5e7eb;"></div>
+          <div class="s8-dot planned timed-pop" data-show="1.9"></div>
+        </div>
+        <p class="s8-label timed" data-show="2.3">macOS / Linux 支持</p>
+      </div>
+    </div>
+    <p class="entrance d30" style="font-size:28px;color:rgba(45,52,54,0.5);margin-top:32px;">这只是开始</p>
+  </div>
+</div>
+
+<!-- ===== SCENE 9: CTA (5s) ===== -->
+<div class="scene" id="scene9">
+  <div class="s9-bg"></div>
+  <div class="blob" style="width:700px;height:700px;top:50%;left:50%;background:#FFB563;opacity:0.3;"></div>
+  <div style="position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;gap:32px;">
+    <div class="s9-logo entrance d2"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div>
+    <h2 class="s9-title entrance d4">让 AI 工具触手可及</h2>
+    <div class="entrance d10" style="display:flex;flex-direction:column;align-items:center;gap:20px;margin-top:16px;">
+      <p class="s9-url">github.com/unbound9527/agenticboot</p>
+      <div class="s9-star"><svg viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Star on GitHub</span></div>
+    </div>
+    <div class="s9-qr entrance d16" style="margin-top:16px;">扫码访问</div>
+  </div>
+</div>
+
+</div><!-- #stage -->
+</div><!-- #app -->
+
+<!-- Touch controls -->
+<div class="touch-hint" id="touchHint">
+  <button id="btnPrev" aria-label="Previous scene">◀</button>
+  <button id="btnPause" aria-label="Pause">⏯</button>
+  <button id="btnNext" aria-label="Next scene">▶</button>
+</div>
+
+<script>
+// ===== SCENE TIMELINE =====
+const SCENES = [
+  { id:0, dur:5 },{ id:1, dur:20 },{ id:2, dur:15 },{ id:3, dur:12 },
+  { id:4, dur:13 },{ id:5, dur:25 },{ id:6, dur:25 },{ id:7, dur:20 },
+  { id:8, dur:10 },{ id:9, dur:5 }
+];
+let cum=0;
+const offsets=SCENES.map(s=>{const o=cum;cum+=s.dur*1000;return o;});
+const TOTAL=cum;
+
+// ===== STAGE SCALING =====
+const stage=document.getElementById('stage');
+function resize(){const s=Math.min(window.innerWidth/1920,window.innerHeight/1080);stage.style.transform=`translate(-50%,-50%) scale(${s})`;}
+window.addEventListener('resize',resize);
+resize();
+
+// ===== SCENE ENGINE =====
+let startTime=null,currentScene=-1,rafId=null,paused=false;
+
+function sceneAt(ms){for(let i=SCENES.length-1;i>=0;i--)if(ms>=offsets[i])return i;return 0;}
+
+function resetScene(el){
+  el.querySelectorAll('.show').forEach(e=>e.classList.remove('show'));
+  el.querySelectorAll('.s1-bar').forEach(b=>{b.classList.remove('show');b.style.height='0';});
+  // Reset s6 window transforms
+  el.querySelectorAll('.s6-window').forEach(w=>{
+    const rx=w.getAttribute('data-reset-x');
+    if(rx)w.style.transform=`translateX(${rx})`;
+  });
+}
+
+function applyTimed(el,sceneMs){
+  const secs=sceneMs/1000;
+  // Generic: add .show to [data-show] elements whose time has come
+  el.querySelectorAll('[data-show]').forEach(e=>{
+    const at=parseFloat(e.getAttribute('data-show'));
+    if(secs>=at&&!e.classList.contains('show'))e.classList.add('show');
+  });
+
+  // Scene 1: bar heights
+  if(el.id==='scene1'){
+    el.querySelectorAll('.s1-bar-row[data-show]').forEach(row=>{
+      const at=parseFloat(row.getAttribute('data-show'));
+      if(secs>=at){
+        row.querySelectorAll('.s1-bar').forEach(b=>{
+          b.classList.add('show');
+          if(b.classList.contains('muted'))b.style.height=b.classList.contains('tall')?'21px':'27px';
+          if(b.classList.contains('highlight'))b.style.height=b.classList.contains('tall2')?'162px':'165px';
+        });
+      }
+    });
+  }
+}
+
+function tick(ts){
+  if(startTime===null)startTime=ts;
+  const elapsed=ts-startTime;
+  if(elapsed>=TOTAL){if(currentScene!==9)tickFrame(TOTAL-1);rafId=requestAnimationFrame(tick);return;}
+  tickFrame(elapsed);
+  rafId=requestAnimationFrame(tick);
+}
+
+function tickFrame(elapsed){
+  const idx=sceneAt(elapsed);
+  if(idx!==currentScene){
+    if(currentScene>=0){const p=document.getElementById('scene'+currentScene);p.classList.remove('active');p.classList.add('exiting');resetScene(p);}
+    const n=document.getElementById('scene'+idx);n.classList.remove('exiting');void n.offsetWidth;n.classList.add('active');
+    currentScene=idx;
+  }
+  if(currentScene>=0){
+    applyTimed(document.getElementById('scene'+currentScene),elapsed-offsets[currentScene]);
+  }
+}
+
+function restart(){
+  currentScene=-1;
+  document.querySelectorAll('.scene').forEach(s=>{s.classList.remove('active','exiting');resetScene(s);});
+  startTime=null;
+  if(rafId)cancelAnimationFrame(rafId);
+  rafId=requestAnimationFrame(tick);
+}
+
+// ===== CONTROLS =====
+function togglePause(){
+  if(paused){
+    const off=offsets[currentScene>=0?currentScene:0];
+    startTime=performance.now()-off;
+    rafId=requestAnimationFrame(tick);
+    document.getElementById('btnPause').textContent='⏯';
+  }else{
+    if(rafId)cancelAnimationFrame(rafId);
+    rafId=null;startTime=null;
+    document.getElementById('btnPause').textContent='▶';
+  }
+  paused=!paused;
+}
+function nextScene(){paused=false;const n=Math.min((currentScene>=0?currentScene:0)+1,9);startTime=performance.now()-offsets[n]+100;if(!rafId)rafId=requestAnimationFrame(tick);document.getElementById('btnPause').textContent='⏯';}
+function prevScene(){paused=false;const p=Math.max((currentScene>=0?currentScene:0)-1,0);startTime=performance.now()-offsets[p]+100;if(!rafId)rafId=requestAnimationFrame(tick);document.getElementById('btnPause').textContent='⏯';}
+
+document.addEventListener('keydown',e=>{
+  if(e.key===' '||e.code==='Space'){e.preventDefault();togglePause();}
+  else if(e.key==='ArrowRight'){e.preventDefault();nextScene();}
+  else if(e.key==='ArrowLeft'){e.preventDefault();prevScene();}
+  else if(e.key==='r'||e.key==='R'){e.preventDefault();paused=false;restart();document.getElementById('btnPause').textContent='⏯';}
+});
+
+document.getElementById('btnPause').addEventListener('click',togglePause);
+document.getElementById('btnNext').addEventListener('click',nextScene);
+document.getElementById('btnPrev').addEventListener('click',prevScene);
+
+// Swipe support
+let touchStartX=0,touchStartY=0;
+document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;touchStartY=e.touches[0].clientY;},{passive:true});
+document.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-touchStartX;
+  const dy=e.changedTouches[0].clientY-touchStartY;
+  if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){if(dx<0)nextScene();else prevScene();}
+});
+
+// ===== START =====
+rafId=requestAnimationFrame(tick);
+console.log('AgenticBoot Promo ready. Space=pause ←→=nav R=restart. Swipe on mobile.');
+</script>
+</body>
+</html>
