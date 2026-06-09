@@ -15,6 +15,8 @@ const HERMES_OFFICIAL_MACOS_ASSET_URL: &str =
     "https://hermes-assets.nousresearch.com/Hermes-Setup.dmg";
 const HERMES_WINDOWS_INSTALLER_FILENAME: &str = "Hermes-Setup.exe";
 const HERMES_MACOS_INSTALLER_FILENAME: &str = "Hermes-Setup.dmg";
+const HERMES_OFFICIAL_DIR_NAMES: &[&str] = &["Hermes Agent", "Hermes Desktop"];
+const HERMES_OFFICIAL_EXE_NAMES: &[&str] = &["Hermes Agent.exe", "Hermes Desktop.exe"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct HermesDesktopArtifact {
@@ -24,12 +26,7 @@ struct HermesDesktopArtifact {
 
 #[cfg(target_os = "windows")]
 fn hermes_process_is_running() -> bool {
-    for name in &[
-        "hermes-agent.exe",
-        "Hermes Agent.exe",
-        "Hermes Desktop.exe",
-        "hermes-desktop.exe",
-    ] {
+    for name in HERMES_OFFICIAL_EXE_NAMES {
         let result = std::process::Command::new("tasklist")
             .args(["/FI", &format!("IMAGENAME eq {name}"), "/NH"])
             .output();
@@ -80,19 +77,16 @@ fn hermes_desktop_candidate_locations() -> Vec<PathBuf> {
     let mut bases = Vec::new();
 
     if let Some(local_app_data) = dirs::data_local_dir() {
-        bases.push(local_app_data.join("Programs").join("hermes-desktop"));
-        bases.push(local_app_data.join("Programs").join("hermes-agent"));
-        bases.push(local_app_data.join("Programs").join("Hermes Agent"));
-        bases.push(local_app_data.join("hermes-desktop"));
-        bases.push(local_app_data.join("hermes-agent"));
-        bases.push(local_app_data.join("Hermes Agent"));
+        for dir_name in HERMES_OFFICIAL_DIR_NAMES {
+            bases.push(local_app_data.join("Programs").join(dir_name));
+            bases.push(local_app_data.join(dir_name));
+        }
     }
     if let Some(program_files) = std::env::var_os("ProgramFiles") {
         let pf: PathBuf = program_files.clone().into();
-        bases.push(pf.join("Hermes Desktop"));
-        bases.push(pf.join("Hermes Agent"));
-        bases.push(pf.join("hermes-desktop"));
-        bases.push(pf.join("hermes-agent"));
+        for dir_name in HERMES_OFFICIAL_DIR_NAMES {
+            bases.push(pf.join(dir_name));
+        }
     }
 
     bases
@@ -100,12 +94,7 @@ fn hermes_desktop_candidate_locations() -> Vec<PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn find_hermes_desktop_exe_in_dir(dir: &Path) -> Option<PathBuf> {
-    for name in &[
-        "hermes-agent.exe",
-        "Hermes Agent.exe",
-        "Hermes Desktop.exe",
-        "hermes-desktop.exe",
-    ] {
+    for name in HERMES_OFFICIAL_EXE_NAMES {
         let exe = dir.join(name);
         if exe.exists() {
             return Some(exe);
@@ -200,15 +189,7 @@ impl ToolPlugin for HermesPlugin {
         #[cfg(target_os = "windows")]
         {
             use crate::services::installer::windows::find_uninstall_entry_ex;
-            if let Some(entry) = find_uninstall_entry_ex(
-                &[
-                    "Hermes Agent",
-                    "Hermes Desktop",
-                    "hermes-agent",
-                    "hermes-desktop",
-                ],
-                &[],
-            ) {
+            if let Some(entry) = find_uninstall_entry_ex(HERMES_OFFICIAL_DIR_NAMES, &[]) {
                 let install_path = entry.install_location.or_else(|| {
                     entry
                         .display_icon
@@ -327,15 +308,7 @@ impl ToolPlugin for HermesPlugin {
             };
 
             // Try registry uninstall string first.
-            if let Some(entry) = find_uninstall_entry_ex(
-                &[
-                    "Hermes Agent",
-                    "Hermes Desktop",
-                    "hermes-agent",
-                    "hermes-desktop",
-                ],
-                &[],
-            ) {
+            if let Some(entry) = find_uninstall_entry_ex(HERMES_OFFICIAL_DIR_NAMES, &[]) {
                 if let Some(uninstall_string) = entry.uninstall_string {
                     let status = Command::new("cmd")
                         .args(["/C", &uninstall_string])
@@ -355,14 +328,7 @@ impl ToolPlugin for HermesPlugin {
                 return Ok(());
             }
 
-            // Fallback: just remove the portable exe if present.
-            if let Some(exe) = find_hermes_desktop_exe_in_dir(target_dir) {
-                std::fs::remove_file(&exe)
-                    .map_err(|e| format!("failed to remove {}: {e}", exe.display()))?;
-                return Ok(());
-            }
-
-            return Err("Could not find Hermes Desktop uninstaller".into());
+            return Err("Could not find official Hermes Desktop uninstaller".into());
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -571,17 +537,17 @@ mod tests {
     #[cfg(target_os = "windows")]
     fn hermes_desktop_candidate_locations_includes_local_appdata_programs() {
         let bases = hermes_desktop_candidate_locations();
-        // At least one candidate should include "hermes-desktop".
+        // At least one candidate should include the official install dir name.
         assert!(bases
             .iter()
-            .any(|b| b.to_string_lossy().contains("hermes-desktop")));
+            .any(|b| b.to_string_lossy().contains("Hermes Agent")));
     }
 
     #[test]
     #[cfg(target_os = "windows")]
     fn find_hermes_desktop_exe_detects_real_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let exe = tmp.path().join("hermes-agent.exe");
+        let exe = tmp.path().join("Hermes Agent.exe");
         std::fs::write(&exe, b"").unwrap();
 
         let found = find_hermes_desktop_exe_in_dir(tmp.path());
@@ -592,15 +558,25 @@ mod tests {
     #[cfg(target_os = "windows")]
     fn find_hermes_desktop_exe_prefers_first_match() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("hermes-agent.exe"), b"").unwrap();
+        std::fs::write(tmp.path().join("Hermes Agent.exe"), b"").unwrap();
         std::fs::write(tmp.path().join("Hermes Desktop.exe"), b"").unwrap();
-        std::fs::write(tmp.path().join("hermes-desktop.exe"), b"").unwrap();
 
         let found = find_hermes_desktop_exe_in_dir(tmp.path());
         assert_eq!(
             found.unwrap().file_name().unwrap().to_str().unwrap(),
-            "hermes-agent.exe"
+            "Hermes Agent.exe"
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn find_hermes_desktop_exe_ignores_legacy_lowercase_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("hermes-agent.exe"), b"").unwrap();
+        std::fs::write(tmp.path().join("hermes-desktop.exe"), b"").unwrap();
+
+        let found = find_hermes_desktop_exe_in_dir(tmp.path());
+        assert_eq!(found, None);
     }
 
     #[test]
@@ -609,7 +585,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let managed_dir = tmp.path().join("hermes");
         std::fs::create_dir_all(&managed_dir).unwrap();
-        std::fs::write(managed_dir.join("hermes-agent.exe"), b"").unwrap();
+        std::fs::write(managed_dir.join("Hermes Agent.exe"), b"").unwrap();
 
         let detect = HermesPlugin.detect(Some(tmp.path()));
 
@@ -619,6 +595,20 @@ mod tests {
             Some(managed_dir.to_string_lossy().as_ref())
         );
         assert_eq!(detect.version, None);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn detect_does_not_treat_legacy_lowercase_install_as_official() {
+        let tmp = tempfile::tempdir().unwrap();
+        let managed_dir = tmp.path().join("hermes");
+        std::fs::create_dir_all(&managed_dir).unwrap();
+        std::fs::write(managed_dir.join("hermes-agent.exe"), b"").unwrap();
+
+        let detect = HermesPlugin.detect(Some(tmp.path()));
+
+        assert!(!detect.installed);
+        assert_eq!(detect.install_path, None);
     }
 
     #[test]

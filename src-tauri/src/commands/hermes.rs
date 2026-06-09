@@ -7,6 +7,8 @@ use crate::store::AppState;
 /// or launched. Kept in sync with the `HERMES_DESKTOP_NOT_FOUND_ERROR` constant
 /// in `src/hooks/useHermes.ts` so the frontend can branch on it.
 const HERMES_DESKTOP_NOT_FOUND_ERROR: &str = "hermes_desktop_not_found";
+const HERMES_OFFICIAL_DIR_NAMES: &[&str] = &["Hermes Agent", "Hermes Desktop"];
+const HERMES_OFFICIAL_EXE_NAMES: &[&str] = &["Hermes Agent.exe", "Hermes Desktop.exe"];
 
 // ============================================================================
 // Hermes Provider Commands
@@ -142,26 +144,29 @@ pub async fn open_hermes_desktop(
 
 /// Try to find the Hermes Desktop executable in standard system locations.
 #[cfg(target_os = "windows")]
-fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
+fn find_hermes_desktop_system_wide_candidates() -> Vec<std::path::PathBuf> {
     let mut bases = Vec::new();
 
     if let Some(local_app_data) = dirs::data_local_dir() {
-        bases.push(local_app_data.join("Programs").join("hermes-desktop"));
-        bases.push(local_app_data.join("Programs").join("hermes-agent"));
-        bases.push(local_app_data.join("Programs").join("Hermes Agent"));
-        bases.push(local_app_data.join("hermes-desktop"));
-        bases.push(local_app_data.join("hermes-agent"));
-        bases.push(local_app_data.join("Hermes Agent"));
+        for dir_name in HERMES_OFFICIAL_DIR_NAMES {
+            bases.push(local_app_data.join("Programs").join(dir_name));
+            bases.push(local_app_data.join(dir_name));
+        }
     }
     if let Some(program_files) = std::env::var_os("ProgramFiles") {
         let pf: std::path::PathBuf = program_files.clone().into();
-        bases.push(pf.join("Hermes Desktop"));
-        bases.push(pf.join("Hermes Agent"));
-        bases.push(pf.join("hermes-desktop"));
-        bases.push(pf.join("hermes-agent"));
+        for dir_name in HERMES_OFFICIAL_DIR_NAMES {
+            bases.push(pf.join(dir_name));
+        }
     }
 
-    for base in &bases {
+    bases
+}
+
+/// Try to find the Hermes Desktop executable in standard system locations.
+#[cfg(target_os = "windows")]
+fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
+    for base in &find_hermes_desktop_system_wide_candidates() {
         if let Some(exe) = find_hermes_desktop_exe_in_dir(base) {
             return Some(exe);
         }
@@ -171,12 +176,7 @@ fn find_hermes_desktop_system_wide() -> Option<std::path::PathBuf> {
 
 /// Check a directory for the Hermes Desktop executable.
 fn find_hermes_desktop_exe_in_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    for name in &[
-        "hermes-agent.exe",
-        "Hermes Agent.exe",
-        "Hermes Desktop.exe",
-        "hermes-desktop.exe",
-    ] {
+    for name in HERMES_OFFICIAL_EXE_NAMES {
         let exe = dir.join(name);
         if exe.exists() {
             return Some(exe);
@@ -201,4 +201,41 @@ fn launch_hermes_desktop_executable(exe: &std::path::Path) -> Result<(), String>
         .spawn()
         .map_err(|e| format!("failed to launch Hermes Desktop: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn system_wide_candidate_locations_use_official_dir_names_only() {
+        let bases = find_hermes_desktop_system_wide_candidates();
+        assert!(bases
+            .iter()
+            .all(|base| !base.to_string_lossy().contains("hermes-desktop")));
+        assert!(bases
+            .iter()
+            .all(|base| !base.to_string_lossy().contains("hermes-agent")));
+    }
+
+    #[test]
+    fn launcher_exe_detection_ignores_legacy_lowercase_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("hermes-agent.exe"), b"").unwrap();
+        std::fs::write(tmp.path().join("hermes-desktop.exe"), b"").unwrap();
+
+        let found = find_hermes_desktop_exe_in_dir(tmp.path());
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn launcher_exe_detection_accepts_official_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exe = tmp.path().join("Hermes Desktop.exe");
+        std::fs::write(&exe, b"").unwrap();
+
+        let found = find_hermes_desktop_exe_in_dir(tmp.path());
+        assert_eq!(found, Some(exe));
+    }
 }
