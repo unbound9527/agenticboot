@@ -33,7 +33,7 @@ const TOOL_NAMES: Record<(typeof TOOL_IDS)[number], string> = {
   "opencode-cli": "OpenCode (CLI)",
   "opencode-desktop": "OpenCode (桌面版)",
   openclaw: "OpenClaw",
-  hermes: "Hermes (Web UI)",
+  hermes: "Hermes Desktop",
 };
 
 function buildToolCatalog() {
@@ -327,7 +327,7 @@ describe("Manager install detection", () => {
       );
     });
 
-    const hermesCard = (await screen.findByText("Hermes (Web UI)")).closest(
+    const hermesCard = (await screen.findByText("Hermes Desktop")).closest(
       ".claude-card",
     );
     expect(hermesCard).not.toBeNull();
@@ -377,7 +377,7 @@ describe("Manager install detection", () => {
       );
     });
 
-    const hermesCard = (await screen.findByText("Hermes (Web UI)")).closest(
+    const hermesCard = (await screen.findByText("Hermes Desktop")).closest(
       ".claude-card",
     );
     expect(hermesCard).not.toBeNull();

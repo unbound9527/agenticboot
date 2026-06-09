@@ -26,7 +26,7 @@ const TOOL_NAMES: Record<(typeof TOOL_IDS)[number], string> = {
   "opencode-cli": "OpenCode (CLI)",
   "opencode-desktop": "OpenCode (桌面版)",
   openclaw: "OpenClaw",
-  hermes: "Hermes (Web UI)",
+  hermes: "Hermes Desktop",
 };
 
 function buildToolCatalog() {
