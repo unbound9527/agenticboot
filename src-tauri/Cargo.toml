@@ -1,6 +1,6 @@
 [package]
 name = "agenticboot"
-version = "1.1.0"
+version = "1.1.1"
 description = "AI Developer Tool Manager — one-click install/uninstall for AI coding tools"
 authors = ["YiYun Zhang"]
 license = "MIT"
