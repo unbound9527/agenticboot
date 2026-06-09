@@ -165,7 +165,7 @@ impl ToolPlugin for HermesPlugin {
         ToolMeta {
             id: "hermes".into(),
             name: "Hermes Desktop".into(),
-            description: "Official Hermes Desktop app from Nous Research".into(),
+            description: "Nous Research 官方 Hermes Desktop 桌面应用".into(),
             icon: "hermes".into(),
             category: "ai-cli".into(),
         }
